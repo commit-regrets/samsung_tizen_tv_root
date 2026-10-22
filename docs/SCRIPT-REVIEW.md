@@ -1,5 +1,16 @@
 # Script review — production readiness
 
+> **21:05 — two race/blocking bugs found while testing the automated path.**
+> (1) My own `RSET` client helper resent RSET on every failed attach, so a stub
+> that connected between two attempts was destroyed the instant it appeared —
+> that is what blanked the page during the test. Fixed client-side (no RSET while
+> waiting) and server-side (`RSET` now only evicts a client that is actually
+> paired; a client still waiting for a stub is left alone).
+> (2) `aulctl stop` **blocks** while the payload is running (measured: the deploy
+> script stopped at `AUL_RELOAD` and never reached `start`/`DEPLOY_DONE`). The
+> restart is now detached (`( sleep 1; stop; sleep 3; start ) &`), so a deploy
+> always returns; if the stop hangs it hangs harmlessly in the background.
+
 > **20:55 — `root.ps1` could not actually root a stock TV.** It generated
 > `deploy_local.sh` straight from `deploy.sh` and ran it from the browser-labelled
 > stub, whose SMACK label cannot write the app's `bin/` — the result is

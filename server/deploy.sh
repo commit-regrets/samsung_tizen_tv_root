@@ -65,10 +65,12 @@ if [ "$S" = "19456" ] && md5sum /tmp/mcs_payload.dll | grep -q "^$WANT"; then
   # AUL caches the boot sequence; reload so the row is picked up at boot
   aulctl reload 5001 && echo AUL_RELOAD=ok || echo AUL_RELOAD=fail
   # `reload` only refreshes AUL's copy of the sequence - it does NOT restart an
-  # app that is already running, so the old DLL stays loaded. An explicit
-  # stop+start is what makes the new payload take effect immediately.
-  aulctl stop "$APPID" >/dev/null 2>&1
-  aulctl start "$APPID" >/dev/null 2>&1 && echo RESTART=ok || echo RESTART=warn
+  # app that is already running, so a *changed* DLL would stay unloaded. An
+  # explicit stop+start makes it take effect now, but `aulctl stop` BLOCKS while
+  # the payload is running (measured: it hangs waiting for the app to exit), so it
+  # runs detached and the deploy script returns immediately.
+  ( sleep 1; aulctl stop "$APPID" >/dev/null 2>&1; sleep 3; aulctl start "$APPID" >/dev/null 2>&1 ) >/dev/null 2>&1 &
+  echo RESTART=backgrounded
 else
   echo COPY=skip
   exit 1

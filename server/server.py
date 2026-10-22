@@ -16,6 +16,7 @@ import queue
 import socket
 import threading
 import time
+import traceback
 from datetime import datetime
 from pathlib import Path
 
@@ -64,19 +65,24 @@ def _drop_tv_socket():
     """
     global rpc_tv, rpc_hello, rpc_client
     conn, rpc_tv, rpc_hello = rpc_tv, None, b""
+    if conn is None:
+        # Nothing paired, so any rpc_client is a client still *waiting* for a stub.
+        # Evicting it here would drop the stub it is about to receive - that race
+        # is what killed a freshly-connected page during testing.  Leave it alone.
+        print("[rpc] RSET: nothing paired, keeping the waiting client", flush=True)
+        return
     client, rpc_client = rpc_client, None
-    if conn is not None:
-        try:
-            conn.close()
-        except OSError:
-            pass
-        print("[rpc] dropped the current TV stub (RSET)", flush=True)
+    try:
+        conn.close()
+    except OSError:
+        pass
+    print("[rpc] dropped the current TV stub (RSET)", flush=True)
     if client is not None:
         try:
             client.close()
         except OSError:
             pass
-        print("[rpc] dropped a stale local client (RSET)", flush=True)
+        print("[rpc] dropped the paired client (RSET)", flush=True)
 
 
 def log(text: str):
@@ -377,6 +383,23 @@ def control_client(client):
     from_tv()
 
 
+def safe_accept(srv, label):
+    """accept() that survives transient errors instead of ending the thread.
+
+    A bare `srv.accept()` in the main thread is fatal: any OSError there ends
+    http_server(), which ends the process with no traceback in our logs (the
+    console that would have shown it is not attached when run from Task
+    Scheduler).  Retry with a small backoff and log the reason.
+    """
+    while True:
+        try:
+            return srv.accept()
+        except Exception:
+            print(f"[{label}] accept failed, retrying:", flush=True)
+            traceback.print_exc()
+            time.sleep(0.2)
+
+
 def control_server():
     srv = socket.socket()
     srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -384,7 +407,7 @@ def control_server():
     srv.listen(8)
     print(f"[ctrl] listening on 127.0.0.1:{CTRL_PORT}", flush=True)
     while True:
-        c, _ = srv.accept()
+        c, _ = safe_accept(srv, 'ctrl')
         threading.Thread(target=control_client, args=(c,), daemon=True).start()
 
 
@@ -395,7 +418,7 @@ def rpc_server():
     srv.listen(8)
     print(f"[rpc] gateway listening on 127.0.0.1:{RPC_PORT}", flush=True)
     while True:
-        c, _ = srv.accept()
+        c, _ = safe_accept(srv, 'rpc')
         # A client may start with "RSET" to drop a wedged/stale TV pairing.
         # Without this the only cure was restarting the whole server, because a
         # stub that was consumed by op 5/op 7 (or half-dead after a power cycle)
@@ -414,7 +437,10 @@ def rpc_server():
             with rpc_lock:
                 dropped = rpc_tv is not None
                 _drop_tv_socket()
-            c.sendall(b"OK\n" if dropped else b"IDLE\n")
+            try:
+                c.sendall(b"OK\n" if dropped else b"IDLE\n")
+            except OSError:
+                pass
             c.close()
             continue
         threading.Thread(target=rpc_gateway_client, args=(c,), daemon=True).start()
@@ -427,7 +453,7 @@ def http_server():
     srv.listen(32)
     print(f"[http] listening on {HTTP_BIND}:{HTTP_PORT}", flush=True)
     while True:
-        conn, addr = srv.accept()
+        conn, addr = safe_accept(srv, 'http')
         try:
             conn.settimeout(1.5)
             try:
