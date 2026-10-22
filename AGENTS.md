@@ -62,6 +62,14 @@ Fallback (still valid, still maintained): `python tools/tv_rootwatch.py` with th
 TV browser on `http://<pc>/index.html` roots the stub and hands back a **root
 shell on 127.0.0.1:9999** — use it if the payload is ever missing again, then run
 `server/recover.sh` from that shell.
+**Automation status (20:55):** `root.ps1` could not root a stock TV as shipped —
+it generated `deploy_local.sh` from `deploy.sh` and ran it from the browser-labelled
+stub, whose SMACK label cannot write the app's `bin/` (`COPY=fail`, the 17:12
+finding). Fixed: the generated script now begins with a relabel prelude, which works
+because `auto_root.py` patches the stub's cred to uid 0 first, so the forked shell
+is root. Generation is verified (LF-only, `sh -n` clean); the full unattended run
+has not been exercised on a stock TV since the fix — if it ever fails there, the
+symptom will be `RELABEL=fail` followed by `COPY=fail`.
 
 Operational note (cost an afternoon today): the server must not run as a console
 app under a job or Task Scheduler — it is silently terminated when that console or
