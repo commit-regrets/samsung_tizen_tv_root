@@ -16,7 +16,7 @@ stays closed) → `root.ps1` → reboot → channel back, `uid=0`.
 | Kernel | Linux 5.4.249, ARM32 LPAE, `PHYS_OFFSET 0x20000000` |
 | Browser | Chromium 120.0.6099.5 (`SamsungBrowser/7.0`) |
 | Root | `uid=0`, `CapEff=0x3fffffffff` |
-| Persistent payload | 19,456 B, md5 `ffdb936f5263a04a26b4727ee8307151` |
+| Persistent payload | 20,480 B, md5 `e45e53b6e20925521dee954ec2a1d1d8` (v10, host-independent) |
 | Root channel | TCP **31337** on the TV, line protocol, replies end with `__END__` |
 
 ## Quick start
@@ -96,7 +96,8 @@ per-host generated deploy script are git-ignored and never served over HTTP.
 - The same TV family and firmware generation — see
   [`docs/PORTABILITY.md`](docs/PORTABILITY.md) before trying another model.
 - A PC on the same LAN, able to receive TCP/80 from the TV and reach TCP/31337
-  on it.
+  on it. Nothing is tied to a particular address: the page rewrites the shellcode's
+  callback from the host that served it, and `root.ps1` detects your PC address.
 - Python 3 on the PC. On Windows the server must run under an interpreter path the
   firewall allows (see [`docs/SERVER-HOSTING.md`](docs/SERVER-HOSTING.md)).
 - .NET SDK 6+ only if you rebuild the boot payload.

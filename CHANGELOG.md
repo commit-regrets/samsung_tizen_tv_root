@@ -34,6 +34,22 @@ readable.
 
 ### Added
 
+- **Host-independent operation (v10).** The toolkit no longer assumes the author's
+  LAN:
+  - the exploit page **rewrites the shellcode's callback address at runtime** from
+    `location.hostname`, so the browser stage connects back to whichever PC served
+    the page (no rebuild needed);
+  - `deploy.sh` records the PC address in `share/rootchan.host`, and the payload
+    (v10) reads beacons' destination from it, falling back to the compiled-in
+    default;
+  - `server/recover.sh` takes the PC address from that file (or an explicit
+    argument) instead of a hardcoded default;
+  - `tools/root_shell.py` requires a TV address (`argument` or `TV_IP`) rather than
+    silently using the author's.
+  Payload v10: 20,480 B, md5 `e45e53b6e20925521dee954ec2a1d1d8`. Verified: booted
+  and rooted (71 s on that boot, via the direct-parent path), beacons reached the
+  PC, `rootchan.host` present.
+
 - **Persistent root, twice over.** The boot payload roots the TV at every boot and
   serves a command channel on TCP 31337. It was achieved with payload v5, re-verified
   after a boot regression with v7, and made fast with v9 (~40 s from power-on, with

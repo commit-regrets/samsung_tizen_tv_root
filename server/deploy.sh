@@ -7,8 +7,9 @@ HIP=${H#http://}
 D=/opt/usr/apps/com.samsung.tv.MultiControl-Service/bin/MultiControlService.dll
 B=/opt/usr/home/owner/share/payload_backup.dll
 A=/opt/usr/home/owner/share/rootchan.allow
+HOSTF=/opt/usr/home/owner/share/rootchan.host
 DB=/opt/dbspace/user/5001/.appsvc.db
-WANT=ffdb936f5263a04a26b4727ee8307151
+WANT=e45e53b6e20925521dee954ec2a1d1d8
 APPID=com.samsung.tv.MultiControl-Service
 # SMACK label the app runs under.  Files in bin/ carry "<label>::RO" and the app
 # (label "<label>") may read those.  A file created by US keeps OUR label - e.g.
@@ -31,7 +32,7 @@ echo "SIZE=$S"
 md5sum /tmp/mcs_payload.dll
 
 # verify before touching the app: exact size and md5
-if [ "$S" = "19456" ] && md5sum /tmp/mcs_payload.dll | grep -q "^$WANT"; then
+if [ "$S" = "20480" ] && md5sum /tmp/mcs_payload.dll | grep -q "^$WANT"; then
   # atomic within the same directory: no half-written DLL if the app dies
   # A failed copy MUST abort: previously the script printed COPY=ok even when
   # every cp was denied (SMACK label mismatch), which hid a total deploy failure.
@@ -60,6 +61,10 @@ if [ "$S" = "19456" ] && md5sum /tmp/mcs_payload.dll | grep -q "^$WANT"; then
   # v7+ allowlist: only this host may use port 31337
   echo "$HIP" > "$A"
   echo "ALLOW=$HIP"
+  # Record the PC address on the TV: recover.sh reads it, and the payload can use it
+  # instead of a compiled-in default.
+  echo "$HIP" > "$HOSTF"
+  echo "HOST_FILE=$HIP"
   # make sure AUL starts the app again (uninstall removes this row)
   sqlite3 "$DB" "insert or replace into boot_sequence(package,appid,after,before,requires,conflicts,vconf,path_exists,args,background_launch,wait_until_ready,timeout) values('com.samsung.tv.MultiControl-Service','com.samsung.tv.MultiControl-Service','','','','','','','','false','true','10');" && echo BOOT_ROW=ok
   # read it back: the row is what makes this survive a reboot, so verify, don't assume

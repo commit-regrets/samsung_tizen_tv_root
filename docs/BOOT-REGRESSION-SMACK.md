@@ -84,13 +84,14 @@ echo "DLL_LABEL=$GOT_LABEL"
 with `WANT_LABEL="User::Pkg::$APPID::RO"`. `uninstall.sh` relabels the stock IL
 and NI files it copies back, for the same reason.
 
-Live deploy over the root channel (payload v9):
+Live deploy over the root channel (payload v10):
 
 ```
-DEPLOY_START / UID=0 / SIZE=19456 / COPY=ok
+DEPLOY_START / UID=0 / SIZE=20480 / COPY=ok
 DLL_LABEL=User::Pkg::com.samsung.tv.MultiControl-Service::RO
-AOT=disabled / ALLOW=<pc-ip> / BOOT_ROW=ok / BOOT_ROW_COUNT=1
-AUL_RELOAD=ok / RESTART=backgrounded / DEPLOY_DONE
+AOT=disabled / ALLOW=<pc-ip> / HOST_FILE=<pc-ip>
+BOOT_ROW=ok / BOOT_ROW_COUNT=1 / AUL_RELOAD=ok
+RESTART=backgrounded / DEPLOY_DONE
 ```
 
 First cold boot after the fix, from the server beacon log:

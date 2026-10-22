@@ -16,7 +16,16 @@
 # Then deploy.sh stops+starts the app so the new DLL loads, and the payload roots
 # itself and listens on 31337 (~40 s after any boot, with no PC involved).
 
-H="${1:-http://192.168.178.214}"
+# Where is the PC? An explicit argument wins, then the address the last deploy
+# recorded on the TV, otherwise refuse rather than guess (a wrong IP just hangs).
+H="${1:-}"
+if [ -z "$H" ] && [ -f /opt/usr/home/owner/share/rootchan.host ]; then
+  H="http://$(cat /opt/usr/home/owner/share/rootchan.host)"
+fi
+if [ -z "$H" ]; then
+  echo "RECOVER=fail - pass the PC address: sh recover.sh http://<pc-ip>"
+  exit 1
+fi
 APPID=com.samsung.tv.MultiControl-Service
 LABEL="User::Pkg::$APPID"
 

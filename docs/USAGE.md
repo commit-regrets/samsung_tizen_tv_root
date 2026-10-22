@@ -34,17 +34,24 @@ a reminder with the URL every 30 seconds until the page connects:
   BOOT_ROW_COUNT=1 … DEPLOY_DONE`), then the reboot prompt, then
   `Permanent root is up:` followed by `uid=0(root) …`.
 
-### Caveat: the host IP is baked into the shellcode
+### Addresses are not baked in
 
-The browser payload has the PC's IP compiled into the ARM shellcode.
-`root.ps1` rewrites only the TV-side deploy script. If your PC's address differs
-from the one the page was built for, rebuild and re-embed first:
+The exploit page **rewrites the shellcode's callback address at load time** from
+`location.hostname`, so the browser stage connects back to whichever PC served the
+page. Open the page by **IP address**, not by hostname — the patch only applies to
+an IPv4 literal, and with a hostname the compiled-in default is used, which is
+almost certainly wrong for your network.
 
-```powershell
-python tools\build_physrpc.py            # regenerates tools/physrpc.S
-# then re-embed the shellcode in server/payloads/browser_payload.js
+`root.ps1` works out your PC's address on the TV's subnet automatically and writes
+it into the deploy script; `deploy.sh` records it on the TV as
+`share/rootchan.host`, which the payload (v10+) uses for beacons and
+`server/recover.sh` uses to find the PC again.
+
+If you ever want to check or change it, that file is the one to edit:
+
+```sh
+cat /opt/usr/home/owner/share/rootchan.host
 ```
-
 ## Talking to the TV
 
 The payload serves a line protocol on TCP 31337; replies end with `__END__`.

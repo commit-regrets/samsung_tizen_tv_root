@@ -67,7 +67,8 @@ if [ -f "$S/mcs_ni_orig.dll" ]; then
 fi
 
 # --- our leftovers ------------------------------------------------------
-rm -f "$S/payload_backup.dll" "$S/rootchan.allow" /tmp/mcs_payload.dll /tmp/v4.dll /tmp/v5.dll
+rm -f "$S/payload_backup.dll" "$S/rootchan.allow" "$S/rootchan.host" \
+      /tmp/mcs_payload.dll /tmp/v4.dll /tmp/v5.dll
 
 # --- boot row (ours; /tmp/keep_boot keeps it) ---------------------------
 if [ -f /tmp/keep_boot ]; then
