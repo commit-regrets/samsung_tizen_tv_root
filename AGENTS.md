@@ -4,7 +4,25 @@ You are continuing a **Samsung Tizen 9 TV root** project. Read this file first,
 then `docs/EXPLOIT.md` (how it works), `docs/USAGE.md` (running it),
 `docs/ROOT-METHODS.md` (what was found), `docs/FAILED.md` (do not repeat these),
 `docs/SERVER-HOSTING.md` (the PC-side server) and `docs/REMOTE.md`
-(remote/hotkey remapping).
+(remote/hotkey remapping). History lives in `CHANGELOG.md`.
+
+## 0. Maintaining this repo — read before editing
+
+**Any change you make must be recorded in [`CHANGELOG.md`](CHANGELOG.md).** Add an
+entry under `Unreleased` (or a dated batch if you are landing several related
+changes together), listing what changed and **why**. If you change a script's
+behaviour, a payload offset, a documented procedure or a trap, the changelog entry
+is part of the change — not an optional extra.
+
+Division of labour:
+
+| File | What it holds |
+|---|---|
+| `CHANGELOG.md` | dated history: what changed and why |
+| `docs/` | the *how*: exploit chain, usage, root methods, dead ends, portability |
+| this file | the *state now*: current status, procedures, verification, traps |
+
+Do not put dated narrative here; put it in the changelog and link to it.
 
 ## 1. Current state
 
@@ -48,13 +66,12 @@ it running; use `aulctl status <appid>` for its pid.
 Verified end-to-end: `reboot` → 31337 listening **41 s** later → `uid=0`,
 `uptime` 1 min, `/opt/usr/system/dsh_root_proof.txt` rewritten by that boot.
 
-The day's history: permanent root was achieved and verified twice
-(`docs/BOOT-REGRESSION-SMACK.md`), **deliberately removed by the
-verified uninstall test** to prove the undo path, and then **restored and
-re-verified on a cold boot (41 s)**. The restore did not need the
-kernel-memory relabel at all — see the two traps above: a root shell can take the
-app's label via `/proc/self/attr/current`, and the payload is then written by
-`deploy.sh` as the app's own file.
+How the mechanism was reached, broken and restored is in
+[`CHANGELOG.md`](CHANGELOG.md); the technical write-up of the label regression is
+[`docs/BOOT-REGRESSION-SMACK.md`](docs/BOOT-REGRESSION-SMACK.md). The short version:
+a root shell can take the app's label via `/proc/self/attr/current`, and the payload
+is then written by `deploy.sh` as the app's own file — the kernel-memory relabel was
+never needed.
 
 Superseded claim: "re-installing is not possible from the browser lane"
 was true *only* while we did not know the userspace relabel works. It does.

@@ -72,6 +72,7 @@ part; the stage-by-stage writeup with the measured constants is
 | [`docs/SCRIPT-REVIEW.md`](docs/SCRIPT-REVIEW.md) | production-readiness audit of the scripts |
 | [`docs/REMOTE.md`](docs/REMOTE.md) | remote-control / hotkey remapping investigation |
 | [`AGENTS.md`](AGENTS.md) | hand-off: tools, procedure, verification, traps, recovery |
+| [`CHANGELOG.md`](CHANGELOG.md) | dated history of what changed and why |
 
 ## Repository layout
 
