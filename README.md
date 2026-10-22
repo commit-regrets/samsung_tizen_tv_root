@@ -4,13 +4,17 @@ Unofficial security research on a 2024 Samsung Neo QLED running **Tizen 9**.
 No sdb, no developer mode, no firmware flashing: the TV is rooted from its own
 browser, and the root is made persistent through a stock on-boot service app.
 
-**Status 2026-10-22 18:52: the TV is ROOTED, and the root is persistent.**
+**Status 2026-10-22 20:40: the TV is ROOTED, and the root is persistent —
+confirmed by an owner-initiated restart, not just by the operator's own reboot.**
 
-Verified on a cold boot: after `reboot`, the root channel on TCP **31337** was
-listening **41 seconds** later with `uid=0`, no browser page and no PC
-involvement. Payload v9 (`ffdb936f…`) sits in the app's `bin/` as the app's own
-file, the AUL boot row is present, and `/opt/usr/system/dsh_root_proof.txt` is
-rewritten by every boot.
+After the owner restarted the TV, the payload's first beacon appeared at
+`20:39:37`, it needed one fast-exit/relaunch cycle (v9 by design), and the root
+channel was listening at `20:40:20` — **43 s** — with `uid=0` and no browser page
+or PC involvement. `uptime` read 1 min, so it was genuinely that boot.
+
+Payload v9 (`ffdb936f…`) sits in the app's `bin/` as the app's own file, the AUL
+boot row is present, and `/opt/usr/system/dsh_root_proof.txt` is rewritten by
+every boot.
 
 The day's arc: root achieved (02:30), verified on cold boots (15:55), measured at
 38 s (16:52), **removed by the verified uninstall test** (16:56), restored at
@@ -40,9 +44,10 @@ as the app's own file. `server/recover.sh` packages that procedure.
 | Persistent payload | 19,456 B, md5 `ffdb936f5263a04a26b4727ee8307151` (v9) |
 | Root channel | TCP **31337** on the TV (line protocol, reply ends `__END__`) |
 
-> This repo is documentation and notes. The tooling lives in the author's
-> working tree; see [`AGENTS.md`](AGENTS.md) for the exact file list, required
-> tools and reproduction steps.
+> This repo is the **complete toolkit**, not just notes: `server/`, `tools/`,
+> `payload/` and the PowerShell entry points are all committed (41 files), so it
+> runs without the author's working tree. See [`AGENTS.md`](AGENTS.md) for the
+> file list, required tools and reproduction steps.
 
 ## The interesting part: a new media (V4L2) physmap
 
@@ -87,6 +92,8 @@ kernel space, no signed module. See [`docs/EXPLOIT.md`](docs/EXPLOIT.md).
   investigation (which component maps the app buttons, and how to repoint one).
 - [`docs/SCRIPT-REVIEW.md`](docs/SCRIPT-REVIEW.md) — production-readiness audit
   of the scripts: what was hardened, what remains risky.
+- [`docs/PORTABILITY.md`](docs/PORTABILITY.md) — running this on a different
+  Tizen 9 TV: the four gates, what to re-measure, what transfers unchanged.
 - [`AGENTS.md`](AGENTS.md) — hand-off for an AI agent or human: tools, files,
   procedure, verification, traps, recovery.
 
@@ -123,11 +130,28 @@ The chain has independent layers, and each can fail on a different model:
 | Constants | Image base, `init_task`, task/cred offsets | Per kernel build; re-measure |
 | Persistence | A dotnet-inhouse `app_onboot` app on writable `/opt` with the AOT/IL behaviour | Per model/app; verify |
 
-**Verdict: portable in principle, not binary-compatible.** Expect to re-measure
-the kernel constants and re-test the physmap on each model/firmware. 2024 sets
-sharing this platform are the best candidates; 2025+ firmware likely carries a
-newer browser and may have fixed the mmap validation. Test on a unit you can
-afford to brick, and keep the stock DLL backups.
+**Verdict: the method is portable, the build is not.** As shipped, `payload.dll`
+hardcodes this kernel's `PHYS_OFFSET`, `init_task` and four `task_struct`
+offsets, so it will not root a different TV unchanged. What *does* transfer is
+the design (browser RCE → V4L2 physmap → cred patch → on-boot app payload), the
+server, the channel protocol and the recovery scripts.
+
+For another Tizen 9 TV, the order of work is:
+
+1. **Browser gate** — open [`server/probe.html`](server/probe.html) on it (safe,
+   runs nothing) and check the UA/`WASM_GC` the server logs. CVE-2024-2887 is
+   Chromium-120-specific; a store-updated browser is the usual reason this ends
+   here.
+2. **Physmap gate** — once you have any code execution, check `/dev/video*` and
+   whether the driver accepts an arbitrary `vm_pgoff`.
+3. **Constants** — re-measure the kernel base, `init_task` and the struct
+   offsets (GPL source + `tools/dwarf_offsets.py`), then rebuild the payload.
+4. **Carrier** — find a dotnet-inhouse `app_onboot` app on writable `/opt`.
+
+Full protocol, and the two traps that cost the most time here (vmalloc addresses,
+and an app whose process name is not its app id): [`docs/PORTABILITY.md`](docs/PORTABILITY.md).
+Test on hardware you can afford to brick, and keep the stock DLL/AOT backups
+`deploy.sh` makes.
 
 ## Is it a one-click script?
 

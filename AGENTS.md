@@ -7,7 +7,18 @@ remapping).x`
 
 ## 1. Current state (2026-10-22)
 
-**STATUS 2026-10-22 18:52 — ROOTED AGAIN, PERSISTENT, verified on a cold boot (41 s).**
+**STATUS 2026-10-22 20:40 — ROOTED, PERSISTENT, confirmed across an owner-initiated
+TV restart (43 s from first beacon to `31337`, `uid=0`, no PC involvement).**
+
+The payload's boot sequence needs one fast-exit + AUL relaunch by design: beacons
+showed `attempt=1` → `fast-exit attempt=1` → `start pid=<new>` → `attempt=2` →
+`self-patch uid=0` → `ROOTCHAN 31337 uid=0`.
+
+Portability (other Tizen 9 TVs): **the method travels, this build does not.**
+`payload.dll` hardcodes `PHYS_OFFSET`, `init_task` and four `task_struct` offsets;
+the browser chain is CVE-2024-2887 and therefore Chromium-120-specific. Gate order
+and what to re-measure: `docs/PORTABILITY.md`; safe first step on a foreign unit is
+`server/probe.html` (runs nothing, logs UA + WasmGC support).
 
 **How it was restored (the important correction):** the SMACK problem was solved in
 **userspace**, not kernel memory. From a root shell (op 5) with the patched cred:

@@ -1,0 +1,59 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>TV probe</title>
+<style>body{background:#111;color:#ddd;font-family:monospace;padding:12px}
+pre{white-space:pre-wrap;font-size:13px}</style></head>
+<body>
+<h3>Safe probe — no exploit, nothing is executed on the TV</h3>
+<pre id="o">probing…</pre>
+<p style="color:#888;font-size:12px">Result is also posted to the PC under
+server/logs/tv/tv_output_*.txt</p>
+<script>
+(function () {
+  var out = [];
+  function add(k, v) { out.push(k + "=" + v); }
+
+  add("UA", navigator.userAgent);
+  add("PLATFORM", navigator.platform || "?");
+  add("CORES", navigator.hardwareConcurrency || "?");
+  add("MEM_GB", navigator.deviceMemory || "?");
+
+  var wasm = (typeof WebAssembly === "object");
+  add("WASM", wasm ? "yes" : "no");
+
+  // WasmGC: the marker CVE-2024-2887 depends on. `wasm-gc` is the old flag name,
+  // `gc` the new one; probe both without relying on a thrown error.
+  function feature(name) {
+    try {
+      return WebAssembly.validate(new Uint8Array([0, 97, 115, 109, 1, 0, 0, 0])) &&
+             typeof WebAssembly[name] !== "undefined";
+    } catch (e) { return false; }
+  }
+  add("WEBASSEMBLY", wasm ? "present" : "absent");
+  try {
+    add("WASM_GC", wasm && (feature("gc") || feature("wasm-gc")) ? "yes" : "unknown");
+  } catch (e) { add("WASM_GC", "error:" + e); }
+
+  // Definitive test: this module declares a *struct type* (0x5f), which only the
+  // WasmGC proposal understands. An engine without GC rejects it at validation.
+  try {
+    var gcBytes = new Uint8Array([0, 97, 115, 109, 1, 0, 0, 0,   // magic + version
+                                  1, 5, 1, 0x5f, 0, 1, 0x7f]);   // type: struct { i32 }
+    add("WASM_GC_MODULE", WebAssembly.validate(gcBytes)
+        ? "valid (GC engine)" : "rejected (no GC)");
+  } catch (e) { add("WASM_GC_MODULE", "error:" + e); }
+
+  add("TIZEN", (navigator.userAgent.match(/Tizen[\s\/]?([\w.]+)/i) || [])[1] || "not-in-UA");
+  add("SAMSUNG", (navigator.userAgent.match(/SamsungBrowser\/([\d.]+)/i) || [])[1] || "n/a");
+  add("CHROME", (navigator.userAgent.match(/Chrome\/([\d.]+)/i) || [])[1] || "n/a");
+  add("V8_HINT", (navigator.userAgent.match(/Chrome\/(\d+)\./) || [])[1] || "?");
+
+  var text = out.join("\n");
+  document.getElementById("o").textContent = text;
+  try {
+    var x = new XMLHttpRequest();
+    x.open("POST", "/save", true);
+    x.send("PROBE\n" + text + "\nPROBE_END");
+  } catch (e) {}
+})();
+</script>
+</body></html>
