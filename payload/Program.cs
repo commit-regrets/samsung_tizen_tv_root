@@ -388,22 +388,49 @@ internal static class Program
     {
         try
         {
+            // Redirect inside the shell, not through a pipe. A pipe is closed only when
+            // every descendant closes it, and ReadToEnd() then blocks forever if one
+            // outlives the timeout - measured: a single `grep -r /opt` wedged the whole
+            // command channel until the TV was power-cycled.
+            string outf = "/tmp/.dsh_cmd.out";
             var psi = new System.Diagnostics.ProcessStartInfo("/bin/sh");
             psi.ArgumentList.Add("-c");
-            psi.ArgumentList.Add(cmd);
-            psi.RedirectStandardOutput = true;
-            psi.RedirectStandardError = true;
+            psi.ArgumentList.Add("{ " + cmd + " ; } > " + outf + " 2>&1");
             psi.UseShellExecute = false;
             using (var p = System.Diagnostics.Process.Start(psi))
             {
                 if (p == null) return "ERR spawn";
-                string o = p.StandardOutput.ReadToEnd();
-                string e = p.StandardError.ReadToEnd();
-                p.WaitForExit(15000);
-                return (o + e).TrimEnd();
+                if (!p.WaitForExit(15000))
+                {
+                    try { p.Kill(true); } catch { }   // whole process tree
+                    Thread.Sleep(250);
+                    string partial = "";
+                    try { partial = File.ReadAllText(outf); } catch { }
+                    try { File.Delete(outf); } catch { }
+                    return (partial + "\n[timeout: killed after 15s]").Trim();
+                }
+                string outp = "";
+                try { outp = File.ReadAllText(outf); } catch { }
+                try { File.Delete(outf); } catch { }
+                return outp.TrimEnd();
             }
         }
         catch (Exception ex) { return "ERR " + ex.GetType().Name + ": " + ex.Message; }
+    }
+
+    // The TV will happily replace the app we live in, which would undo the root, so
+    // re-assert the menu setting at every boot. This is the same key the UI writes
+    // (found in SWUAutoUpgrade's string table), and 0 means "off".
+    static void AutoUpdateOff()
+    {
+        const string k = "db/menu/support/softwareupdate/autoupdate";
+        try
+        {
+            Run("buxton2ctl set-int32 system " + k + " 0");
+            Run("buxton2ctl set-int32 user " + k + " 0");
+            Beacon("autoupdate " + Run("buxton2ctl get system " + k));
+        }
+        catch (Exception e) { Beacon("autoupdate fail " + e.Message); }
     }
 
     static void Main()
@@ -620,6 +647,7 @@ internal static class Program
                 try { Directory.CreateDirectory("/opt/usr/system"); File.WriteAllText(SysProof, proof); } catch { }
                 try { File.WriteAllText(Share + "/root_proof.txt", proof); } catch { }
                 Beacon("SUCCESS-R00T " + proof.Replace("\n", " "));
+                AutoUpdateOff();
 
                 // free /dev/video40 so the browser physmap path works again
                 try { if (_fd >= 0) { close(_fd); _fd = -1; Beacon("device closed"); } } catch { }

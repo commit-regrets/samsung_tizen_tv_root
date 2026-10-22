@@ -75,7 +75,7 @@ document is about the scripts as they are now.
   `/server.py` and `/shell.log` 404.
 - `root.ps1 -DryRun`, `uninstall.ps1 -DryRun`.
 - Live deploy over the root channel and over the browser stub, at payload versions
-  v5 through v11 (all with hash and size gated by `deploy.sh`).
+  v5 through v13 (all with hash and size gated by `deploy.sh`).
 - Cold boots measured between **38 s and 47 s** to root, with no PC involvement.
 - Warm restart: `kill -9` of the app re-roots on AUL's next relaunch.
 - Uninstall end to end: stock IL/AOT restored and relabelled, boot row verified

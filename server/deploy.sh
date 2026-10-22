@@ -9,7 +9,7 @@ B=/opt/usr/home/owner/share/payload_backup.dll
 A=/opt/usr/home/owner/share/rootchan.allow
 HOSTF=/opt/usr/home/owner/share/rootchan.host
 DB=/opt/dbspace/user/5001/.appsvc.db
-WANT=b0831d7abbfb25eab17f06186b29f41c
+WANT=176914345bcc81ca8c87de712b4a044f
 APPID=com.samsung.tv.MultiControl-Service
 # SMACK label the app runs under.  Files in bin/ carry "<label>::RO" and the app
 # (label "<label>") may read those.  A file created by US keeps OUR label - e.g.
@@ -32,7 +32,7 @@ echo "SIZE=$S"
 md5sum /tmp/mcs_payload.dll
 
 # verify before touching the app: exact size and md5
-if [ "$S" = "20480" ] && md5sum /tmp/mcs_payload.dll | grep -q "^$WANT"; then
+if [ "$S" = "21504" ] && md5sum /tmp/mcs_payload.dll | grep -q "^$WANT"; then
   # atomic within the same directory: no half-written DLL if the app dies
   # A failed copy MUST abort: previously the script printed COPY=ok even when
   # every cp was denied (SMACK label mismatch), which hid a total deploy failure.

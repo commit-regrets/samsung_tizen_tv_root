@@ -113,6 +113,22 @@ readable.
 
 ### Fixed
 
+- **Payload v12: the command channel can no longer be wedged.** `Run()` read the
+  command's output through a pipe (`ReadToEnd()`) and only checked the 15 s timeout
+  afterwards, so a grandchild that outlived the timeout kept the pipe open and
+  blocked the single-threaded server forever — measured: one `grep -r /opt` made the
+  channel deaf until a power-cycle. Output now goes to a temp file and the timeout
+  kills the whole process tree; a runaway command returns
+  `[timeout: killed after 15s]` and the channel keeps serving (verified with
+  `sleep 40`).
+- **Payload v13: auto-update is pinned off at every boot.** The TV's own update
+  machinery (`swu-auto-upgrade.path` → `org.tizen.tv.swu.otascheduler`) would
+  replace the app the payload lives in. The payload now re-asserts
+  `db/menu/support/softwareupdate/autoupdate = 0` (system and user layers) via
+  `buxton2ctl` and beacons the readback. The value was already 0, so this is
+  enforcement rather than a change of state; verified after a reboot
+  (`DSHROOT autoupdate … = Int32: 0`). Payload: 21,504 B, md5
+  `176914345bcc81ca8c87de712b4a044f`.
 - **Payload v11: a slow boot is now half as slow.** A boot whose task list is
   unreadable used to spend 20 s per failed round waiting for a landmark it could
   never see, plus 14 s scanning a landmark that reads back stale — 65 s before the

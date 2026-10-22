@@ -32,7 +32,7 @@ channel on TCP 31337 (line protocol, replies end with `__END__`).
 
 | | |
 |---|---|
-| Payload | v11, 20,480 B, md5 `b0831d7abbfb25eab17f06186b29f41c` (`server/payload.dll`, source `payload/`; host-independent) |
+| Payload | v13, 21,504 B, md5 `176914345bcc81ca8c87de712b4a044f` (`server/payload.dll`, source `payload/`; host-independent) |
 | Boot-to-root | ~40 s, measured 38–47 s across boots, with no PC and no browser |
 | Root identity | `uid=0`, `CapEff=0x3fffffffff`, running under the app's own SMACK label |
 | Boot hook | a `boot_sequence` row in `/opt/dbspace/user/5001/.appsvc.db` |
@@ -52,8 +52,35 @@ flow. The sequence of changes that got here is in `CHANGELOG.md`.
 browser on the exploit page hands back a root shell on `127.0.0.1:9999`; run
 `server/recover.sh` from that shell to reinstall the payload.
 
-Payload lineage (v5 → v11, and what each version fixed) is in `CHANGELOG.md`; the label
+Payload lineage (v5 → v13, and what each version fixed) is in `CHANGELOG.md`; the label
 regression that broke boot persistence is `docs/BOOT-REGRESSION-SMACK.md`.
+### Auto-update is pinned off
+
+The TV would happily replace the app the payload lives in. The payload therefore
+re-asserts the menu setting at every boot (v13) and logs the readback
+(`DSHROOT autoupdate … = Int32: 0`):
+
+```sh
+buxton2ctl set-int32 system db/menu/support/softwareupdate/autoupdate 0
+buxton2ctl set-int32 user   db/menu/support/softwareupdate/autoupdate 0
+buxton2ctl get      system db/menu/support/softwareupdate/autoupdate
+```
+
+The key was found in `SWUAutoUpgrade`'s string table; `0` is off. The units behind
+it are `swu-auto-upgrade.path` (fires on
+`/run/user/5001/.swu-auto-upgrade-launch`) and
+`org.tizen.tv.swu.otascheduler`. For a network-level backstop, block the OTA hosts
+at the router — `otn2.samsungcloudcdn.com`,
+`otnprd8..11.samsungcloudsolution.net`, `samsungotn.net`.
+
+### The command channel survives a runaway command
+
+`Run()` redirects a command's output to a temp file rather than a pipe, and on the
+15 s timeout kills the whole process tree. A pipe was closed only when every
+descendant closed it, so one long-lived grandchild (a `grep -r /opt`) used to wedge
+the channel until the TV was power-cycled. A timed-out command now returns
+`[timeout: killed after 15s]` and the channel keeps serving.
+
 ## 2. Target facts
 
 | Item | Value |
@@ -207,7 +234,7 @@ shell - that corrupts the stream and wastes the page load.
 
 `server/payload.dll` is committed **deliberately** — it is the artifact the TV
 fetches during deploy, and it is byte-identical to the build output
-`payload/out/MultiControlService.dll` (md5 `b0831d7a…`), so the repo runs
+`payload/out/MultiControlService.dll` (md5 `17691434…`), so the repo runs
 without a .NET SDK. Rebuild with `dotnet build payload/BootPayload.csproj -c
 Release`, then update the `WANT=`/size gate in `server/deploy.sh`.
 
