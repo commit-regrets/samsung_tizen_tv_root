@@ -32,7 +32,7 @@ channel on TCP 31337 (line protocol, replies end with `__END__`).
 
 | | |
 |---|---|
-| Payload | v10, 20,480 B, md5 `e45e53b6e20925521dee954ec2a1d1d8` (`server/payload.dll`, source `payload/`; host-independent) |
+| Payload | v11, 20,480 B, md5 `b0831d7abbfb25eab17f06186b29f41c` (`server/payload.dll`, source `payload/`; host-independent) |
 | Boot-to-root | ~40 s, measured 38–47 s across boots, with no PC and no browser |
 | Root identity | `uid=0`, `CapEff=0x3fffffffff`, running under the app's own SMACK label |
 | Boot hook | a `boot_sequence` row in `/opt/dbspace/user/5001/.appsvc.db` |
@@ -52,7 +52,7 @@ flow. The sequence of changes that got here is in `CHANGELOG.md`.
 browser on the exploit page hands back a root shell on `127.0.0.1:9999`; run
 `server/recover.sh` from that shell to reinstall the payload.
 
-Payload lineage (v5 → v10, and what each version fixed) is in `CHANGELOG.md`; the label
+Payload lineage (v5 → v11, and what each version fixed) is in `CHANGELOG.md`; the label
 regression that broke boot persistence is `docs/BOOT-REGRESSION-SMACK.md`.
 ## 2. Target facts
 
@@ -207,7 +207,7 @@ shell - that corrupts the stream and wastes the page load.
 
 `server/payload.dll` is committed **deliberately** — it is the artifact the TV
 fetches during deploy, and it is byte-identical to the build output
-`payload/out/MultiControlService.dll` (md5 `e45e53b6…`), so the repo runs
+`payload/out/MultiControlService.dll` (md5 `b0831d7a…`), so the repo runs
 without a .NET SDK. Rebuild with `dotnet build payload/BootPayload.csproj -c
 Release`, then update the `WANT=`/size gate in `server/deploy.sh`.
 

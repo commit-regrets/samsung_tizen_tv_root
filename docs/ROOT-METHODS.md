@@ -134,7 +134,7 @@ file the channel is open to all.
   `start uid=5001 → self-patch uid=0 → ROOTCHAN 31337 uid=0`. A kill/restart test
   re-roots on AUL's next relaunch — seconds in the common case, up to a couple of
   minutes early in boot. See `docs/BOOT-REGRESSION-SMACK.md`.
-- **Timing, measured from v9 on:** cold boot → **root in ~40 s** (v10 measured 71 s on a bad boot).
+- **Timing, measured from v9 on:** cold boot → **root in ~40 s**. A boot whose task list is unreadable is slower: 65 s before v11, and **34 s on the same class of boot with v11** (each failed round now gives up in ~4 s instead of ~20 s, so a fresh process runs sooner).
   The app cannot rely on its first launch: it exits after two failed rounds
   (`self=00000000` — the task list / fresh task_structs read back stale over the
   physmap early in boot). From v9 the app therefore **exits on purpose** after a

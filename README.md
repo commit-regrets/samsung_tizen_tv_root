@@ -16,7 +16,7 @@ stays closed) → `root.ps1` → reboot → channel back, `uid=0`.
 | Kernel | Linux 5.4.249, ARM32 LPAE, `PHYS_OFFSET 0x20000000` |
 | Browser | Chromium 120.0.6099.5 (`SamsungBrowser/7.0`) |
 | Root | `uid=0`, `CapEff=0x3fffffffff` |
-| Persistent payload | 20,480 B, md5 `e45e53b6e20925521dee954ec2a1d1d8` (v10, host-independent) |
+| Persistent payload | 20,480 B, md5 `b0831d7abbfb25eab17f06186b29f41c` (v11) |
 | Root channel | TCP **31337** on the TV, line protocol, replies end with `__END__` |
 
 ## Quick start
