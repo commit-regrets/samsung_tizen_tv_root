@@ -77,6 +77,10 @@ else
     echo DB_FAIL
     exit 1
   }
-  echo BOOT_ROW=removed
+  # trust nothing: read the table back (a DELETE that silently matched nothing, or
+  # a locked DB, looks identical to success otherwise)
+  LEFT=$(sqlite3 "$DB" "select count(*) from boot_sequence where appid='com.samsung.tv.MultiControl-Service';" 2>/dev/null)
+  echo "BOOT_ROW=removed remain=${LEFT:-unknown}"
+  [ "$LEFT" = "0" ] || { echo BOOT_ROW_WARN; exit 1; }
 fi
 echo UNINSTALL_DONE

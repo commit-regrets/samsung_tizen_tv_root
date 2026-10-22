@@ -62,6 +62,10 @@ if [ "$S" = "19456" ] && md5sum /tmp/mcs_payload.dll | grep -q "^$WANT"; then
   echo "ALLOW=$HIP"
   # make sure AUL starts the app again (uninstall removes this row)
   sqlite3 "$DB" "insert or replace into boot_sequence(package,appid,after,before,requires,conflicts,vconf,path_exists,args,background_launch,wait_until_ready,timeout) values('com.samsung.tv.MultiControl-Service','com.samsung.tv.MultiControl-Service','','','','','','','','false','true','10');" && echo BOOT_ROW=ok
+  # read it back: the row is what makes this survive a reboot, so verify, don't assume
+  ROWS=$(sqlite3 "$DB" "select count(*) from boot_sequence where appid='com.samsung.tv.MultiControl-Service';" 2>/dev/null)
+  echo "BOOT_ROW_COUNT=${ROWS:-unknown}"
+  [ "$ROWS" = "1" ] || echo BOOT_ROW_WARN
   # AUL caches the boot sequence; reload so the row is picked up at boot
   aulctl reload 5001 && echo AUL_RELOAD=ok || echo AUL_RELOAD=fail
   # `reload` only refreshes AUL's copy of the sequence - it does NOT restart an
