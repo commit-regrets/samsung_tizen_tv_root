@@ -1,5 +1,16 @@
 # Script review — production readiness
 
+> **20:55 — `root.ps1` could not actually root a stock TV.** It generated
+> `deploy_local.sh` straight from `deploy.sh` and ran it from the browser-labelled
+> stub, whose SMACK label cannot write the app's `bin/` — the result is
+> `COPY=fail` (exactly what happened during the 2026-10-22 recovery). Fixed: the
+> generated script now starts with a prelude that takes the app's label
+> (`/proc/self/attr/current`) before the deploy body. That works because
+> `auto_root.py` has already patched the stub's cred to uid 0 with full caps, so
+> the shell it forks is root. Verified statically: generated output is LF-only,
+> starts with the relabel, and passes `sh -n`. A full unattended run still needs a
+> stock TV to exercise end to end.
+
 > **18:42 additions — server hosting/stability (see `docs/SERVER-HOSTING.md`).**
 > `safe_accept()` now wraps every `accept()` (http, ctrl, rpc): a transient
 > `OSError` there used to end the main thread and therefore the process, with the

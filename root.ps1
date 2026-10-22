@@ -233,7 +233,31 @@ if (-not (Test-Page -Name $Page)) { throw "server is not serving /$Page after st
 
 $text = Get-Content -LiteralPath $layout.Deploy -Raw
 $text = [regex]::Replace($text, '(?m)^H=.*$', "H=http://$HostIp")
-Set-Content -LiteralPath $deployLocal -Value $text -Encoding ascii -NoNewline
+$text = $text -replace "`r`n", "`n"
+
+# The stub runs as uid 5001 with the BROWSER's SMACK label, and that label cannot
+# write the app's bin/ - only the app's own label can (docs/FAILED.md). By the time
+# this script runs, auto_root.py has already patched the stub's cred to uid 0 with
+# full caps, so the shell it forks is root and CAN take the app's label. Inject
+# that here, otherwise the deploy ends in COPY=fail.
+$prelude = @'
+# --- injected by root.ps1: take the app's label so bin/ is writable ------------
+_APPID_LABEL=User::Pkg::com.samsung.tv.MultiControl-Service
+echo -n "$_APPID_LABEL" > /proc/self/attr/current 2>/dev/null
+if [ "$(cat /proc/self/attr/current 2>/dev/null)" = "$_APPID_LABEL" ]; then
+  echo RELABEL=ok
+else
+  echo "RELABEL=fail uid=$(id -u) - the deploy below will fail; use server/recover.sh from a root shell"
+fi
+# ------------------------------------------------------------------------------
+'@
+$prelude = $prelude -replace "`r`n", "`n"
+if ($text -match '(?s)^(#!/[^\n]*\n)') {
+    $text = $Matches[1] + $prelude + "`n" + $text.Substring($Matches[1].Length)
+} else {
+    $text = $prelude + "`n" + $text
+}
+[IO.File]::WriteAllText($deployLocal, $text, [Text.Encoding]::ASCII)
 
 Say ""
 Say "1) ON THE TV, with its remote, open this URL:"
