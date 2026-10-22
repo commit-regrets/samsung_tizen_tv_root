@@ -104,96 +104,69 @@ was tested on the live unit; "do not retry" means it was measured, not assumed.
   power-cycle, restart the server anyway (no FIN arrives, so the old socket
   looks alive).
 
-## Kernel-memory SMACK relabel — attempted, not finished
+## SMACK labels — the wall, and how it was actually solved
 
-`tools/smack_relabel.py` implements the only route back to on-device persistence:
-make our task carry the app's label, then deploy normally. Design and live
-measurements: lab `research/SMACK-RELABEL-2026-10-22.md`.
+Why the label matters: the app's `bin/` is writable only by the app's **own**
+label — the shipped policy grants no cross-app rules — and the app directory is
+`User::Home` with `transmute=TRUE`, so a file written *while carrying the app
+label* inherits it and the app can read it. The task was therefore to get that
+label onto our process.
 
-Two blockers, both properties of this kernel, not of the idea:
+### What did not work: relabelling through kernel memory
 
-1. **The task list is unusable**, so the fork-child locator has nothing to walk;
-   the fallback (physical scan for the `PHYSRPC1` comm tag) needs a clean
-   600 MB read and did not find the live task above `0x45F00000` on that boot.
-2. **Long `readmany` scans desync the stub.** Batches abort on unmappable pages;
-   after enough aborts the socket carries stray bytes and every later read
-   returns a garbage status (`RPC read error -514785277`). That silently turns a
-   scan into a "negative result". The tool now checks `init_task.comm` between
-   batches and aborts with `DESYNCED_STUB` instead of lying.
+`tools/smack_relabel.py` tried to rewrite `cred->security->smk_task` directly. The
+structures were located, but the approach is **impossible on this unit**: the
+`smack_known` struct lives above `0xE0000000`, in vmalloc space, where
+`phys = va - 0xA0000000` does not apply — so the physmap cannot read it. 635 copies
+of the label string exist in `0x20000000–0x40000000` and none of them is pointed at
+by a `smack_known`.
 
-Next attempt: a **fresh stub**, nothing else done on it, scan in 8 MB batches
-with the sanity check, and stop at the first hit that satisfies comm + cred +
-`task->security`'s label string. Do not re-run on a stub that already served a
-scan or an `op 7`.
+Two hard-won facts from that attempt are worth keeping:
 
-## SMACK — resolved, and the kernel route was never needed
+- our `cred->security` is at **cred+0x64** and really is a `task_smack`, provable
+  by the self-referential `smk_rules` list inside it
+  (`e3870f80 e3870f80 c747b848 c747b848`);
+- the stub's own task is `init.tasks.prev` **immediately after a `fork()`** — no
+  list walk needed, which matters because the list is damaged within seconds of
+  boot.
 
-**The userspace relabel works.** From a root shell with the patched cred
-(full caps), this succeeds:
+A workaround — copy the app's label pointer out of the app's own process
+(`cred->security->smk_task`) — is in `tools/smack_borrow.py`, but it needs the app
+process, and `tools/find_task.py` found **zero** matching tasks in two full sweeps.
+One likely reason is documented below: the scans searched for `MultiControl*`, and
+the app's comm is `DN_trol-Service`.
+
+Also learned: long `readmany` scans desync the stub — a batch aborts on an unmappable
+page, stray bytes follow, and every later read returns a garbage status, which looks
+exactly like a clean negative. `tools/find_task.py` reconnects and resumes rather
+than restarting.
+
+### What works: relabel in userspace
+
+From a root shell whose cred is patched to uid 0 with full capabilities:
 
 ```sh
 echo -n "User::Pkg::com.samsung.tv.MultiControl-Service" > /proc/self/attr/current
+cat /proc/self/attr/current      # verify it took
 ```
 
-and the shell then carries the app's label - measured twice. The earlier
-"`/proc/self/attr/current` is denied by `smack_onlycap`" note was wrong or
-context-dependent; retest it before believing it. With the label set, the app's
-`bin/` is writable (its parent is `User::Home` **transmute=TRUE**), so
-`deploy.sh` runs unchanged from that shell and reports `COPY=ok`,
-`DLL_LABEL=...::RO`, `AOT=disabled`, `BOOT_ROW=ok`.
+and the shell carries the app's label. `deploy.sh` then runs unchanged from that
+shell: `RELABEL=ok`, `COPY=ok`, `DLL_LABEL=…::RO`, `AOT=disabled`, `BOOT_ROW=ok`.
+`server/recover.sh` packages the whole procedure.
 
-Two things that made this look impossible for hours:
+An earlier note here said `/proc/self/attr/current` is denied by `smack_onlycap`.
+That was **wrong** — or at least tried from a shell without the patched cred.
+Retest it before believing it. What `smack_onlycap` does restrict is capability
+bypass, so a capability alone is not enough.
 
-* the app's process `comm` is **`DN_trol-Service`** (exe
-  `/usr/bin/dotnet-launcher-inhouse`), not `MultiControl*` - so every physical scan
-  for the app was searching for a name that never exists;
-* the app is **not visible in the browser shell's PID namespace**, so `ps`/`/proc`
-  look empty even when `aulctl status` reports it running with a pid.
+### Why this looked impossible for hours
 
-And `aulctl reload` does **not** restart an already-running app - `aulctl stop`
-then `aulctl start` is what loads the new DLL.
-
-## Kernel-memory SMACK relabel — outcome
-
-Attempted properly; **not finished**, and the remaining obstacle is now precise.
-Full analysis: lab `research/SMACK-RELABEL-2026-10-22.md`; tools
-`tools/smack_relabel.py`, `tools/smack_borrow.py`, `tools/find_task.py`,
-`tools/dwarf_offsets.py`.
-
-What works:
-
-* the stub's own task is located reliably (it is `init.tasks.prev` immediately
-  after a fork - no list walk), and its cred is rooted in a few reads;
-* `cred->security` is at **cred+0x64** and is a real `task_smack`, proven by the
-  self-referential `smk_rules` list inside it:
-  `e3870f80 e3870f80 c747b848 c747b848`.
-
-What blocks it:
-
-* `smk_task = 0xe3870f80` is **above 0xE0000000, i.e. vmalloc space**, so
-  `phys = va - 0xA0000000` does not apply and the physmap cannot read the
-  `smack_known`. Name-based discovery is therefore closed: 635 copies of the
-  label string exist in `0x20000000-0x40000000` and **none** is pointed at.
-* the workaround - copy the label pointer out of the app's own process
-  (`cred->security->smk_task`) - needs that process, and
-  `tools/find_task.py` (resumable scan, reconnects on a desynced batch) found
-  **zero** `MultiControl*` tasks in `0x20000000-0x40000000`, before and after a
-  reboot. Either the stock app was not running, or its `task_struct` is itself in
-  vmalloc space (one process at `0xe12e6780` was seen in a list walk).
-
-Next steps, cheapest first: (1) confirm from a root shell whether the app is
-running (`ps`, `aulctl status com.samsung.tv.MultiControl-Service`); (2) map
-vmalloc to physical by walking `init_mm.pgd` in the LPAE 3-level format - that
-unblocks both the label read and any vmalloc task; (3) alternatively audit an
-on-boot `User::App::Shared` app (`appbinarymanager`, `appdrm`, `esg-service`,
-`hdcp*`, `hdmicec-service`, `mediaanalytics`, `playready`) for a load path inside
-its writable area, which would need no label work at all.
-
-Also learned: `tools/dwarf_offsets.py` extracts struct offsets from the sim
-kernel's DWARF, and four of them matched the TV exactly (comm +0x400, cred +0x3F8,
-real_parent +0x2F0, tasks +0x23C) - so the sim is a valid layout source, with the
-caveat that later members differ (the sim has `CONFIG_KEYS=n`, the TV has keyrings).
-
+- the app's process `comm` is **`DN_trol-Service`** (its exe is
+  `/usr/bin/dotnet-launcher-inhouse`), **not** `MultiControl*` — every physical scan
+  for the app searched for a name that never exists;
+- the app is **invisible in the browser shell's PID namespace**, so `/proc` looks
+  empty even while `aulctl status` reports it running with a pid;
+- `aulctl reload` does **not** restart a running app — `ctl stop` + `start` does.
 ## How the payload was originally installed (answered)
 
 The first swap was an **in-place overwrite**, not a copy:
@@ -216,15 +189,15 @@ The permission half is now clear from the shipped policy
 granted by policy; a browser-labelled process can only write what its own label
 owns. Two consequences:
 
-* the deploy must carry (or be) the **app's label** - either because the channel
-  process is the payload (which was true for every deploy that worked today), or
-  because the task was relabelled in kernel memory;
+* the deploy must carry (or be) the **app's label** — either because the channel
+  process is the payload itself, or because the shell took the label in userspace
+  first (`/proc/self/attr/current`, see above);
 * the `::RO` files inside `bin/` are readable by the app because the app label
   matches, and the app root is `User::Home` **transmute=TRUE**, so files created
   while carrying the app label inherit it - no `chsmack` needed.
 
 Also learned: `chsmack <path>` with **no options prints** the label
-(`access="..." transmute="..."`); my earlier `chsmack -p` was simply wrong.
+(`access="..." transmute="..."`); there is no `-p` option.
 
 ## The app lane is one-way from a stock TV — superseded
 
@@ -252,14 +225,18 @@ are labelled `User::App::Shared` and writable (`appbinarymanager`, `appdrm`,
 `esg-service`, `hdcp`, `hdcp-common`, `hdmicec-service`, `mediaanalytics`,
 `playready`) — none of them a dotnet-inhouse/on-boot carrier.
 
-Consequence, and the important lesson: **once the payload is removed, the
+The consequence, as it looked at the time: **once the payload is removed, the
 browser lane can root the TV but cannot put the payload back.** Every deploy that
 worked ran from the **app's own 31337 channel**,
 whose process label matches the app directory. The first install therefore has to
-come from a context that already carries the app label, or from a write primitive
-the installer grants (it refuses to overwrite existing files), or from a SMACK
-relabel done in kernel memory. Do not uninstall "just to re-test" without a plan
-to get the label back.
+come from a context that already carries the app label — which is exactly what the
+userspace relabel above provides. (The other routes named at the time: a write
+primitive from the installer, which refuses to overwrite existing files, or a
+kernel-memory relabel, which is impossible here.)
+
+The practical rule still holds for a different reason: **do not uninstall without a
+plan to get the label back**, because a plain browser-labelled root shell cannot
+recreate it by itself.
 
 ## Misdiagnosis trap (cost most of a day)
 

@@ -64,6 +64,21 @@ readable.
 
 ### Changed
 
+- **Docs reviewed one by one and repaired.** `docs/BOOT-REGRESSION-SMACK.md` was
+  corrupt (an earlier edit had spliced a correction note and PowerShell fragments
+  into the middle of a sentence) and was rewritten. `docs/FAILED.md` had three
+  overlapping SMACK sections, now one that tells the story in order. `docs/SCRIPT-REVIEW.md`
+  had become a second changelog, so it is now an actual review of the scripts (issue
+  table, race status, limitations, validation). `docs/SERVER-HOSTING.md` pointed at
+  paths that were not in this repo, so `server/run_server.cmd` and
+  `server/run_server.vbs` now exist here, and the interpreter is configurable via
+  `TV_PY`. `AGENTS.md` §1 was the same story twice plus payload lineage; it is now a
+  compact current-state section, and §10/§11 lost two factual errors and a duplicated
+  analysis.
+- `docs/EXPLOIT.md`: the address-space paragraph was wrong (it claimed the linear map
+  covers up to `0xFFFFFFFF`), which is exactly the trap that made a vmalloc label
+  lookup look like "not found". It now separates the linear map from vmalloc and says
+  why the physmap can only translate the former.
 - **README rewritten for readers** (265 → ~140 lines): what the project is, current
   state, quick start, four-line summary of the chain, documentation index, layout,
   requirements, compatibility, safety. The deep content moved into `docs/`.

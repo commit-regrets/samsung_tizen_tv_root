@@ -13,8 +13,11 @@ pwsh -File .\uninstall.ps1 -TvIp <tv-ip>   # restore stock
 `root.ps1` resolves the toolkit (this directory, or `-ToolkitDir`), starts the
 port-80 server (reusing one that already serves this directory; `-RestartServer`
 replaces a different server on `:80`), waits for the browser page to connect,
-roots that stub, installs the payload, and after the reboot waits for TCP 31337
-and prints `id`.
+roots that stub, installs the payload, then waits for TCP 31337 and prints `id`.
+
+The payload usually starts **immediately** after the deploy: `deploy.sh` restarts
+the app (detached) so the new DLL loads without waiting for a reboot. The reboot is
+what proves the persistence is real, so do it anyway.
 
 **Two steps stay on the TV remote**, and the script prompts for both and repeats
 a reminder with the URL every 30 seconds until the page connects:
@@ -72,11 +75,19 @@ reboot, so 31337 stays open until then — expected, not a failure.
 
 ### If the root channel is down
 
-The TV can still be rooted through the browser path. Load `index.html`, then:
+The TV can still be reached through the browser path. Load `index.html` on it, then
+either let the automated client do it:
+
+```powershell
+python tools\auto_root.py --host <HOST_IP> --script uninstall.sh --expect UNINSTALL_DONE
+```
+
+or drive it by hand — note the wait argument, the default (3 s) is far too short for
+a deploy:
 
 ```powershell
 python tools\kernel_root.py --fork
-python tools\run_root.py "curl -s http://<HOST_IP>/uninstall.sh | sh"
+python tools\run_root.py "curl -s http://<HOST_IP>/uninstall.sh | sh" 120
 ```
 
 or, from a root shell on the TV, run `server/recover.sh` to reinstall the payload
@@ -89,9 +100,16 @@ curl -s http://<HOST_IP>/recover.sh | sh
 ## Recovery
 
 `server/recover.sh` is the one-command reinstall. Run it **on the TV from a root
-shell** (for example the shell `tools/tv_rootwatch.py` hands you on
-`127.0.0.1:9999`). It takes the app's SMACK label with
-`/proc/self/attr/current`, then runs `deploy.sh`, which the app restarts to load.
+shell** — the one `tools/tv_rootwatch.py` hands you on `127.0.0.1:9999` is enough.
+It takes the app's SMACK label with `/proc/self/attr/current`, then runs
+`deploy.sh`, which the app restarts to load:
+
+```sh
+curl -s http://<HOST_IP>/recover.sh | sh
+```
+
+If the payload is missing *and* the browser is unusable, the last resort is
+`root.ps1` itself: it only needs one page load to get a stub.
 
 ## When something goes wrong
 

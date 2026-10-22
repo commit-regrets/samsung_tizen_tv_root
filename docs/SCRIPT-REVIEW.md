@@ -1,202 +1,91 @@
 # Script review — production readiness
 
-> **The automated path was validated end to end from stock.**
-> `uninstall.ps1` → reboot (`31337` stayed closed) → `root.ps1` → reboot →
-> `31337` open at **47 s**, `uid=0`, no PC. The run exercised four fixes made
-> during it: the relabel prelude in the generated script (without it the deploy
-> was `COPY=fail`), the `RSET` race on both sides, the detached stop+start
-> (`aulctl stop` blocks while the payload runs and was hanging the script before
-> `DEPLOY_DONE`), and the readback verification of the `boot_sequence` writes
-> (`BOOT_ROW_COUNT=1` / `remain=0`).
->
-> **two race/blocking bugs found while testing the automated path.**
-> (1) My own `RSET` client helper resent RSET on every failed attach, so a stub
-> that connected between two attempts was destroyed the instant it appeared —
-> that is what blanked the page during the test. Fixed client-side (no RSET while
-> waiting) and server-side (`RSET` now only evicts a client that is actually
-> paired; a client still waiting for a stub is left alone).
-> (2) `aulctl stop` **blocks** while the payload is running (measured: the deploy
-> script stopped at `AUL_RELOAD` and never reached `start`/`DEPLOY_DONE`). The
-> restart is now detached (`( sleep 1; stop; sleep 3; start ) &`), so a deploy
-> always returns; if the stop hangs it hangs harmlessly in the background.
+Audit of the toolkit in this repo. Scope: `root.ps1`, `uninstall.ps1`,
+`server/server.py`, `server/deploy.sh`, `server/uninstall.sh`, and `tools/*.py`.
 
-> **`root.ps1` could not actually root a stock TV.** It generated
-> `deploy_local.sh` straight from `deploy.sh` and ran it from the browser-labelled
-> stub, whose SMACK label cannot write the app's `bin/` — the result is
-> `COPY=fail` (exactly what happened during the recovery). Fixed: the
-> generated script now starts with a prelude that takes the app's label
-> (`/proc/self/attr/current`) before the deploy body. That works because
-> `auto_root.py` has already patched the stub's cred to uid 0 with full caps, so
-> the shell it forks is root. Verified statically: generated output is LF-only,
-> starts with the relabel, and passes `sh -n`. A full unattended run still needs a
-> stock TV to exercise end to end.
+**State: validated end to end from a stock TV.** `uninstall.ps1` → reboot (the
+channel stayed closed) → `root.ps1` → reboot → channel up in **47 s**, `uid=0`, no
+PC and no browser. The sequence of changes behind that is in `CHANGELOG.md`; this
+document is about the scripts as they are now.
 
-> **Server hosting/stability (see `docs/SERVER-HOSTING.md`).**
-> `safe_accept()` now wraps every `accept()` (http, ctrl, rpc): a transient
-> `OSError` there used to end the main thread and therefore the process, with the
-> traceback going to a console nobody could see. `RSET` also drops a stale local
-> client, so a cancelled client can no longer hold the gateway slot (`BUSY` for
-> everyone after it). The server is now started by scheduled task `TV-LabServer`
-> through `wscript` (a console app under Task Scheduler is silently terminated
-> when its console closes — that was the "TV page goes blank" bug), with
-> stdout/stderr in `server/logs/server.task.out|.err`.
-> `index.html` cache-busts both JS files, unregisters service workers and posts
-> `RUNNING_AT`; `lib/wasm_builder.js?v=5` was a *static* cache key, so the TV could
-> run a stale builder against a current payload and die before logging anything.
-
-Audit of the toolkit in this repo. Scope: `root.ps1`,
-`uninstall.ps1`, `server/server.py`, `server/deploy.sh`, `server/uninstall.sh`,
-and `tools/*.py`.
-
-## Fixed in this pass
+## Fixed
 
 | # | Severity | Issue | Fix |
 |---|---|---|---|
-| 1 | **high** | `auto_root.py` returned success even when the deploy script failed — `run()`'s output was discarded, so `root.ps1` printed "Deploy verified" after a failed `cp`. | It now requires `DEPLOY_DONE` and `COPY=ok` in the output (`--expect`), and exits non-zero otherwise. |
-| 2 | **high** | `root.ps1 -RestartServer` only restarted when the server was *not* ours. Reusing our own server kept stale RPC waiters, which stole the next stub (hit live twice). | `-RestartServer` now always stops and starts the server. |
-| 3 | medium | `Stop-ToolkitServer` would kill any process whose command line contained `server.py`/`shellsrv.py`. | It now also requires the process name to be `python`/`pysrv`. |
-| 4 | medium | A stale `/tmp/keep_boot` marker from an earlier run could silently keep the boot row during uninstall. | `uninstall.ps1` removes the marker unless `-KeepBoot`. |
-| 5 | medium | `server.py` appended to `shell.log` without bound — it reached **58 MB** during this project. | Rotates to `shell.log.1` at 8 MB. |
-| 6 | medium | The HTTP server would serve its own source and logs to anyone on the LAN (`/server.py`, `/shell.log`, `/server.out`). | Deny list: `.py .log .out .err .db .pem .key .journal` and the known log names → 404. |
+| 1 | **high** | `auto_root.py` returned success even when the deploy script failed — `run()`'s output was discarded, so `root.ps1` printed "Deploy verified" after a failed `cp`. | It requires `DEPLOY_DONE` and `COPY=ok` in the output (`--expect`) and exits non-zero otherwise. |
+| 2 | **high** | `root.ps1 -RestartServer` only restarted when the server was *not* ours; reusing our own server kept stale RPC waiters that stole the next stub. | `-RestartServer` always stops and starts the server. |
+| 3 | medium | `Stop-ToolkitServer` killed any process whose command line contained `server.py`. | It also requires the process name to be `python`/`pysrv`. |
+| 4 | medium | A stale `/tmp/keep_boot` marker could silently keep the boot row during uninstall. | `uninstall.ps1` removes the marker unless `-KeepBoot`. |
+| 5 | medium | `server.py` appended to `shell.log` without bound (it reached 58 MB). | Rotates to `shell.log.1` at 8 MB. |
+| 6 | medium | The HTTP server would serve its own source and logs to anyone on the LAN. | Deny list for `.py .log .out .err .db .pem .key .journal` and the known log names → 404. |
 | 7 | low | A slow HTTP client could block the single-threaded accept loop indefinitely. | 10 s socket timeout for HTTP handling. |
-| 8 | low | `uninstall.sh` picked an arbitrary `.native_image.disabled.*` directory if several existed. | `ls -dt` (newest first). |
-| 9 | low | No attribution/requirements files. | `NOTICE.md` (hdbreaker attribution) and `tools/requirements.txt` (keystone/capstone, rebuild only). |
-| 10 | **high** | The boot payload latched onto a stale `PHYRFORK` orphan left by an earlier AUL restart, so it patched the wrong cred and failed on warm restarts (`self=0`, `fail no parent`, `fail no PHYRFORK`). `kernel_root.py`'s fork path had the same flaw. | v6 payload: snapshot existing `PHYRFORK` tasks before forking, scan up to 20 s for a **new** one, validate the cred uid before patching, keep the landmark alive for 120 s. `kernel_root.py` now excludes known orphans too. Tested twice: channel back in 11 s and 8 s. |
-| 11 | medium | `deploy.sh` / `uninstall.sh` copied straight onto the live DLL; a kill mid-copy could leave a truncated file and the app unloadable. | Copy to `*.tmp` in the same directory, then `mv` (atomic rename). Verified with a live deploy: `COPY=ok`. |
-| 12 | medium | `physmap.readmany()` desynchronised whenever the stub hit an unmappable page: `op_readmany` aborts the whole batch (`rm_err` → main loop), but the client kept expecting pages, so every later read returned garbage (looked like random kernel data). | The client now stops the batch at the bad page and restarts after it; verified `readmany` == direct read on the same page. |
+| 8 | low | `uninstall.sh` picked an arbitrary `.native_image.disabled.*` directory when several existed. | `ls -dt` (newest first). |
+| 9 | low | No attribution or requirements files. | `NOTICE.md`, `tools/requirements.txt` (rebuild only). |
+| 10 | **high** | The boot payload latched onto a stale `PHYRFORK` orphan from an earlier AUL restart, patching the wrong cred on warm restarts. | v6+: snapshot existing landmarks, wait for a *new* child, validate the cred before patching, keep the landmark 120 s. |
+| 11 | medium | `deploy.sh` / `uninstall.sh` copied straight onto the live DLL; a kill mid-copy left a truncated file. | Copy to `*.tmp` in the same directory, then `mv` (atomic rename). |
+| 12 | medium | `physmap.readmany()` desynchronised whenever the stub hit an unmappable page — every later read returned garbage, so a scan looked like a clean negative. | The client stops at the bad page and restarts after it; verified `readmany` == direct read on the same page. |
+| 13 | **high** | Deploying from the browser-labelled stub always failed (`COPY=fail`), because that label cannot write the app's `bin/`. `root.ps1` inherited the bug. | `root.ps1` injects a relabel prelude into the generated script; `server/recover.sh` does the same by hand. |
+| 14 | medium | `aulctl stop` blocks while the payload is running, so the deploy hung before `DEPLOY_DONE`. | The stop+start runs detached; the script always returns. |
+| 15 | medium | `deploy.sh` / `uninstall.sh` trusted their SQL — a `DELETE`/`INSERT` that matched nothing looked like success. | Both read `boot_sequence` back (`BOOT_ROW_COUNT=1`, `remain=0`) and fail loudly. |
+| 16 | medium | `RSET` evicted a client that was merely *waiting* for a stub, so a stub connecting between two attempts was destroyed. | The server only evicts a client that is actually paired; the client no longer resets while waiting. |
 
 ## Race conditions — status
 
 | Race | Status |
 |---|---|
-| Parent scans before the child sets its comm, then patches a stale `PHYRFORK` orphan | **Fixed** (v6 pre-fork snapshot + wait for a *new* child). Tested on two warm restarts. |
-| `kernel_root.py` picks the first `PHYRFORK` for the same reason | **Fixed** with the same exclusion set, but only as reliable as the task list itself (below). |
-| Half-written DLL if the app dies during `cp` | **Fixed** (temp + atomic rename). |
-| Stale RPC waiter consuming the next stub | **Mitigated**, not structural: `-RestartServer` now always restarts; there is still no liveness check on the gateway. |
-| Slow HTTP client blocking the accept loop | **Mitigated**: 10 s socket timeout; server is still single-threaded. |
-| Task list corrupted while walking it (tasks exiting, fork churn) | **Open**. Both `prev` and `next` were observed broken on a warm system; retries and the orphan snapshot help but cannot repair the list. A pid-hash/IDR locator would fix it, but both routes are blocked (below); the remaining option is a physical comm scan. |
-| `/dev/video40` opener conflict (browser vs app) | **Open** by design: one RDWR opener; v6 still exits if the browser holds it. Retry loop is open work. |
+| Parent scans before the child sets its comm, then patches a stale orphan | **Fixed** (v6 pre-fork snapshot + wait for a *new* child). |
+| `kernel_root.py` picks the first `PHYRFORK` | **Fixed** with the same exclusion set; still limited by the task list. |
+| Half-written DLL if the app dies during the copy | **Fixed** (temp + atomic rename). |
+| Stale RPC waiter consuming the next stub | **Fixed**: waiting clients are no longer evicted, and `physmap.reset_stub()` clears a wedged pairing without a restart. |
+| Slow HTTP client blocking the accept loop | **Mitigated**: 10 s timeout; still single-threaded. |
+| Task list corrupted while walking it | **Open**, but no longer on the critical path: root uses the cred-pattern scan, and the task locator uses `init.tasks.prev` immediately after a fork. |
+| `/dev/video40` opener conflict (browser vs payload) | **Open by design**: one RDWR opener. The payload closes the device after rooting; a page reload while a stale renderer holds it needs that renderer gone (see `docs/USAGE.md`). |
 
 ## Known limitations (accepted / documented)
 
-- **RPC gateway has no liveness check.** A client that disconnects while waiting
-  leaves a waiter that consumes the next stub. Mitigation: `root.ps1
-  -RestartServer`, or start the server fresh before a run. A full fix needs a
-  pairing protocol change.
-- **Single-threaded HTTP accept loop.** Fine for one TV; a hostile LAN client
-  could still slow the page load. The timeout limits the damage.
-- **No authentication.** The RPC gateway binds `127.0.0.1` only; the TV root
-  channel binds `0.0.0.0:31337` and is intentionally a LAN-wide root backdoor.
-  Restrict it at the router or rebuild the payload with a bind address.
-- **Hardcoded firmware constants** (`init_task`, offsets, Image base). Documented
-  as per-firmware; re-measure on another model.
-- **Hardcoded payload md5** in `deploy.sh` and `uninstall.sh`. Update both when
-  the payload changes, or the deploy correctly refuses to install it.
-- **Wedged TV stubs are now cleared with an `RSET` sentinel** on the RPC gateway
-  (was: restart the server). `physmap.reset_stub()` returns `OK`/`IDLE`; the
-  gateway drops the paired socket so the next page load pairs cleanly. Stubs are
-  single-use for `op 7`, and `op 8` must never be sent to a stub already turned
-  into a shell by `op 5`.
-- **Log rotation keeps one generation** (`logs/shell.log` → `logs/shell.log.1`);
-  enough for a research tool, not for a long-running service.
-- **Runtime output is now confined to `server/logs/`** (server.out/err,
-  shell.log, beacons.log, tv/). The toolkit directory stays clean, `logs/` is
-  git-ignored, and the HTTP server refuses `/logs/**` with 404 so the directory
-  is never served to the LAN. The page's `/save` dumps are pruned to the newest
-  100 (`TV_OUTPUT_KEEP`), which fixes the earlier pile-up of `tv_output_*.txt`
-  in `server/`.
-- **Manual TV steps remain** (open the page, reboot) — by design; there is no
-  paired remote-control channel.
-- **License not chosen** — author decision. `NOTICE.md` covers third-party
-  attribution only.
-- **Task-list corruption under churn** (measured): after many forks
-  on a warm system, `init_task.tasks` was broken in **both** directions
-  (`prev` at varying hops, `next` after one node). Neither the app payload nor
-  the browser `kroot` path can find a task while that lasts; a reboot clears
-  it. v6 avoids the self-inflicted orphans but does not repair a corrupted
-  list.
-- **pid-hash / IDR locator is BLOCKED (measured).** The planned
-  robust fix needs kernel symbols or a pid map, and this unit provides neither:
-  - *Symbols:* the shipped `uImage` has **no kallsyms** (`vmlinux-to-elf` →
-    `0 candidates for kallsyms_token_table`), `/proc/kallsyms` does not exist on
-    the TV, and the GPL build (`research/sim/out/pontusml.System.map`) is a
-    different kernel (`init_task` `0xC08F72C0` vs running `0xC0957180`) whose map
-    omits the static `pid_hash`/`pidhash_shift`.
-  - *IDR route:* `init_pid_ns` **was** located through `__ksymtab` —
-    `0xC095CC70`, `level=0` — but the struct has **no `idr` field**: its fields
-    end after `proc_work`/`pid_allocated`, and `struct pid_namespace.idr` only
-    exists with `CONFIG_CHECKPOINT_RESTORE`, which this kernel does not enable.
-  - *Remaining option:* a physical scan for the task comm (`~600 MB` low-memory
-    range; slow and a bad pfn can fault). No list-independent locator is
-    implemented.
+- **No authentication on the RPC gateway**; it binds `127.0.0.1` only. The TV root
+  channel binds `0.0.0.0:31337`, which is a LAN-wide root service. The payload
+  supports an allowlist (`shared/rootchan.allow`, one IP per line, written by
+  `deploy.sh`); treat the exposure as a decision to make, not a default to accept.
+- **Single-threaded HTTP accept loop.** Fine for one TV.
+- **Hardcoded firmware constants** (`init_task`, offsets, Image base) in the
+  payload and tools. Re-measure on another model — see `docs/PORTABILITY.md`.
+- **Hardcoded hashes**: `deploy.sh` pins the payload md5 and size, so it refuses to
+  install a different build; `uninstall.sh` pins the *stock* IL/AOT md5s and refuses
+  to restore anything else. Both are deliberate. Update the deploy constants when
+  the payload changes.
+- **Log rotation keeps one generation**; enough for a research tool, not a service.
+- **Runtime output is confined to `server/logs/`** and `/logs/**` is 404, so logs
+  are never served.
+- **Manual TV steps remain** (open the page, reboot) — there is no paired
+  remote-control channel to automate them.
+- **License not chosen** — author decision; `NOTICE.md` covers attribution only.
+- **pid-hash / IDR locator is still blocked** (the shipped kernel has no kallsyms,
+  and `init_pid_ns` has no `idr` field without `CONFIG_CHECKPOINT_RESTORE`). It no
+  longer matters: the cred-pattern scan replaced it.
+- **Research-only tools ship in `tools/`** (`smack_relabel.py`, `smack_borrow.py`,
+  `find_task.py`, `dwarf_offsets.py`). They are not on the critical path; they
+  document an approach that turned out to be impossible here (`docs/FAILED.md`).
 
 ## Validation performed
 
-- `python -m py_compile` on all `tools/*.py` and `server/server.py`.
-- `bash -n` on `server/deploy.sh` and `server/uninstall.sh`.
-- Server smoke test on a non-privileged port: page/payload/scripts 200;
-  traversal 404; `/server.py` and `/shell.log` 404.
-- `root.ps1 -DryRun` and `uninstall.ps1 -DryRun`.
-- Live end-to-end deploy test on the TV (see below).
-
-## Live test (TV on)
-
-- `root.ps1 -Force -RestartServer`: fresh server, page load, stub paired;
-  `kroot` initially failed on a corrupted task list (`no PHYSRPC1 task found`),
-  which exposed the orphan-latch bug (finding #10).
-- Cold reboot → v5 rooted at boot again (channel up at 70 s).
-- Deployed **v6** over the channel: `SIZE=17920`, md5
-  `d247e67a…`, `COPY=ok`, `DEPLOY_DONE`.
-- Warm-restart test ×2 (`kill -9` the app): channel back in **11 s** and
-  **8 s**, `uid=0` both times, `md5=d247e67a…`.
-- Atomic deploy re-test through the channel: `COPY=ok`, `d247e67a…`.
-- Deployed **v8** (18,944 B, `90406c6f…`): direct `real_parent` patch + spaced
-  retries; proved that the comm/tail scans can fail on a warm system too.
-- Deployed **v9** (19,456 B, `ffdb936f…`): fast-exit retry loop. Cold boot →
-  root **38 s** (attempt 2); a boot with a badly damaged task list recovered in
-  83 s (attempt 3), where v8 had needed 11 minutes. `deploy.sh` hash/size
-  updated with it.
-- Deployed **v7** (18,432 B, `20d60719…`, allowlist + video40 retry); verified
-  the PC is allowed and the channel returns after a kill.
-- **Uninstall test passed**: `uninstall.sh` restored the stock IL
-  (`f61f60dd…`), the AOT (`6c9bdcc4…`), removed the boot row; after the reboot
-  31337 stayed closed and `uninstall.ps1` exited 0.
-- Re-rooting after uninstall exposed what *looked* like a boot-persistence
-  regression. The hypothesis recorded here at the time — "the restored stock AOT
-  was preferred" and "AUL did not start the app at boot" — was **wrong**; see the
-  entry below. AUL launched the app on every boot, and the real cause was
-  the payload DLL's SMACK label. Disabling the AOT in `deploy.sh` is still correct
-  and unrelated. The task-list corruption also noted here (`prev` dies at hop
-  5–17) is real, but it was never the reason the app did not start.
-- State during that interval: **TV unrooted**, v7 on disk — resolved.
-- **Uninstall re-verified end-to-end** now that the
-  label fix is in `uninstall.sh`: stock IL `f61f60dd…` and AOT `6c9bdcc4…`
-  restored, both relabelled `User::Pkg::com.samsung.tv.MultiControl-Service::RO`
-  (verified with `ls -lZ`), boot row removed, reload confirmed. After the
-  reboot: **31337 stayed closed, no beacons**, and the **stock app was running**
-  (`pid 2387`) with **no SMACK denial** in the audit log — so the undo path
-  leaves a bootable, working stock app, which is exactly what the earlier test
-  could not show.
-- **New finding:** after that stock restore, a root shell
-  carrying the **browser** label cannot write the app's `bin/`
-  (`touch`/`cp`/`rm` all `Permission denied`, `ls -ldZ bin` denied too), so
-  `deploy.sh` failed on every write (`COPY=ok` was printed by the old logic that
-  did not check the `cp` status — now fixed). Deployments that worked earlier
-  all ran from the **app's own channel**, whose
-  label matches the app directory. Consequence: the browser lane can *root* the
-  TV but cannot install the payload into a stock app; the payload has to come
-  from a context that carries the app label.
-- Result: v6/v7 and uninstall are proven. **The "boot
-  persistence needs the AUL fix" conclusion was wrong.** AUL did launch the app
-  on every boot (4 SMACK denials in the kernel audit log); the process died
-  before `Main` because the DLL carried the browser's SMACK label instead of the
-  app's `::RO` label, so the .NET host was denied read on its own assembly.
-  `deploy.sh` / `uninstall.sh` now set the label and verify it with `ls -lZ`
-  (plain `ls` hides the label on this Tizen). Full write-up:
-  `docs/BOOT-REGRESSION-SMACK.md`.
+- `python -m py_compile` on every `tools/*.py` and `server/server.py`; `sh -n` on
+  the shell scripts, including the generated `deploy_local.sh`.
+- Server smoke tests on a non-privileged port: page/scripts 200, traversal 404,
+  `/server.py` and `/shell.log` 404.
+- `root.ps1 -DryRun`, `uninstall.ps1 -DryRun`.
+- Live deploy over the root channel and over the browser stub, at payload versions
+  v5 through v9 (all with hash and size gated by `deploy.sh`).
+- Cold boots measured between **38 s and 47 s** to root, with no PC involvement.
+- Warm restart: `kill -9` of the app re-roots on AUL's next relaunch.
+- Uninstall end to end: stock IL/AOT restored and relabelled, boot row verified
+  gone, channel stayed closed after the reboot, stock app running with no SMACK
+  denial.
+- One-click end to end from stock (uninstall → reboot → `root.ps1` → reboot).
 
 ## Recommendation
 
-The PC/deploy path is solid enough to use as the production copy in this repo.
-Before handing it to someone else: pick a license, decide the 31337 exposure,
-and re-run the end-to-end flow on their TV/firmware (constants differ).
+The PC and deploy paths are solid enough to use as the production copy, and the
+one-click flow has been exercised from a stock TV. Before handing it to someone
+else: pick a license, decide the 31337 exposure (use the allowlist), and re-run the
+flow on their TV and firmware — the constants differ.

@@ -89,9 +89,9 @@ service app instead of a boot hook:
 - UEP checks ELF/script files, not managed IL, so the payload is invisible to
   it.
 
-The payload replaces the IL once (via the browser root channel), then at every
-boot it roots itself, writes a proof file, closes `/dev/video40`, and listens on
-TCP 31337.
+The payload replaces the IL once — from the app's own channel, or from a root shell
+that has taken the app's label — then at every boot it roots itself, writes a proof
+file, closes `/dev/video40`, and listens on TCP 31337.
 
 ## 3. The root channel
 
@@ -107,27 +107,33 @@ usable from any LAN machine.
 - AUL restarts the app after a crash; measured recovery: **~12 s**, and the new
   instance is root again.
 
-Note: binding `0.0.0.0` means anyone on the LAN has root. Restrict at the
-router or rebuild with a bind address if that matters.
+Binding `0.0.0.0` means anyone who can reach the port has root, so the payload also
+supports an allowlist: if `/opt/usr/home/owner/share/rootchan.allow` exists (one IP
+per line, written by `deploy.sh`), peers not listed are rejected. With no allowlist
+file the channel is open to all.
 
 ## What "permanent" means here
 
-> **deployed again and verified on a cold boot (31337 in 41 s).**
-> The kernel-memory relabel turned out to be unnecessary: a root shell can take the
-> app's SMACK label directly with
+> **Currently installed and verified on cold boots: the channel is up in ~40 s with
+> no PC and no browser involvement.**
+>
+> Installing it does not need the kernel-memory relabel that was originally
+> planned: a root shell can take the app's SMACK label directly with
 > `echo -n "User::Pkg::com.samsung.tv.MultiControl-Service" > /proc/self/attr/current`,
 > after which `deploy.sh` runs unchanged from that shell. `server/recover.sh`
-> packages the whole procedure (relabel -> deploy -> restart). Note that
-> `aulctl reload` does not restart a running app; `deploy.sh` now does
-> `aulctl stop` + `aulctl start` so a deploy takes effect immediately.
+> packages the whole procedure (relabel → deploy → restart).
+>
+> Two operational notes: `aulctl reload` does **not** restart a running app, so
+> `deploy.sh` does a stop+start (detached, because `aulctl stop` blocks while the
+> payload is running); and an OTA that replaces the app undoes all of this.
 
 - Boot → app starts → payload roots → channel up, no browser, no PC.
 - Kill the app → AUL restarts it → roots again, in ~12 s.
 - Verified on two consecutive cold boots and one deliberate SIGKILL.
-- **Re-verified** after the SMACK-label fix — cold boot gave
-  `start uid=5001 → self-patch uid=0 → ROOTCHAN 31337 uid=0`, and a kill/restart
-  test re-rooted in ~2 minutes (AUL restart interval). See
-  `docs/BOOT-REGRESSION-SMACK.md`.
+- After the SMACK-label fix, a cold boot gave
+  `start uid=5001 → self-patch uid=0 → ROOTCHAN 31337 uid=0`. A kill/restart test
+  re-roots on AUL's next relaunch — seconds in the common case, up to a couple of
+  minutes early in boot. See `docs/BOOT-REGRESSION-SMACK.md`.
 - **Timing, measured after v9:** cold boot → **root in ~40 s**.
   The app cannot rely on its first launch: it exits after two failed rounds
   (`self=00000000` — the task list / fresh task_structs read back stale over the
