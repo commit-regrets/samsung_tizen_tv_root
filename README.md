@@ -4,8 +4,21 @@ Unofficial security research on a 2024 Samsung Neo QLED running **Tizen 9**.
 No sdb, no developer mode, no firmware flashing: the TV is rooted from its own
 browser, and the root is made persistent through a stock on-boot service app.
 
-**Status 2026-10-22 20:40: the TV is ROOTED, and the root is persistent —
-confirmed by an owner-initiated restart, not just by the operator's own reboot.**
+**Status 2026-10-22 21:13: ROOTED, PERSISTENT, and the one-click path is verified
+end to end from a stock TV.**
+
+The full cycle was run from scratch: `uninstall.ps1` restored stock (IL
+`f61f60dd…`, AOT `6c9bdcc4…`, both relabelled, boot row deleted and verified at
+0 rows) → reboot → `31337` stayed closed on every check → `root.ps1` on the stock
+TV found the kernel and `init_task`, rooted the stub, took the app's label
+(`RELABEL=ok`), deployed (`COPY=ok`, `DLL_LABEL=…::RO`, `BOOT_ROW_COUNT=1`) and
+the payload was up in RAM seconds later → **reboot → 31337 open again at 47 s**,
+`uid=0`, no page load, no PC involvement.
+
+Earlier the same day: an owner-initiated restart also brought root back in 43 s.
+
+**Status 2026-10-22 20:40 (superseded by the above): persistent root — confirmed
+by an owner-initiated restart.**
 
 After the owner restarted the TV, the payload's first beacon appeared at
 `20:39:37`, it needed one fast-exit/relaunch cycle (v9 by design), and the root

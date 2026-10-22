@@ -62,7 +62,17 @@ Fallback (still valid, still maintained): `python tools/tv_rootwatch.py` with th
 TV browser on `http://<pc>/index.html` roots the stub and hands back a **root
 shell on 127.0.0.1:9999** — use it if the payload is ever missing again, then run
 `server/recover.sh` from that shell.
-**Automation status (20:55):** `root.ps1` could not root a stock TV as shipped —
+**VALIDATED 21:13 — the one-click path works from a stock TV.** Full cycle run
+end to end: `uninstall.ps1` (stock IL/AOT restored and relabelled, boot row
+verified at 0) → reboot, `31337` stayed closed → `root.ps1` → `RELABEL=ok`,
+`COPY=ok`, `DLL_LABEL=…::RO`, `AOT=disabled`, `BOOT_ROW_COUNT=1`, `DEPLOY_DONE`
+→ reboot → **31337 at 47 s, `uid=0`, no page, no PC**. Four fixes were needed
+along the way: the relabel prelude in the generated deploy script, the `RSET`
+race (client resent it while waiting; server evicted waiting clients), the
+detached `aulctl stop`+`start` (stop blocks while the payload runs), and SQL
+readback verification in deploy/uninstall.
+
+**Automation history (20:55, before the fix):** `root.ps1` could not root a stock TV as shipped —
 it generated `deploy_local.sh` from `deploy.sh` and ran it from the browser-labelled
 stub, whose SMACK label cannot write the app's `bin/` (`COPY=fail`, the 17:12
 finding). Fixed: the generated script now begins with a relabel prelude, which works

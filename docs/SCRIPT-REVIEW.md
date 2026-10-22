@@ -1,5 +1,14 @@
 # Script review — production readiness
 
+> **21:13 — the automated path was then validated end to end from stock.**
+> `uninstall.ps1` → reboot (`31337` stayed closed) → `root.ps1` → reboot →
+> `31337` open at **47 s**, `uid=0`, no PC. The run exercised four fixes made
+> during it: the relabel prelude in the generated script (without it the deploy
+> was `COPY=fail`), the `RSET` race on both sides, the detached stop+start
+> (`aulctl stop` blocks while the payload runs and was hanging the script before
+> `DEPLOY_DONE`), and the readback verification of the `boot_sequence` writes
+> (`BOOT_ROW_COUNT=1` / `remain=0`).
+>
 > **21:05 — two race/blocking bugs found while testing the automated path.**
 > (1) My own `RSET` client helper resent RSET on every failed attach, so a stub
 > that connected between two attempts was destroyed the instant it appeared —
