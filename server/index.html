@@ -1,0 +1,61 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>physrpc</title>
+<style>
+  body { background:#111; color:#ddd; font-family:monospace; margin:0; padding:8px; }
+  #log { width:100%; height:80vh; background:#000; color:#0f0; border:1px solid #333; font-family:monospace; font-size:13px; }
+  #st { color:#ff0; font-size:13px; margin-bottom:6px; }
+  #hint { color:#888; font-size:12px; margin:4px 0 8px 0; }
+</style>
+</head>
+<body>
+<div id="st">physrpc loading</div>
+<div id="hint">RUNNING = the payload is executing here. Root success is reported on
+the PC console, not on this page. This page may freeze after RUNNING - that is
+expected, leave it alone.</div>
+<textarea id="log" readonly></textarea>
+<script>
+(function () {
+  var box = document.getElementById('log');
+  var st  = document.getElementById('st');
+  function W(s) { box.value += s + "\n"; box.scrollTop = box.scrollHeight; }
+  window.saveOutput = function (t) {
+    try { var x = new XMLHttpRequest(); x.open('POST', '/save', true); x.send(t || box.value); } catch (e) {}
+  };
+  window.onerror = function (m, src, ln) { W('JSERR ' + m + ' @' + ln); try { saveOutput('JSERR ' + m); } catch(e){} };
+
+  W('HARNESS_UP ' + new Date().toISOString());
+  saveOutput('HARNESS_UP ' + new Date().toISOString());
+  st.textContent = 'loading wasm_builder ...';
+
+  var w = document.createElement('script');
+  w.src = 'lib/wasm_builder.js?v=5';
+  w.onerror = function () { W('WASM_ERR'); saveOutput('WASM_ERR'); st.textContent = 'wasm error'; };
+  w.onload = function () {
+    W('WASM_LOADED');
+    saveOutput('WASM_LOADED ' + new Date().toISOString());
+    st.textContent = 'loading payload ...';
+    var s = document.createElement('script');
+    s.src = 'payloads/browser_payload.js?v=1&t=' + Date.now();
+    s.onerror = function () { W('PAYLOAD_ERR'); saveOutput('PAYLOAD_ERR'); st.textContent = 'payload error'; };
+    s.onload = function () {
+      W('PAYLOAD_LOADED');
+      saveOutput('PAYLOAD_LOADED ' + new Date().toISOString());
+      if (typeof window.runPayload_fn !== 'function') {
+        W('NO_RUNPAYLOAD'); saveOutput('NO_RUNPAYLOAD'); st.textContent = 'no runPayload_fn'; return;
+      }
+      W('RUNNING');
+      st.textContent = 'running ...';
+      window.saveOutput(box.value);
+      Promise.resolve().then(function () { return window.runPayload_fn(); })
+        .then(function () { W('RETURNED'); st.textContent = 'returned'; })
+        .catch(function (e) { W('THREW ' + e); st.textContent = 'threw'; });
+    };
+    document.body.appendChild(s);
+  };
+  document.body.appendChild(w);
+})();
+</script>
+</body></html>

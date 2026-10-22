@@ -1,0 +1,6 @@
+# Python dependencies for the PC-side tools.
+# The runtime root/deploy path needs only the standard library.
+# These are required only to rebuild the browser stub (tools/build_physrpc.py).
+
+keystone-engine>=0.9.2
+capstone>=5.0.0
