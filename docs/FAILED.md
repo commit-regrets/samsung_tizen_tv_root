@@ -94,7 +94,7 @@ was tested on the live unit; "do not retry" means it was measured, not assumed.
   330-character command killed the stub. Use `curl …/script.sh | sh`.
 - **Page reload kills the stub.** Each reload creates a new stub; never reload
   between rooting and deploying.
-- **`op 7` (RUN) is one-shot per stub** (measured 2026-10-22). The first
+- **`op 7` (RUN) is one-shot per stub** (measured). The first
   `fork+execve("/bin/sh")` works and physmap keeps working afterwards; a second
   `op 7` on the same stub times out and the stub is then deaf. Budget one shell
   batch per page load.
@@ -104,7 +104,7 @@ was tested on the live unit; "do not retry" means it was measured, not assumed.
   power-cycle, restart the server anyway (no FIN arrives, so the old socket
   looks alive).
 
-## Kernel-memory SMACK relabel — attempted, not finished (2026-10-22 17:40)
+## Kernel-memory SMACK relabel — attempted, not finished
 
 `tools/smack_relabel.py` implements the only route back to on-device persistence:
 make our task carry the app's label, then deploy normally. Design and live
@@ -126,7 +126,7 @@ with the sanity check, and stop at the first hit that satisfies comm + cred +
 `task->security`'s label string. Do not re-run on a stub that already served a
 scan or an `op 7`.
 
-## SMACK — RESOLVED 18:52, and the kernel route was never needed
+## SMACK — resolved, and the kernel route was never needed
 
 **The userspace relabel works.** From a root shell with the patched cred
 (full caps), this succeeds:
@@ -135,8 +135,8 @@ scan or an `op 7`.
 echo -n "User::Pkg::com.samsung.tv.MultiControl-Service" > /proc/self/attr/current
 ```
 
-and the shell then carries the app's label - measured twice at 18:48. The earlier
-"`/proc/self/attr/current` is denied by `smack_onlycap`" note (15:23) was wrong or
+and the shell then carries the app's label - measured twice. The earlier
+"`/proc/self/attr/current` is denied by `smack_onlycap`" note was wrong or
 context-dependent; retest it before believing it. With the label set, the app's
 `bin/` is writable (its parent is `User::Home` **transmute=TRUE**), so
 `deploy.sh` runs unchanged from that shell and reports `COPY=ok`,
@@ -153,7 +153,7 @@ Two things that made this look impossible for hours:
 And `aulctl reload` does **not** restart an already-running app - `aulctl stop`
 then `aulctl start` is what loads the new DLL.
 
-## Kernel-memory SMACK relabel — outcome 2026-10-22 18:42
+## Kernel-memory SMACK relabel — outcome
 
 Attempted properly; **not finished**, and the remaining obstacle is now precise.
 Full analysis: lab `research/SMACK-RELABEL-2026-10-22.md`; tools
@@ -194,9 +194,9 @@ kernel's DWARF, and four of them matched the TV exactly (comm +0x400, cred +0x3F
 real_parent +0x2F0, tasks +0x23C) - so the sim is a valid layout source, with the
 caveat that later members differ (the sim has `CONFIG_KEYS=n`, the TV has keyrings).
 
-## How the payload was originally installed (answered 2026-10-22 17:25)
+## How the payload was originally installed (answered)
 
-The first swap (2026-10-22 00:2x) was an **in-place overwrite**, not a copy:
+The first swap was an **in-place overwrite**, not a copy:
 
 ```
 cat /opt/usr/home/owner/share/mcs.dll > <app>/bin/MultiControlService.dll
@@ -226,14 +226,14 @@ owns. Two consequences:
 Also learned: `chsmack <path>` with **no options prints** the label
 (`access="..." transmute="..."`); my earlier `chsmack -p` was simply wrong.
 
-## The app lane is one-way from a stock TV (2026-10-22 17:12) — SUPERSEDED 18:51
+## The app lane is one-way from a stock TV — superseded
 
 > **Superseded.** The conclusion below was right about *the browser label* and
-> wrong about the *possibility of re-installing*. At 18:48 a root shell was found
-> to take the app's label directly with
+> wrong about the *possibility of re-installing*. A root shell can take the
+> app's label directly with
 > `echo -n "User::Pkg::com.samsung.tv.MultiControl-Service" > /proc/self/attr/current`,
 > after which `deploy.sh` writes the payload as the app's own file. The payload
-> was reinstalled at 18:51 and verified on a cold boot (31337 in 41 s). See
+> was reinstalled and verified on a cold boot (31337 in 41 s). See
 > `docs/ROOT-METHODS.md` and `server/recover.sh`. The text below is kept as the
 > accurate record of why the obvious route fails.
 
@@ -254,14 +254,14 @@ are labelled `User::App::Shared` and writable (`appbinarymanager`, `appdrm`,
 
 Consequence, and the important lesson: **once the payload is removed, the
 browser lane can root the TV but cannot put the payload back.** Every deploy that
-worked (15:56, 16:33, 16:48, 16:53) ran from the **app's own 31337 channel**,
+worked ran from the **app's own 31337 channel**,
 whose process label matches the app directory. The first install therefore has to
 come from a context that already carries the app label, or from a write primitive
 the installer grants (it refuses to overwrite existing files), or from a SMACK
 relabel done in kernel memory. Do not uninstall "just to re-test" without a plan
 to get the label back.
 
-## Misdiagnosis trap (2026-10-22, cost most of a day)
+## Misdiagnosis trap (cost most of a day)
 
 **"AUL does not start the app at boot" was false.** The symptom — no beacon
 after boot, `aulctl` row present, app absent from `ps` — looks exactly like a

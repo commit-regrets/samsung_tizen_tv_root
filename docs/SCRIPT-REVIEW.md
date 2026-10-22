@@ -1,6 +1,6 @@
 # Script review — production readiness
 
-> **21:13 — the automated path was then validated end to end from stock.**
+> **The automated path was validated end to end from stock.**
 > `uninstall.ps1` → reboot (`31337` stayed closed) → `root.ps1` → reboot →
 > `31337` open at **47 s**, `uid=0`, no PC. The run exercised four fixes made
 > during it: the relabel prelude in the generated script (without it the deploy
@@ -9,7 +9,7 @@
 > `DEPLOY_DONE`), and the readback verification of the `boot_sequence` writes
 > (`BOOT_ROW_COUNT=1` / `remain=0`).
 >
-> **21:05 — two race/blocking bugs found while testing the automated path.**
+> **two race/blocking bugs found while testing the automated path.**
 > (1) My own `RSET` client helper resent RSET on every failed attach, so a stub
 > that connected between two attempts was destroyed the instant it appeared —
 > that is what blanked the page during the test. Fixed client-side (no RSET while
@@ -20,10 +20,10 @@
 > restart is now detached (`( sleep 1; stop; sleep 3; start ) &`), so a deploy
 > always returns; if the stop hangs it hangs harmlessly in the background.
 
-> **20:55 — `root.ps1` could not actually root a stock TV.** It generated
+> **`root.ps1` could not actually root a stock TV.** It generated
 > `deploy_local.sh` straight from `deploy.sh` and ran it from the browser-labelled
 > stub, whose SMACK label cannot write the app's `bin/` — the result is
-> `COPY=fail` (exactly what happened during the 2026-10-22 recovery). Fixed: the
+> `COPY=fail` (exactly what happened during the recovery). Fixed: the
 > generated script now starts with a prelude that takes the app's label
 > (`/proc/self/attr/current`) before the deploy body. That works because
 > `auto_root.py` has already patched the stub's cred to uid 0 with full caps, so
@@ -31,7 +31,7 @@
 > starts with the relabel, and passes `sh -n`. A full unattended run still needs a
 > stock TV to exercise end to end.
 
-> **18:42 additions — server hosting/stability (see `docs/SERVER-HOSTING.md`).**
+> **Server hosting/stability (see `docs/SERVER-HOSTING.md`).**
 > `safe_accept()` now wraps every `accept()` (http, ctrl, rpc): a transient
 > `OSError` there used to end the main thread and therefore the process, with the
 > traceback going to a console nobody could see. `RSET` also drops a stale local
@@ -44,7 +44,7 @@
 > `RUNNING_AT`; `lib/wasm_builder.js?v=5` was a *static* cache key, so the TV could
 > run a stale builder against a current payload and die before logging anything.
 
-Audit of the toolkit in this repo (2026-10-22). Scope: `root.ps1`,
+Audit of the toolkit in this repo. Scope: `root.ps1`,
 `uninstall.ps1`, `server/server.py`, `server/deploy.sh`, `server/uninstall.sh`,
 and `tools/*.py`.
 
@@ -109,13 +109,13 @@ and `tools/*.py`.
   paired remote-control channel.
 - **License not chosen** — author decision. `NOTICE.md` covers third-party
   attribution only.
-- **Task-list corruption under churn** (measured 2026-10-22): after many forks
+- **Task-list corruption under churn** (measured): after many forks
   on a warm system, `init_task.tasks` was broken in **both** directions
   (`prev` at varying hops, `next` after one node). Neither the app payload nor
   the browser `kroot` path can find a task while that lasts; a reboot clears
   it. v6 avoids the self-inflicted orphans but does not repair a corrupted
   list.
-- **pid-hash / IDR locator is BLOCKED (measured 2026-10-22).** The planned
+- **pid-hash / IDR locator is BLOCKED (measured).** The planned
   robust fix needs kernel symbols or a pid map, and this unit provides neither:
   - *Symbols:* the shipped `uImage` has **no kallsyms** (`vmlinux-to-elf` →
     `0 candidates for kallsyms_token_table`), `/proc/kallsyms` does not exist on
@@ -139,7 +139,7 @@ and `tools/*.py`.
 - `root.ps1 -DryRun` and `uninstall.ps1 -DryRun`.
 - Live end-to-end deploy test on the TV (see below).
 
-## Live test (2026-10-22, TV on)
+## Live test (TV on)
 
 - `root.ps1 -Force -RestartServer`: fresh server, page load, stub paired;
   `kroot` initially failed on a corrupted task list (`no PHYSRPC1 task found`),
@@ -164,12 +164,12 @@ and `tools/*.py`.
 - Re-rooting after uninstall exposed what *looked* like a boot-persistence
   regression. The hypothesis recorded here at the time — "the restored stock AOT
   was preferred" and "AUL did not start the app at boot" — was **wrong**; see the
-  15:55 entry below. AUL launched the app on every boot, and the real cause was
+  entry below. AUL launched the app on every boot, and the real cause was
   the payload DLL's SMACK label. Disabling the AOT in `deploy.sh` is still correct
   and unrelated. The task-list corruption also noted here (`prev` dies at hop
   5–17) is real, but it was never the reason the app did not start.
-- State during that interval: **TV unrooted**, v7 on disk — resolved at 15:55.
-- **Uninstall re-verified end-to-end (2026-10-22 16:56–17:03)** now that the
+- State during that interval: **TV unrooted**, v7 on disk — resolved.
+- **Uninstall re-verified end-to-end** now that the
   label fix is in `uninstall.sh`: stock IL `f61f60dd…` and AOT `6c9bdcc4…`
   restored, both relabelled `User::Pkg::com.samsung.tv.MultiControl-Service::RO`
   (verified with `ls -lZ`), boot row removed, reload confirmed. After the
@@ -177,23 +177,23 @@ and `tools/*.py`.
   (`pid 2387`) with **no SMACK denial** in the audit log — so the undo path
   leaves a bootable, working stock app, which is exactly what the earlier test
   could not show.
-- **New finding (2026-10-22 17:07):** after that stock restore, a root shell
+- **New finding:** after that stock restore, a root shell
   carrying the **browser** label cannot write the app's `bin/`
   (`touch`/`cp`/`rm` all `Permission denied`, `ls -ldZ bin` denied too), so
   `deploy.sh` failed on every write (`COPY=ok` was printed by the old logic that
   did not check the `cp` status — now fixed). Deployments that worked earlier
-  (15:56, 16:33, 16:48, 16:53) all ran from the **app's own channel**, whose
+  all ran from the **app's own channel**, whose
   label matches the app directory. Consequence: the browser lane can *root* the
   TV but cannot install the payload into a stock app; the payload has to come
   from a context that carries the app label.
-- Result: v6/v7 and uninstall are proven. **2026-10-22 15:55 — the "boot
+- Result: v6/v7 and uninstall are proven. **The "boot
   persistence needs the AUL fix" conclusion was wrong.** AUL did launch the app
   on every boot (4 SMACK denials in the kernel audit log); the process died
   before `Main` because the DLL carried the browser's SMACK label instead of the
   app's `::RO` label, so the .NET host was denied read on its own assembly.
   `deploy.sh` / `uninstall.sh` now set the label and verify it with `ls -lZ`
   (plain `ls` hides the label on this Tizen). Full write-up:
-  `docs/BOOT-REGRESSION-SMACK-2026-10-22.md`.
+  `docs/BOOT-REGRESSION-SMACK.md`.
 
 ## Recommendation
 

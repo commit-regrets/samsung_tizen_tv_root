@@ -1,6 +1,6 @@
 # Remote control and hotkey remapping
 
-**Status: investigation only (2026-10-22). Nothing here has been implemented or
+**Status: investigation only. Nothing here has been implemented or
 tested on the TV yet.** It records what was found while looking at whether the
 remote's dedicated app buttons (Netflix / Prime Video / Samsung TV Plus /
 Disney+) can be repointed to another app.

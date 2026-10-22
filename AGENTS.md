@@ -1,13 +1,14 @@
 # AGENTS.md — hand-off for the next agent or human
 
 You are continuing a **Samsung Tizen 9 TV root** project. Read this file first,
-then `docs/EXPLOIT.md` (how it works), `docs/ROOT-METHODS.md` (what was found),
-`docs/FAILED.md` (do not repeat these) and `docs/REMOTE.md` (remote/hotkey
-remapping).x`
+then `docs/EXPLOIT.md` (how it works), `docs/USAGE.md` (running it),
+`docs/ROOT-METHODS.md` (what was found), `docs/FAILED.md` (do not repeat these),
+`docs/SERVER-HOSTING.md` (the PC-side server) and `docs/REMOTE.md`
+(remote/hotkey remapping).
 
-## 1. Current state (2026-10-22)
+## 1. Current state
 
-**STATUS 2026-10-22 20:40 — ROOTED, PERSISTENT, confirmed across an owner-initiated
+**STATUS — ROOTED, PERSISTENT, confirmed across an owner-initiated
 TV restart (43 s from first beacon to `31337`, `uid=0`, no PC involvement).**
 
 The payload's boot sequence needs one fast-exit + AUL relaunch by design: beacons
@@ -44,25 +45,25 @@ physical scan for "MultiControl" was doomed. And the app is invisible in the
 browser shell's PID namespace, so `/proc` looks empty while `aulctl status` shows
 it running; use `aulctl status <appid>` for its pid.
 
-Verified end-to-end 18:51: `reboot` → 31337 listening **41 s** later → `uid=0`,
+Verified end-to-end: `reboot` → 31337 listening **41 s** later → `uid=0`,
 `uptime` 1 min, `/opt/usr/system/dsh_root_proof.txt` rewritten by that boot.
 
 The day's history: permanent root was achieved and verified twice
-(`docs/BOOT-REGRESSION-SMACK-2026-10-22.md`), **deliberately removed by the
+(`docs/BOOT-REGRESSION-SMACK.md`), **deliberately removed by the
 verified uninstall test** to prove the undo path, and then **restored and
-re-verified on a cold boot (18:51, 41 s)**. The restore did not need the
+re-verified on a cold boot (41 s)**. The restore did not need the
 kernel-memory relabel at all — see the two traps above: a root shell can take the
 app's label via `/proc/self/attr/current`, and the payload is then written by
 `deploy.sh` as the app's own file.
 
-Superseded claim: "re-installing is not possible from the browser lane" (17:12)
+Superseded claim: "re-installing is not possible from the browser lane"
 was true *only* while we did not know the userspace relabel works. It does.
 
 Fallback (still valid, still maintained): `python tools/tv_rootwatch.py` with the
 TV browser on `http://<pc>/index.html` roots the stub and hands back a **root
 shell on 127.0.0.1:9999** — use it if the payload is ever missing again, then run
 `server/recover.sh` from that shell.
-**VALIDATED 21:13 — the one-click path works from a stock TV.** Full cycle run
+**Validated: the one-click path works from a stock TV.** Full cycle run
 end to end: `uninstall.ps1` (stock IL/AOT restored and relabelled, boot row
 verified at 0) → reboot, `31337` stayed closed → `root.ps1` → `RELABEL=ok`,
 `COPY=ok`, `DLL_LABEL=…::RO`, `AOT=disabled`, `BOOT_ROW_COUNT=1`, `DEPLOY_DONE`
@@ -72,10 +73,9 @@ race (client resent it while waiting; server evicted waiting clients), the
 detached `aulctl stop`+`start` (stop blocks while the payload runs), and SQL
 readback verification in deploy/uninstall.
 
-**Automation history (20:55, before the fix):** `root.ps1` could not root a stock TV as shipped —
+**Before the fix:** `root.ps1` could not root a stock TV as shipped —
 it generated `deploy_local.sh` from `deploy.sh` and ran it from the browser-labelled
-stub, whose SMACK label cannot write the app's `bin/` (`COPY=fail`, the 17:12
-finding). Fixed: the generated script now begins with a relabel prelude, which works
+stub, whose SMACK label cannot write the app's `bin/` (`COPY=fail`, the cross-label finding). Fixed: the generated script now begins with a relabel prelude, which works
 because `auto_root.py` patches the stub's cred to uid 0 first, so the forked shell
 is root. Generation is verified (LF-only, `sh -n` clean); the full unattended run
 has not been exercised on a stock TV since the fix — if it ever fails there, the
@@ -101,10 +101,10 @@ job goes away, which makes the TV page go blank. It now runs as task
   forking, scan up to 20 s for a *new* one, validate the cred uid before
   patching, keep the landmark alive for 120 s (tested 2×: 11 s / 8 s).
 - Verified: two cold boots, a deliberate `kill -9`, and two v6 warm restarts.
-- **Re-verified 2026-10-22 15:55** after the SMACK-label fix: cold boot →
+- **Re-verified** after the SMACK-label fix: cold boot →
   `start uid=5001` → `self-patch uid=0` → `ROOTCHAN 31337 uid=0`; `chan.py "id"`
   returns `uid=0` under the app's label; kill → AUL restart → re-rooted.
-  Full write-up: `docs/BOOT-REGRESSION-SMACK-2026-10-22.md`.
+  Full write-up: `docs/BOOT-REGRESSION-SMACK.md`.
 - The previous payloads (v2 13 KB, v4 16,896 B `B6886C60…`) are broken: they
   patched a forked child's cred (a **copy**) and rejected LPAE pointers above
   `0xE0000000`.
@@ -392,13 +392,12 @@ that downloads it) and reboot. Things to preserve when editing `Program.cs`:
   all interfaces.
 - ~~Retry `open("/dev/video40")` instead of sleeping 120 s~~ — **done in v7**
   (120 s retry), so a browser stub holding the device no longer costs a cycle.
-- ~~Replace the task-list walk with a list-independent locator~~ — **done
-  2026-10-22**: `tools/scan_cred.py` finds creds by content
+- ~~Replace the task-list walk with a list-independent locator~~ — **done**: `tools/scan_cred.py` finds creds by content
   (`ids = 5001,100 ×4` at `cred+4`, refcount-checked) and patches them; 253
   creds were rooted in one pass with no task list at all. The walk is still used
   when it happens to work (fresh stub), and the pid-hash/IDR routes remain
   blocked for the reasons recorded below.
-  **pid-hash/IDR are both blocked (measured 2026-10-22):** the shipped `uImage`
+  **pid-hash/IDR are both blocked (measured):** the shipped `uImage`
   has no kallsyms (`vmlinux-to-elf` → `0 candidates for kallsyms_token_table`),
   `/proc/kallsyms` does not exist, and the GPL build is a different kernel whose
   System.map omits static `pid_hash`/`pidhash_shift` (`init_task` `0xC08F72C0`
@@ -430,5 +429,5 @@ that downloads it) and reboot. Things to preserve when editing `Program.cs`:
 * **Recovery:** `server/recover.sh` — paste it into a root shell on the TV
   (`curl -s http://<pc>/recover.sh | sh`) to reinstall the payload end-to-end: it
   takes the app's SMACK label via `/proc/self/attr/current`, runs `deploy.sh`, and
-  `deploy.sh` restarts the app so the new DLL loads. Verified 2026-10-22 18:51 on
+  `deploy.sh` restarts the app so the new DLL loads. Verified on
   a cold boot (31337 in 41 s, no PC involvement).

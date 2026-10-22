@@ -80,7 +80,7 @@ service app instead of a boot hook:
   assembly — the .NET host aborts before `Main` and it looks like the app was
   never launched. `server/deploy.sh` sets the label and verifies it with
   `ls -lZ` (plain `ls` hides the label); `server/uninstall.sh` relabels the
-  stock files. See `docs/BOOT-REGRESSION-SMACK-2026-10-22.md`.
+  stock files. See `docs/BOOT-REGRESSION-SMACK.md`.
 - The app-boot manager starts it at boot; its row lives in
   `/opt/dbspace/user/5001/.appsvc.db` (`boot_sequence`), with `app_onboot` in
   `/opt/dbspace/.pkgmgr_parser.db`.
@@ -112,7 +112,7 @@ router or rebuild with a bind address if that matters.
 
 ## What "permanent" means here
 
-> **2026-10-22 18:52 — deployed again and verified on a cold boot (31337 in 41 s).**
+> **deployed again and verified on a cold boot (31337 in 41 s).**
 > The kernel-memory relabel turned out to be unnecessary: a root shell can take the
 > app's SMACK label directly with
 > `echo -n "User::Pkg::com.samsung.tv.MultiControl-Service" > /proc/self/attr/current`,
@@ -124,11 +124,11 @@ router or rebuild with a bind address if that matters.
 - Boot → app starts → payload roots → channel up, no browser, no PC.
 - Kill the app → AUL restarts it → roots again, in ~12 s.
 - Verified on two consecutive cold boots and one deliberate SIGKILL.
-- **2026-10-22 15:55:** re-verified after the SMACK-label fix — cold boot gave
+- **Re-verified** after the SMACK-label fix — cold boot gave
   `start uid=5001 → self-patch uid=0 → ROOTCHAN 31337 uid=0`, and a kill/restart
   test re-rooted in ~2 minutes (AUL restart interval). See
-  `docs/BOOT-REGRESSION-SMACK-2026-10-22.md`.
-- **Timing, measured after v9 (2026-10-22 16:52):** cold boot → **root in ~40 s**.
+  `docs/BOOT-REGRESSION-SMACK.md`.
+- **Timing, measured after v9:** cold boot → **root in ~40 s**.
   The app cannot rely on its first launch: it exits after two failed rounds
   (`self=00000000` — the task list / fresh task_structs read back stale over the
   physmap early in boot). From v9 the app therefore **exits on purpose** after a

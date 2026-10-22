@@ -1,4 +1,4 @@
-# Boot-persistence regression — ROOT CAUSE AND FIX (2026-10-22 15:55)
+# Boot-persistence regression — ROOT CAUSE AND FIX
 
 **Status: RESOLVED. The TV is rooted again, root returns by itself at every
 boot, and 31337 is up.** This supersedes the "UNROOTED" state in
@@ -149,7 +149,7 @@ it re-roots and 31337 is back.
 * **`chsmack` works without CAP_MAC_ADMIN when the file's current label equals
   the caller's** (relabel-your-own-object). Changing *our own* label via
   `/proc/self/attr/current` is **denied** even as uid 0 — Tizen's
-  > **Correction 2026-10-22 18:48:** the claim below that
+  > **Correction:** the claim below that
 > `/proc/self/attr/current` is always denied is **wrong**. A root task with the
 > patched cred (uid 0 + full caps) *can* write its own label - measured twice, and
 > that is what restored the payload. Treat "denied by smack_onlycap" as
@@ -172,7 +172,7 @@ Repl "$lab\AGENTS.md" @'
 
 ## What is left
 
-1. DONE (2026-10-22 15:57): the two script fixes, this write-up and a
+1. DONE: the two script fixes, this write-up and a
    list-independent root tool (`tools/scan_cred.py`) are in the production repo
    `samsung_tv_root`; `AGENTS.md`, `README.md` and `docs/SCRIPT-REVIEW.md` there
    were corrected (the earlier "AUL does not start the app" claim is marked as
