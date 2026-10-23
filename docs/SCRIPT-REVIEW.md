@@ -63,9 +63,13 @@ document is about the scripts as they are now.
 - **pid-hash / IDR locator is still blocked** (the shipped kernel has no kallsyms,
   and `init_pid_ns` has no `idr` field without `CONFIG_CHECKPOINT_RESTORE`). It no
   longer matters: the cred-pattern scan replaced it.
-- **Research-only tools ship in `tools/`** (`smack_relabel.py`, `smack_borrow.py`,
-  `find_task.py`, `dwarf_offsets.py`). They are not on the critical path; they
-  document an approach that turned out to be impossible here (`docs/FAILED.md`).
+- **Two tools in `tools/` cannot run from this repo as-is.** `find_task.py` imports
+  `smack_borrow`, which lives only in the reference tree, and `smack_relabel.py`
+  belongs to the same dead-end kernel-relabel path (`docs/FAILED.md`). Treat both
+  as reference-only, or port `smack_borrow` in before using them.
+  `dwarf_offsets.py` also lives only in the reference tree (`recon/`), although
+  `docs/PORTABILITY.md` recommends it for re-measuring offsets on another model —
+  port it with a `--vmlinux` argument if that work starts.
 
 ## Validation performed
 

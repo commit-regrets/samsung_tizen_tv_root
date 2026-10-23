@@ -10,10 +10,19 @@ entry is an incomplete change. `AGENTS.md` repeats this rule for agents.
 
 ---
 
-## Unreleased
+## 2026-10-23
+
+An independent code review landed: `tools/sim_rpc.py` plus a `patch_full` fix, the
+triaged work list in `docs/OPEN-ISSUES.md`, and the repo hygiene below.
 
 ### Added
 
+- `tools/sim_rpc.py` — in-memory physmap RPC (read/write32/readmany) so
+  `kernel_root.patch_full`, `_sane_cred` and the owner-cred scan pattern can be
+  exercised without a TV. The research QEMU kernel never reached userspace, so
+  this is the offline stand-in; `python tools/sim_rpc.py` is the self-test.
+  Layout constants match the TV and the pontusml DWARF dump (`cred.uid +4`,
+  `cap_inheritable +0x28`).
 - `CHANGELOG.md` (this file), plus a rule in `AGENTS.md`: any future change must be
   recorded here with its reasoning. The dated narrative that had accumulated in
   `AGENTS.md` and the docs now lives here; those files describe the current state and
@@ -25,6 +34,24 @@ entry is an incomplete change. `AGENTS.md` repeats this rule for agents.
   narrative history paragraph became a pointer to this file.
 - `README.md` documentation index lists the changelog.
 
+### Fixed
+
+- `kernel_root.patch_full` verified uid by reading `cred+40` (`cap_inheritable`)
+  instead of `cred+4`. The ids and caps were already patched; a non-zero
+  inheritable made `--fork`, `tv_rootwatch.py` and `scan_cred.py --patch`
+  report failure and skip the shell. Readback now uses uid at +4 and the
+  named cap offsets.
+- **`server/index.html` was the pre-fix copy.** The service-worker unregister, the
+  dynamic `?v=` cache key and the `RUNNING_AT` marker existed only in the working
+  tree used for testing; the shipped file still loaded
+  `lib/wasm_builder.js?v=5`. The tested page is now in the repo (this is the bug
+  that once made the TV run a stale builder and die before logging).
+- **Repo hygiene:** `payload/out10`–`out13` (16 build artifacts, ~690 KB) were
+  committed by accident; they are untracked again and `payload/out*/` is ignored
+  (only `server/payload.dll` is tracked). Stale constants fixed: `AGENTS.md` said
+  payload "v7", 36 files and `SIZE=17920`/`d247e67a…`; `.gitignore` said 18 KB;
+  `docs/SCRIPT-REVIEW.md` and `docs/PORTABILITY.md` implied
+  `smack_borrow.py`/`dwarf_offsets.py` ship in `tools/` (they do not).
 ---
 
 ## 2026-10-22

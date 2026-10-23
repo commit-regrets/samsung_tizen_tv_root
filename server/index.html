@@ -28,17 +28,31 @@ expected, leave it alone.</div>
 
   W('HARNESS_UP ' + new Date().toISOString());
   saveOutput('HARNESS_UP ' + new Date().toISOString());
+  st.textContent = 'clearing caches ...';
+
+  // A service worker or a stale cached builder is the one way this page can run
+  // old code against a new payload and die before it logs anything.
+  var V = String(Date.now());
+  try {
+    if (navigator.serviceWorker && navigator.serviceWorker.getRegistrations) {
+      navigator.serviceWorker.getRegistrations().then(function (rs) {
+        rs.forEach(function (r) { try { r.unregister(); } catch (e) {} });
+        W('SW_UNREG ' + rs.length);
+      }).catch(function (e) { W('SW_ERR ' + e); });
+    }
+  } catch (e) { W('SW_NA ' + e); }
+
   st.textContent = 'loading wasm_builder ...';
 
   var w = document.createElement('script');
-  w.src = 'lib/wasm_builder.js?v=5';
+  w.src = 'lib/wasm_builder.js?v=' + V;
   w.onerror = function () { W('WASM_ERR'); saveOutput('WASM_ERR'); st.textContent = 'wasm error'; };
   w.onload = function () {
     W('WASM_LOADED');
     saveOutput('WASM_LOADED ' + new Date().toISOString());
     st.textContent = 'loading payload ...';
     var s = document.createElement('script');
-    s.src = 'payloads/browser_payload.js?v=1&t=' + Date.now();
+    s.src = 'payloads/browser_payload.js?v=' + V;
     s.onerror = function () { W('PAYLOAD_ERR'); saveOutput('PAYLOAD_ERR'); st.textContent = 'payload error'; };
     s.onload = function () {
       W('PAYLOAD_LOADED');
@@ -49,9 +63,13 @@ expected, leave it alone.</div>
       W('RUNNING');
       st.textContent = 'running ...';
       window.saveOutput(box.value);
+      // If the renderer dies inside the exploit this is the last line we ever
+      // get, so record it distinctly - it separates "crashed in the exploit"
+      // from "never started".
+      saveOutput('RUNNING_AT ' + new Date().toISOString());
       Promise.resolve().then(function () { return window.runPayload_fn(); })
-        .then(function () { W('RETURNED'); st.textContent = 'returned'; })
-        .catch(function (e) { W('THREW ' + e); st.textContent = 'threw'; });
+        .then(function () { W('RETURNED'); saveOutput('RETURNED'); st.textContent = 'returned'; })
+        .catch(function (e) { W('THREW ' + e); saveOutput('THREW ' + e); st.textContent = 'threw'; });
     };
     document.body.appendChild(s);
   };

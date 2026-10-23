@@ -74,7 +74,7 @@ These are the values that are *specific to the kernel build* and must be redone:
 | `PHYS_OFFSET` | `0x20000000` | ARM32 LPAE: usually `0x20000000` on 5.4 Samsung TV kernels; confirm with the Image signature |
 | Kernel Image phys | `0x20008000` | `PHYS_OFFSET + 0x8000`; find by signature scan |
 | `init_task` | `0xC0957180` | via `__ksymtab` (kallsyms is absent on retail builds) — see `tools/` |
-| `task_struct`: `tasks` / `comm` / `cred` / `real_parent` | `0x23C` / `0x400` / `0x3F8` / `0x2F0` | GPL source + `.config`, or DWARF from a matching build — `tools/dwarf_offsets.py` |
+| `task_struct`: `tasks` / `comm` / `cred` / `real_parent` | `0x23C` / `0x400` / `0x3F8` / `0x2F0` | GPL source + `.config`, or DWARF from a matching build (a vmlinux with DWARF and `pyelftools`; the reference tree has the reader as `recon/dwarf_offsets.py`) |
 | `cred.security` (SMACK blob) | `+0x64` | verify live by the self-referential `smk_rules` list trick (`docs/FAILED.md`) |
 
 Two rules learned the hard way:

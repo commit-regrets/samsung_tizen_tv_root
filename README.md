@@ -71,6 +71,7 @@ part; the stage-by-stage writeup with the measured constants is
 | [`docs/PORTABILITY.md`](docs/PORTABILITY.md) | another Tizen 9 TV: the four gates, what to re-measure, what transfers |
 | [`docs/SERVER-HOSTING.md`](docs/SERVER-HOSTING.md) | the PC-side server: how it must run, the silent-death trap, firewall, logs |
 | [`docs/SCRIPT-REVIEW.md`](docs/SCRIPT-REVIEW.md) | production-readiness audit of the scripts |
+| [`docs/OPEN-ISSUES.md`](docs/OPEN-ISSUES.md) | triaged work list from the independent code review, with fix order |
 | [`docs/REMOTE.md`](docs/REMOTE.md) | remote-control / hotkey remapping investigation |
 | [`AGENTS.md`](AGENTS.md) | hand-off: tools, procedure, verification, traps, recovery |
 | [`CHANGELOG.md`](CHANGELOG.md) | dated history of what changed and why |

