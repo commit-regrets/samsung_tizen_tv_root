@@ -16,6 +16,29 @@ from `cred+40`, i.e. `cap_inheritable`; now `cred+4`, named cap offsets, proven 
 worker unregister, static `?v=5` cache key), `payload/out1*` untracked, and the
 stale doc constants (`v7` → v13, 36 → 47 files, sizes/hashes).
 
+## Environment — read before touching the TV
+
+- **Work in this repo.** The `samsungtv` tree is reference material (vendored
+  clones, firmware extract, the DWARF/kernel build). Nothing under it is needed to
+  fix the items below, and nothing there should be edited as "the toolkit".
+- **TV:** `192.168.178.175`, rooted, payload v13, channel on `31337`
+  (`python tools/root_shell.py "id" 192.168.178.175`). PC: `192.168.178.214`.
+- **The :80 server is a scheduled task (`TV-LabServer`) that currently serves the
+  LAB copy** (`samsungtv\lab_server\server.py`), not this repo. That is a drift
+  risk: a payload or script change made here is not what the TV fetches until the
+  copies are synced. Either
+  (a) stop the task and let `root.ps1` own `:80` for the test, or
+  (b) repoint the task at this repo's `server\run_server.vbs`, remembering that
+  `run_server.cmd` picks its interpreter from `TV_PY` (default `python`) and the
+  Windows firewall rule is pinned to one program path — on this PC
+  `...\pythoncore-3.14-64\pysrv.exe`.
+- **Payload builds:** any dotnet SDK ≥ 8 builds the `net6.0` project; the
+  `NETSDK1138` "out of support" warning is expected. A payload change means: rebuild,
+  update `WANT=`/size in `server/deploy.sh`, deploy over the channel, reboot, and
+  check the beacon chain — `AGENTS.md` §7/§9.
+- **Do not launch a second server** while the task's one owns `:80`; the TV would
+  fetch whichever answered.
+
 ## P0 — a promise the docs make that the code does not keep
 
 | # | Issue | Why it matters | Fix sketch | How to verify |
