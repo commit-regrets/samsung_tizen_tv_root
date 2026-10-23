@@ -80,3 +80,5 @@ tmp/
 # dotnet build scratch dirs (-o out10, out11, ...); only server/payload.dll is tracked
 payload/out*/
 python/
+# Temporary review handoff - working notes, not for publication (see docs/OPEN-ISSUES.md)
+docs/REVIEW-FINDINGS-*.md
