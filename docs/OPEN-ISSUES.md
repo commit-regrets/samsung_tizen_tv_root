@@ -41,8 +41,8 @@ P2 items are fixed as well (dead `physmap` modes removed, `MapPage` munmap,
 `TrySelfUpdate` PE check + rollback, `tv_rootwatch` python discovery + loop, the
 `physrpc.S`/blob drift, `find_task.py` runs from a clone, doc constants).
 
-**Still open:** binding 31337 to one address (`AGENTS.md` §11). Everything else on
-the review list is fixed and verified — the offline layers are
+**Still open: nothing.** The review list is fully closed, and so is the last item
+that sat outside it (`AGENTS.md` §11: 31337 binding). The offline layers are
 `python tools/test_all.py`, the on-TV layer is `--tv` (`docs/TESTING.md`).
 
 ## Second-pass review — 2026-10-24 (later)

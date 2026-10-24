@@ -413,15 +413,82 @@ internal static class Program
         }
     }
 
+    // Bind the address the TV would use to REACH the recorded PC, not 0.0.0.0.
+    // A wildcard listener is reachable from every interface the set brings up
+    // (Wi-Fi Direct, tethering, ...) even though PeerAllowed still filters the
+    // peer.  Deriving the address from the route to the PC picks the right
+    // interface by construction and needs no knowledge of the laptop's IP - the
+    // deploy that records rootchan.host is what makes it automatic.
+    // No route yet (TV offline at payload start) -> ANY, and say so: a working
+    // channel is better than a closed port on a set that may come up later.
+    static IPAddress BindAddress()
+    {
+        try
+        {
+            IPAddress pc;
+            if (!IPAddress.TryParse(HostAddr(), out pc)) return IPAddress.Any;
+            using (var probe = new Socket(AddressFamily.InterNetwork,
+                                          SocketType.Dgram, ProtocolType.Udp))
+            {
+                probe.Connect(new IPEndPoint(pc, 9));      // route lookup only
+                var local = probe.LocalEndPoint as IPEndPoint;
+                if (local != null && !local.Address.Equals(IPAddress.Any))
+                    return local.Address;
+            }
+        }
+        catch { }
+        return IPAddress.Any;
+    }
+
+    static TcpListener ListenOn(IPAddress want, out IPAddress bound)
+    {
+        try
+        {
+            var l = new TcpListener(want, 31337);
+            l.Start();
+            bound = want;
+            return l;
+        }
+        catch (Exception e)
+        {
+            Beacon("chan bind " + want + " failed (" + e.Message + "), using any");
+            var l = new TcpListener(IPAddress.Any, 31337);
+            l.Start();
+            bound = IPAddress.Any;
+            return l;
+        }
+    }
+
     static void RootChannel()
     {
         try
         {
-            var l = new TcpListener(IPAddress.Any, 31337);
-            l.Start();
-            Beacon("ROOTCHAN 31337 uid=" + getuid());
+            IPAddress bound;
+            var l = ListenOn(BindAddress(), out bound);
+            Beacon("ROOTCHAN 31337 uid=" + getuid() + " bind=" + bound);
+            // The TV's address can move (DHCP, Wi-Fi reconnect).  A fixed bind
+            // would then be a dead port until the app restarted, so re-derive it
+            // every 30 s and listen again when it changes.  Pending() polling
+            // (not a blocking accept) is what makes that possible.
+            DateTime nextCheck = DateTime.UtcNow.AddSeconds(30);
             while (true)
             {
+                if (DateTime.UtcNow >= nextCheck)
+                {
+                    nextCheck = DateTime.UtcNow.AddSeconds(30);
+                    IPAddress now = BindAddress();
+                    if (!now.Equals(bound))
+                    {
+                        try { l.Stop(); } catch { }
+                        l = ListenOn(now, out bound);
+                        Beacon("chan rebind " + bound);
+                    }
+                }
+                if (!l.Pending())
+                {
+                    Thread.Sleep(250);
+                    continue;
+                }
                 using (var c = l.AcceptTcpClient())
                 {
                     string ip = "";

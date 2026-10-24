@@ -276,6 +276,26 @@ and fixed here; the fourth needs a payload rebuild.
 - `deploy.sh`'s `WANT=`/`SIZE_WANT=` and `AGENTS.md` §1/§7, `README.md` and
   `docs/OPEN-ISSUES.md` now carry v15.
 
+### Payload v16 — 31337 binds one address, and the last item closes
+
+- The listener no longer binds `0.0.0.0`. `RootChannel` derives the TV's own
+  address from the **route to the recorded PC** (a UDP `connect` that sends no
+  packets) and binds that. No IP is hardcoded, so another person's laptop needs no
+  change: whichever address `deploy.sh` records is the one the bind follows. A
+  wildcard listener was reachable from Wi-Fi Direct/tethering even though
+  `PeerAllowed` filtered the peer; this keeps it off those interfaces.
+- It **re-derives the address every 30 s** and rebinds if it moved (the accept
+  loop polls `Pending()` so the check can run between accepts) — the failure mode
+  a fixed bind would have had on a TV that changes address. With no route yet
+  (TV offline at payload start) it falls back to `Any` and beacons
+  `chan bind … failed`, then moves to the real address when one appears.
+- Same behaviour otherwise. New size/hash: **v16, 24,064 B,
+  `ef8721881df2903f36371aaa482eed9f`**.
+- Live verification: after a `kill -9` reload and again after a mains cold boot,
+  the beacon reads `ROOTCHAN 31337 uid=0 bind=192.168.178.175` and
+  `/proc/net/tcp` shows `AFB2A8C0:7A69` LISTEN (192.168.178.175:31337), **not**
+  `00000000:7A69`; `uid=0`, `CapEff=0000003fffffffff`, md5 match, boot row intact.
+
 ---
 
 ## 2026-10-23
