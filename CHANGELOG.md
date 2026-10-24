@@ -10,6 +10,29 @@ entry is an incomplete change. `AGENTS.md` repeats this rule for agents.
 
 ---
 
+## 2026-10-25
+
+### Payload v17 — reproducible artifacts
+
+- The v16 source build and the committed `server/payload.dll` could never agree
+  after a commit: the SDK embeds the git SHA in `AssemblyInformationalVersion`
+  (`1.0.0+<sha>`), so the same code built to a different md5 at every commit, and
+  the MVID/PE timestamp followed it. `payload/BootPayload.csproj` now pins
+  `IncludeSourceRevisionInInformationalVersion=false`. Two clean builds of the
+  same source now produce the same bytes (verified), and comments never entered
+  the IL anyway.
+- The glued `SaneCred` comment is fixed in this build (it was source-only before,
+  because a rebuild without a deploy would have desynced the artifact).
+- **v17 = 23,552 B, `36d7c09f0f733cf5099b2fa591aebe5e`** (41 bytes smaller than
+  v16 purely from dropping the SHA string from the metadata).
+- Deployed over 31337 (label verified, `COPY=ok`, `BOOT_ROW_COUNT=1`, `DEPLOY_DONE`)
+  and loaded with the documented `kill -9` path: AUL respawned it in ~11 s, beacon
+  `ROOTCHAN 31337 uid=0 bind=192.168.178.175`, `uid=0`, full caps, md5 match,
+  `/proc/net/tcp` shows the single-address LISTEN.
+- `deploy.sh` `WANT=`/`SIZE_WANT=`, `AGENTS.md` §1/§5/§7/§9, `README.md` updated.
+
+---
+
 ## 2026-10-24
 
 Worked through `docs/OPEN-ISSUES.md` (triaged from the 2026-10-23 code review).

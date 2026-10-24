@@ -1,4 +1,4 @@
-# Open issues — triaged from the code review
+﻿# Open issues — triaged from the code review
 
 The review notes (`docs/REVIEW-FINDINGS-2026-10-23.md` and
 `docs/REVIEW-FINDINGS-DUMMY-SECOND-PASS.md`, both untracked and marked "do not
@@ -66,7 +66,7 @@ touched):
 |---|---|---|
 | P1 | `kernel_root.py --fork` still wrote any sane cred, uid 0 included — the browser-lane twin of old M4 (the payload was gated in v15, the Python tools were not) | **fixed**: `kernel_root.patch_ours()` reads the uid and only calls `patch_full` for 5001; a uid-0 cred is reported "already uid 0 - nothing written" and never touched. Used by `root_via_fork` and the legacy `root()`; the fork scan keeps going after a uid-0 target. Two `sim_rpc.py` cases (uid-0 untouched, 5001 patched, foreign uid skipped) |
 | P2 | `ListenOn` falls back to `0.0.0.0` when the specific bind fails (address not up yet), reopening the wildcard for up to 30 s | **accepted, not reverted**: only when the TV has no route at payload start; the beacon records it (`chan bind … failed`) and the 30 s re-derive moves to the real address. The normal case binds the LAN address immediately |
-| P3 | Glued comment in `Program.cs` 299–302 | **fixed** (source-only; comments do not enter the IL — both versions build to the same hash). Side finding: a rebuild embeds the git SHA in `AssemblyInformationalVersion` (`1.0.0+<sha>`), so its md5 differs from the committed artifact even with identical source — take `WANT=` from the new build when deploying. `IncludeSourceRevisionInInformationalVersion=false` is a v17 candidate |
+| P3 | Glued comment in `Program.cs` 299–302 | **fixed** (source-only; comments do not enter the IL — both versions build to the same hash). Side finding: a rebuild embeds the git SHA in `AssemblyInformationalVersion` (`1.0.0+<sha>`), so its md5 differs from the committed artifact even with identical source — take `WANT=` from the new build when deploying. **Pinned in v17** (`IncludeSourceRevisionInInformationalVersion=false`), so builds are now reproducible |
 
 **Do not repeat this session's mistakes:** the `:80` server MUST run as
 `pysrv.exe` — Windows firewall has inbound *Block* rules for `python.exe`, so a
