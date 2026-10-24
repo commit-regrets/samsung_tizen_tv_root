@@ -296,6 +296,32 @@ and fixed here; the fourth needs a payload rebuild.
   `/proc/net/tcp` shows `AFB2A8C0:7A69` LISTEN (192.168.178.175:31337), **not**
   `00000000:7A69`; `uid=0`, `CapEff=0000003fffffffff`, md5 match, boot row intact.
 
+### Third pass — Python cred gate, bind fallback, comment
+
+Three comments on the landed work, none of which reopen boot-to-root (PC-side
+only; the TV was left alone):
+
+- **`kernel_root.py --fork` wrote any sane cred, uid 0 included** — the
+  browser-lane twin of the old M4 (the payload was gated in v15, the Python tools
+  were not). New `kernel_root.patch_ours()` reads the uid first and only calls
+  `patch_full` for 5001; a uid-0 cred is reported as "already uid 0 - nothing
+  written" and never touched. `root_via_fork` and the legacy `root()` both use it,
+  and `root_via_fork` now keeps scanning every target after seeing a uid-0 one.
+  Two `sim_rpc.py` cases prove it: a uid-0 cred is left byte-identical, a
+  uid-5001 cred is patched, a foreign uid (1234) is skipped.
+- **`ListenOn`'s `Any` fallback** (specific bind failed, e.g. the address is not
+  up yet) leaves the wildcard open for up to 30 s. Accepted, not reverted: it
+  only happens when the TV has no route at payload start, the beacon records it
+  (`chan bind … failed`), and the 30 s re-derive moves the listener to the real
+  address. The common case (address present) binds the LAN address immediately.
+- **Glued comment in `Program.cs`** (two sentences merged) fixed. Comments do not
+  enter the IL — both versions build to the same hash — but a rebuild still
+  differs from the committed `server/payload.dll` because the SDK embeds the git
+  SHA in `AssemblyInformationalVersion` (`1.0.0+<sha>`). That is why a rebuild's
+  md5 must drive `WANT=`/`SIZE_WANT=`; noted in `AGENTS.md` §9, with
+  `IncludeSourceRevisionInInformationalVersion=false` as a v17 candidate for
+  reproducible artifacts.
+
 ---
 
 ## 2026-10-23

@@ -296,7 +296,6 @@ internal static class Program
         return false;
     }
 
-    // Mirror of kernel_root._sane_cred: a real cred lives in the direct map, has
     // Pointer-shape validation only: a real cred lives in the direct map, has a
     // small refcount and plausible ids.  Whether it is OURS is PatchCred's job
     // (uid == 5001); Python's _sane_cred is the same shape check.

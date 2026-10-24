@@ -258,6 +258,30 @@ def selftest() -> int:
         "second pass: the live cred now reads uid 0, so nothing left to patch",
     )
 
+    # kernel_root.patch_ours: the browser-lane twin of the payload's v15 gate.
+    rpc4 = MemRPC()
+    zero_cred = plant_cred(rpc4, 0x20300000, uid=0, gid=0, usage=4)
+    ours_cred = plant_cred(rpc4, 0x20301000, uid=5001, gid=100, usage=4)
+    foreign = plant_cred(rpc4, 0x20302000, uid=1234, gid=1000, usage=4)
+    caps_before = int.from_bytes(rpc4.read(zero_cred + O_CAP_PERMITTED, 8), "little")
+    ok_zero = K.patch_ours(rpc4, 0xA0000000 + zero_cred)
+    caps_after = int.from_bytes(rpc4.read(zero_cred + O_CAP_PERMITTED, 8), "little")
+    ok_ours = K.patch_ours(rpc4, 0xA0000000 + ours_cred)
+    ok_foreign = K.patch_ours(rpc4, 0xA0000000 + foreign)
+    ours_ids = struct.unpack("<8I", rpc4.read(ours_cred + 4, 32))
+    foreign_ids = struct.unpack("<8I", rpc4.read(foreign + 4, 32))
+    failed += not _check(
+        "patch_ours leaves a uid-0 cred alone",
+        ok_zero and caps_before == 0 and caps_after == 0,
+        f"returned {ok_zero}, cap_permitted {caps_before:#x} -> {caps_after:#x}",
+    )
+    failed += not _check(
+        "patch_ours writes uid 5001 only",
+        ok_ours and all(v == 0 for v in ours_ids)
+        and ok_foreign is False and foreign_ids[0] == 1234,
+        f"ours={ours_ids} foreign={foreign_ids} foreign_ok={ok_foreign}",
+    )
+
     print(flush=True)
     if failed:
         print(f"{failed} check(s) failed", flush=True)

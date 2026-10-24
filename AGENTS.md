@@ -1,4 +1,4 @@
-﻿# AGENTS.md — hand-off for the next agent or human
+# AGENTS.md — hand-off for the next agent or human
 
 You are continuing a **Samsung Tizen 9 TV root** project. Read this file first,
 then `docs/EXPLOIT.md` (how it works), `docs/USAGE.md` (running it),
@@ -89,7 +89,9 @@ may block on the network:
 - **Cred writes are ours-only (v15).** `PatchCred` refuses any cred whose uid is
   not 5001, so a bogus `real_parent`/`parent` that happens to point at init's
   cred (uid 0) is never written; a uid-0 cred counts as "already done". This is
-  the full M4 close — `SaneCred` remains the pointer-shape check.
+  the full M4 close — `SaneCred` remains the pointer-shape check. The Python
+  lane mirrors it in `kernel_root.patch_ours()` (used by `root_via_fork` and the
+  legacy `root()`); `tv_rootwatch.root_by_tail` was already gated.
 
 - **Beacons have a 500 ms connect timeout.** A stale `rootchan.host` (PC off, or
   the address moved to another subnet) used to cost TCP SYN retries inside the
@@ -418,6 +420,12 @@ that downloads it) and reboot. Things to preserve when editing `Program.cs`:
 - Validate the cred (`SaneCred`: usage, ids, physical range) **and only write it when its uid is 5001** (`PatchCred` enforces this in v15).
 - Close `_fd` after rooting, before `RootChannel()`.
 - Keep the channel line protocol and the `__END__` terminator.
+- **A rebuild is not byte-reproducible across commits.** The SDK embeds the git
+  SHA in `AssemblyInformationalVersion` (`1.0.0+<sha>`), so the md5 changes even
+  with identical source: take `WANT=`/`SIZE_WANT=` from the new artifact and
+  deploy it. Comments do not change the IL. Pin
+  `IncludeSourceRevisionInInformationalVersion=false` in the csproj if
+  reproducible artifacts ever matter (candidate for v17).
 
 ## 10. Recovery
 
