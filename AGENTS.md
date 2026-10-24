@@ -1,4 +1,4 @@
-# AGENTS.md — hand-off for the next agent or human
+﻿# AGENTS.md — hand-off for the next agent or human
 
 You are continuing a **Samsung Tizen 9 TV root** project. Read this file first,
 then `docs/EXPLOIT.md` (how it works), `docs/USAGE.md` (running it),
@@ -36,7 +36,7 @@ channel on TCP 31337 (line protocol, replies end with `__END__`).
 | | |
 |---|---|
 | Payload | v17, 23,552 B, md5 `36d7c09f0f733cf5099b2fa591aebe5e` (`server/payload.dll`, source `payload/`; host-independent) |
-| Boot-to-root | ~40 s typical; v16 cold boot rooted at 21:48:45 with `bind=192.168.178.175` (channel up at the first probe, +7 s); v14 measured 53 s from a forced reboot |
+| Boot-to-root | ~40 s typical (v14: 53 s; v16: ~33 s). The slow path is real: v17 cold boot on 2026-10-25 used all 4 fast attempts, then long-retry `round=1` rooted — channel ~3.5 min after power-on. A slow boot is the fallback working, not a dead payload: read `share/root_boot.txt` (`attempt=`, `fast-exit`, `round=`) before assuming failure |
 | Root identity | `uid=0`, `CapEff=0x3fffffffff`, running under the app's own SMACK label |
 | Boot hook | a `boot_sequence` row in `/opt/dbspace/user/5001/.appsvc.db` |
 | Device | `/dev/video40`, one RDWR opener; the app runs as uid 5001, gid 44 |
@@ -357,7 +357,7 @@ gateway, deploy/uninstall control flow, source↔blob↔page consistency). Then:
 - [ ] `root_shell.py "id" <TV_IP>` returns `uid=0(root)`.
 - [ ] `root_shell.py "cat /proc/self/status | grep CapEff" <TV_IP>` → `0000003fffffffff`.
 - [ ] `root_shell.py "md5sum /opt/usr/apps/com.samsung.tv.MultiControl-Service/bin/MultiControlService.dll" <TV_IP>` → `36d7c09f…`.
-- [ ] Cold boot with the browser closed → channel is back within ~60–90 s.
+- [ ] Cold boot with the browser closed → channel back within ~60–90 s, or up to ~4 min on the slow path (`root_boot.txt` shows 4 fast attempts + long-retry rounds, and it does root).
 - [ ] `kill -9 <app pid>` → channel back in ~12 s, still uid 0.
 - [ ] `python tools/test_all.py --tv` against a fresh page load (stub protocol
       + clamps). Details per layer: `docs/TESTING.md`.

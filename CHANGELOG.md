@@ -29,6 +29,13 @@ entry is an incomplete change. `AGENTS.md` repeats this rule for agents.
   and loaded with the documented `kill -9` path: AUL respawned it in ~11 s, beacon
   `ROOTCHAN 31337 uid=0 bind=192.168.178.175`, `uid=0`, full caps, md5 match,
   `/proc/net/tcp` shows the single-address LISTEN.
+- **Cold boot (mains) on the slow path:** the first four fast attempts failed and
+  the in-process fallback rooted on `round=1`, so the channel came up ~3.5 min
+  after power-on (`/proc/uptime` 227 s at verification). This is the designed
+  fallback when task memory is unreadable at boot, not a v17 regression (v17 is
+  metadata-only vs the 33 s v16 boot); `share/root_boot.txt` is the record when
+  the PC server is down. `AGENTS.md` §1 now says a slow boot means "read the
+  marker", not "the payload is dead".
 - `deploy.sh` `WANT=`/`SIZE_WANT=`, `AGENTS.md` §1/§5/§7/§9, `README.md` updated.
 
 ---
