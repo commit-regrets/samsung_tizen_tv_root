@@ -143,14 +143,26 @@ entry).
   covered by the extended `sim_rpc.py` self-test, together with the page-straddle
   case for the real scan generator.
 
-### Still open on this list
+### Deployed and verified on the TV
 
-`docs/OPEN-ISSUES.md` items that need the TV: deploying v14 and verifying
-boot-to-root, then `recover.sh` end-to-end. The TV's 31337 channel went down
-during this session (the app process exited while the TV stayed on, and neither
-the remote-control WebSocket nor sdb can launch it again), so the deploy is
-staged: `server/payload.dll`, `deploy.sh` and `deploy_local.sh` all carry v14 and
-are waiting for a cold boot or a browser page load.
+- `server/payload.dll` v14 deployed over 31337 at 15:09 (`SIZE=23040`, md5 match,
+  `DLL_LABEL` verified, `BOOT_ROW_COUNT=1`, `AUL_RELOAD=ok`, `DEPLOY_DONE`).
+- Cold boot verified with `systemctl --force reboot` from the root channel: the TV
+  left the LAN, came back at +27 s and **31337 was open at +53 s** with v14
+  (`uid=0`, `CapEff=0000003fffffffff`, DLL md5 `5b798012…`, app label correct).
+  The boot beacon chain shows attempt 1 fast-exiting and attempt 2 rooting, as
+  designed.
+- Channel hardening proven on hardware: a 5,005-byte command line is rejected with
+  `ERR command too long (5005 > 4096)`, and a silent client is dropped at 30 s
+  while the next client is served at 31.3 s.
+- **The real reason the TV looked unreachable:** Windows firewall has inbound
+  *Block* rules for `python.exe`; the server had been started with `python
+  server.py`, so the TV could not fetch the page and no beacon ever arrived, while
+  the server looked healthy from the PC. Running it as `pysrv.exe` (the interpreter
+  `root.ps1` already prefers) fixed both. This is now written down in
+  `docs/OPEN-ISSUES.md` and `AGENTS.md` §1.
+- Not yet done: a destructive `uninstall.ps1` run end-to-end (it removes the boot
+  row), the stub-side clamp in `physrpc.S`, and binding 31337 to one address.
 
 ---
 

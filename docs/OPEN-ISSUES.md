@@ -16,22 +16,56 @@ from `cred+40`, i.e. `cap_inheritable`; now `cred+4`, named cap offsets, proven 
 worker unregister, static `?v=5` cache key), `payload/out1*` untracked, and the
 stale doc constants (`v7` → v13, 36 → 47 files, sizes/hashes).
 
+## Status 2026-10-24 — all PC-side items closed
+
+Payload **v14** (23,040 B, md5 `5b798012ae35c9c567fa7a5ea91d6683`) is deployed and
+verified on the TV, including a forced cold reboot.
+
+| # | State | Evidence |
+|---|---|---|
+| 1 | **closed** | `Beacon()` 500 ms connect cap; boot after the change still rooted (`ROOTCHAN` +2 s after the successful attempt) |
+| 2 | **closed** | fork children `close(_fd)` + `waitpid(WNOHANG)`; a boot-time attempt-1 failure followed by attempt-2 success no longer hits the 120 s open retry |
+| 3 | **closed** | `deploy.sh` snapshots a known-stock IL/AOT when absent and records the md5 (`BACKUP_IL=exists` here because they pre-existed) |
+| 4 | **closed** | both `.ps1` pass `$TvIp`, check the exit code; `root_shell.py` also accepts `ROOT_TV` and fails on a broken stream. A destructive full uninstall run is still the one unproven step |
+| 5 | **closed** | `recover.sh` prefers `deploy_local.sh`, rewrites `H=`, aborts without `DEPLOY_DONE` (unit-checked; not yet run on the TV) |
+| 6 | **closed** | lock released before `rpc_queue.get`; `tools/test_gateway.py` asserts `RSET` in ~2 ms while a client waits |
+| 7 | **closed on hardware** | silent client dropped at 30 s, second client served in 31.3 s after it |
+| 8 | **closed** | label verified on the temp DLL before the rename; boot-row and AUL failures now `exit 1` |
+| 9 | **closed** | `POST /save` body cap 1 MB → 413, proven by the gateway test |
+| 10 | **closed** | 509 B / 255 B / 4 KB limits in `run_root`, `auto_root`, `write_root` |
+| 12 | **closed** | allowlist fails closed; `ALLOW=` printed before `COPY=ok` on the live deploy |
+| 13 | **closed** | `SaneCred` (range, alignment, usage, ids) before every cred write; payload v14 |
+| 14 | **closed** | shared `iter_owner_creds` with a 31-byte carry; `sim_rpc` self-test proves the straddle case |
+
+P2 items are fixed as well (dead `physmap` modes removed, `MapPage` munmap,
+`TrySelfUpdate` PE check + rollback, `tv_rootwatch` python discovery + loop, the
+`physrpc.S`/blob drift, `find_task.py` runs from a clone, doc constants).
+
+**Still open:** a real `uninstall.ps1` end-to-end run (destructive: it removes the
+boot row and restores the stock app — do it only when the TV can be down), the
+stub-side clamp in `physrpc.S` (needs a rebuild + re-embed, tracked by the
+`--check-embedded` note), and binding 31337 to one address (`AGENTS.md` §11).
+
+**Do not repeat this session's mistakes:** the `:80` server MUST run as
+`pysrv.exe` — Windows firewall has inbound *Block* rules for `python.exe`, so a
+`python server.py` server is invisible to the TV (no page, no beacons) while it
+looks fine from the PC's own loopback. Also: the remote power button is standby,
+not a boot; only a cold boot runs the AUL hook, and `systemctl --force reboot`
+from the root channel is the way to force one from the PC.
+
 ## Environment — read before touching the TV
 
 - **Work in this repo.** The `samsungtv` tree is reference material (vendored
   clones, firmware extract, the DWARF/kernel build). Nothing under it is needed to
   fix the items below, and nothing there should be edited as "the toolkit".
-- **TV:** `192.168.178.175`, rooted, payload v13, channel on `31337`
+- **TV:** `192.168.178.175`, rooted, payload v14, channel on `31337`
   (`python tools/root_shell.py "id" 192.168.178.175`). PC: `192.168.178.214`.
-- **The :80 server is a scheduled task (`TV-LabServer`) that currently serves the
-  LAB copy** (`samsungtv\lab_server\server.py`), not this repo. That is a drift
-  risk: a payload or script change made here is not what the TV fetches until the
-  copies are synced. Either
-  (a) stop the task and let `root.ps1` own `:80` for the test, or
-  (b) repoint the task at this repo's `server\run_server.vbs`, remembering that
-  `run_server.cmd` picks its interpreter from `TV_PY` (default `python`) and the
-  Windows firewall rule is pinned to one program path — on this PC
-  `...\pythoncore-3.14-64\pysrv.exe`.
+- **Port 80 is the firewall's fault line.** The Windows firewall has inbound
+  *Block* rules for `python.exe` and *Allow* rules for `pysrv.exe` (path
+  `...\pythoncore-3.14-64\pysrv.exe`, plus a "TV lab HTTP (pysrv)" rule). Serve
+  `server.py` with `pysrv.exe` or the TV cannot fetch the page and beacons never
+  arrive. `root.ps1`'s `Find-Python` already prefers `pysrv.exe`; a manual
+  `python server.py` does not.
 - **Payload builds:** any dotnet SDK ≥ 8 builds the `net6.0` project; the
   `NETSDK1138` "out of support" warning is expected. A payload change means: rebuild,
   update `WANT=`/size in `server/deploy.sh`, deploy over the channel, reboot, and

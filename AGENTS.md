@@ -36,10 +36,23 @@ channel on TCP 31337 (line protocol, replies end with `__END__`).
 | | |
 |---|---|
 | Payload | v14, 23,040 B, md5 `5b798012ae35c9c567fa7a5ea91d6683` (`server/payload.dll`, source `payload/`; host-independent) |
-| Boot-to-root | ~40 s, measured 38–47 s across boots, with no PC and no browser |
+| Boot-to-root | ~40 s typical; v14 measured 53 s from a `systemctl --force reboot` (TV off the LAN at +27 s, channel at +53 s) |
 | Root identity | `uid=0`, `CapEff=0x3fffffffff`, running under the app's own SMACK label |
 | Boot hook | a `boot_sequence` row in `/opt/dbspace/user/5001/.appsvc.db` |
 | Device | `/dev/video40`, one RDWR opener; the app runs as uid 5001, gid 44 |
+
+**Serve port 80 with `pysrv.exe`, never `python.exe` on this PC.** The Windows
+firewall has inbound *Block* rules for `python.exe` and *Allow* rules for
+`pysrv.exe`, so a `python server.py` server is invisible to the TV (no page, no
+beacons) while it answers perfectly from the PC's own loopback. `root.ps1`'s
+`Find-Python` already prefers `pysrv.exe`; starting `server.py` by hand does not.
+
+A root channel that refuses connections cannot tell "app never started" from
+"app started and failed" — `logs/beacons.log` can, and it works before rooting.
+No beacon at all means AUL is not launching the app (boot row gone / DLL broken);
+beacons without 31337 means the payload is failing later and the chain names the
+step. The remote's power button is standby, not a boot: only a real cold boot
+runs the hook (from the PC: `systemctl --force reboot` over 31337).
 
 The boot sequence is deliberate: the first launch after a cold boot usually cannot read
 task memory coherently, so the payload makes one short attempt, exits on purpose, and
