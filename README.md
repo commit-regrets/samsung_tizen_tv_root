@@ -1,4 +1,4 @@
-# Samsung Tizen 9 TV Root — Research Toolkit
+﻿# Samsung Tizen 9 TV Root — Research Toolkit
 
 Unofficial security research on a 2024 Samsung Neo QLED running **Tizen 9**.
 No sdb, no developer mode, no firmware flashing: the TV is rooted from its own
@@ -16,7 +16,7 @@ stays closed) → `root.ps1` → reboot → channel back, `uid=0`.
 | Kernel | Linux 5.4.249, ARM32 LPAE, `PHYS_OFFSET 0x20000000` |
 | Browser | Chromium 120.0.6099.5 (`SamsungBrowser/7.0`) |
 | Root | `uid=0`, `CapEff=0x3fffffffff` |
-| Persistent payload | 23,040 B, md5 `5b798012ae35c9c567fa7a5ea91d6683` (v14) |
+| Persistent payload | 23,040 B, md5 `bf0c0342437c236c20ecaa0a8ee3bf4c` (v15) |
 | Root channel | TCP **31337** on the TV, line protocol, replies end with `__END__` |
 
 ## Quick start

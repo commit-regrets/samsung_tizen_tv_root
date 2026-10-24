@@ -81,4 +81,3 @@ tmp/
 payload/out*/
 python/
 # Temporary review handoff - working notes, not for publication (see docs/OPEN-ISSUES.md)
-docs/REVIEW-FINDINGS-*.md

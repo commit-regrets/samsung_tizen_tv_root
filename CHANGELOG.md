@@ -255,9 +255,26 @@ and fixed here; the fourth needs a payload rebuild.
 - **`SaneCred` still accepts uid 0** — `kernel_root._sane_cred` is a pointer
   validator, and the payload's call sites patch a cred whose uid is 0 *or* 5001,
   so a bogus `real_parent` that landed on init's cred would still be written (a
-  near-no-op, but not ours). Proper close: only write when the cred reads 5001 and
-  treat 0 as "already root, nothing to do". That is a payload change (**v15**),
-  staged for the next maintenance window rather than done while the TV is in use.
+  near-no-op, but not ours). Closed properly in v15, below.
+
+### Payload v15 — M4 closed, deployed and boot-verified
+
+- `PatchCred` now refuses any cred whose uid is not **5001**, at the single choke
+  point every call site goes through; a uid-0 cred counts as "already done" and
+  is never written. `SaneCred` stays the pointer-shape check (range, alignment,
+  usage, ids). The five call sites (`self`, `direct-parent`, the child-pointer
+  scan) now only ask for uid 5001, so a bogus `real_parent`/`parent` landing on
+  init's cred can no longer be patched. Same size, new md5:
+  **v15, 23,040 B, `bf0c0342437c236c20ecaa0a8ee3bf4c`**.
+- Deployed over 31337 (label verified, `COPY=ok`, `BOOT_ROW_COUNT=1`,
+  `AUL_RELOAD=ok`, `DEPLOY_DONE`). Loaded with the documented `kill -9` path: AUL
+  respawned the app in ~32 s, the beacon chain shows `direct-patch uid=0` (so the
+  uid gate accepted the real cred and the patch still works).
+- **Cold boot after a mains unplug**: round 0 fast-failed, round 1 rooted
+  (`SUCCESS-R00T`, `ROOTCHAN 31337`) within ~33 s of the first probe;
+  `uid=0`, `CapEff=0000003fffffffff`, DLL md5 `bf0c0342…`, boot row intact.
+- `deploy.sh`'s `WANT=`/`SIZE_WANT=` and `AGENTS.md` §1/§7, `README.md` and
+  `docs/OPEN-ISSUES.md` now carry v15.
 
 ---
 

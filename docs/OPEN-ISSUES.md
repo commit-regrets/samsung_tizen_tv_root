@@ -1,11 +1,11 @@
 # Open issues — triaged from the code review
 
-The review itself is `docs/REVIEW-FINDINGS-2026-10-23.md` plus
-`docs/REVIEW-FINDINGS-DUMMY-SECOND-PASS.md`. **Both are untracked working notes**
-(the reviewer marked them "do not commit"): they hold the detail and the line
-numbers. This file is the work list — what to fix, in what order, and how to
-prove each fix. Close items here as you go, add a `CHANGELOG.md` entry per fix
-(`AGENTS.md` §0), and delete the two review files when the list is done.
+The review notes (`docs/REVIEW-FINDINGS-2026-10-23.md` and
+`docs/REVIEW-FINDINGS-DUMMY-SECOND-PASS.md`, both untracked and marked "do not
+commit") **were deleted on 2026-10-24** once every item below was closed. Their
+detail and line numbers live on in this file, in `CHANGELOG.md`, and in the code
+comments. This file is the record: what was broken, what fixed it, and how it was
+proven.
 
 State when this list was written: TV rooted with payload **v13** (21,504 B, md5
 `176914345bcc81ca8c87de712b4a044f`), 47 tracked files, working tree clean.
@@ -54,8 +54,8 @@ PC-only and are fixed; the fourth is a payload change, staged.
 |---|---|---|
 | L1 | `tv_rootwatch.root_by_tail` returned `"already"` on the first uid-0 tag — a stale task's cred pointer can land on init's (or a previously patched) cred and hide the live uid-5001 stub | **fixed**: only uid-5001 creds are written, uid-0 tags are remembered without stopping; `already` only when no uid-5001 cred exists. Cases added to `tools/sim_rpc.py` |
 | L2 | `deploy.sh` continued past `BACKUP_IL=fail` / `BACKUP_NI=fail`, so a failed stock snapshot still reached `COPY=ok`/`DEPLOY_DONE` and re-opened the no-backup hole | **fixed**: both `exit 1` before anything is replaced; four new `tools/test_shell.py` checks (IL and NI failure) with a `cp` stub that fails on demand |
-| L3 | `SaneCred` accepts uid 0, and the payload patches a cred whose uid is 0 *or* 5001, so a bogus `real_parent` on init's cred would still be written | **staged for payload v15**: write only when the cred reads 5001, treat 0 as "already root" (see `AGENTS.md` §11) |
-| L4 | `tools/_selfroot.py` still used the single-hit walk; the two `REVIEW-FINDINGS-*.md` files are still on disk | `_selfroot.py` **fixed** (multi-tag, uid-5001 only). The review notes stay until v15 lands, then are deleted — they are untracked, so deletion is not reversible |
+| L3 | `SaneCred` accepts uid 0, and the payload patched a cred whose uid is 0 *or* 5001, so a bogus `real_parent` on init's cred would still be written | **fixed in payload v15**: `PatchCred` refuses anything but uid 5001 (uid 0 = already done); deployed and boot-verified 2026-10-24 21:38 |
+| L4 | `tools/_selfroot.py` still used the single-hit walk; the two `REVIEW-FINDINGS-*.md` files are still on disk | `_selfroot.py` **fixed**; the review notes were **deleted** once L1–L3 were closed (untracked, so the content lives on in this file and `CHANGELOG.md`) |
 
 **Do not repeat this session's mistakes:** the `:80` server MUST run as
 `pysrv.exe` — Windows firewall has inbound *Block* rules for `python.exe`, so a
