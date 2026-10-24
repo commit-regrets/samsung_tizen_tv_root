@@ -134,6 +134,14 @@ entry).
 
 ### Fixed
 
+- **`root_via_fork` patched a freed task's cred pointer.** It looked up only the
+  first `PHYSRPC1` task on `init.tasks.prev`; after an earlier page load that can
+  be a dead thread, so the sane-cred check rejected its cred pointer six times
+  (`skip 0xe234cf00 (not a cred)`) while the live stub sat further along the same
+  list — the browser lane could not root at all. It now collects every tagged
+  task (`_find_tags_near_tail`) and patches whichever validates;
+  `tv_rootwatch.root_by_tail` got the same fix. Proven on a fresh stub: the live
+  task was found on attempt 1 and patched immediately.
 - **The gateway dropped a client that had just been paired.** The `RSET` peek set
   a 0.5 s socket timeout and only cleared it on success, so the timeout survived
   into the forwarding loop and the first idle read raised `socket.timeout` — the
@@ -163,6 +171,27 @@ entry).
   `docs/OPEN-ISSUES.md` and `AGENTS.md` §1.
 - Not yet done: a destructive `uninstall.ps1` run end-to-end (it removes the boot
   row), the stub-side clamp in `physrpc.S`, and binding 31337 to one address.
+
+### Uninstall, backup creation and recovery — verified on the TV
+
+- `uninstall.ps1 -NoWait` ran end-to-end: stock IL `f61f60dd…` and AOT
+  `6c9bdcc4…` restored and relabelled, `BOOT_ROW=removed remain=0`,
+  `UNINSTALL_DONE`, exit 0. It also demonstrated the fail-closed allowlist (#12):
+  `uninstall.sh` deletes `rootchan.allow`, so the still-resident payload refused
+  every later connection — correct behaviour, but it makes uninstall a one-way
+  door until the next boot or a page load.
+- With the stock IL/AOT back on disk and the backups deleted, the next deploy
+  created them from scratch: `BACKUP_IL=ok`, `BACKUP_NI=ok`, md5s exactly
+  `f61f60dd…`/`6c9bdcc4…`, recorded in `mcs_orig.md5`/`mcs_ni_orig.md5` (#3).
+- `recover.sh` ran from the root channel: `RECOVER=deploy_local.sh` → deploy →
+  `DEPLOY_DONE` → `RECOVER_DONE` (#5).
+- A fresh browser page then rooted the stub and redeployed (the #4/browser path),
+  and the final **mains power-cycle** boot confirmed v14 again: payload start
+  20:23:41 → `SUCCESS-R00T` 20:24:05, channel up, `uid=0`, full caps.
+- **Do not reboot the TV with `systemctl --force reboot` from the payload.** The
+  first one worked; the second left the set in a deep standby that the remote
+  could not wake, and only unplugging it from the wall brought it back. Ask for a
+  power cycle instead (also recorded in `AGENTS.md` and `OPEN-ISSUES.md`).
 
 ---
 

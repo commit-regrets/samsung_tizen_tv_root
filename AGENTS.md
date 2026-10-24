@@ -52,7 +52,9 @@ A root channel that refuses connections cannot tell "app never started" from
 No beacon at all means AUL is not launching the app (boot row gone / DLL broken);
 beacons without 31337 means the payload is failing later and the chain names the
 step. The remote's power button is standby, not a boot: only a real cold boot
-runs the hook (from the PC: `systemctl --force reboot` over 31337).
+runs the hook. To force one, ask for a mains unplug (trap 12: `systemctl --force
+reboot` from the payload once left the set in a standby the remote could not
+wake).
 
 The boot sequence is deliberate: the first launch after a cold boot usually cannot read
 task memory coherently, so the payload makes one short attempt, exits on purpose, and
@@ -360,6 +362,14 @@ python root_shell.py "cat /proc/self/status | grep -E '^Uid|^CapEff'" <TV_IP>
     IP changes, rebuild `tools/physrpc.S` (`build_physrpc.py`) and re-embed the
     shellcode in `server/payloads/browser_payload.js`; `root.ps1` only rewrites
     the deploy script.
+12. **Do not reboot the TV with `systemctl --force reboot` from the payload.** It
+    worked once and then left the set in a deep standby that the remote could not
+    wake; only unplugging it from the wall brought it back. Ask for a power cycle
+    (or press the TV's own button) instead.
+13. **`root_via_fork` needs every tag, not the first one.** A freed `PHYSRPC1`
+    task from an earlier page load can sit nearer the list tail than the live
+    stub; patching its cred pointer fails the sane-cred check and the rooter gives
+    up. `_find_tags_near_tail()` now returns all of them — keep it that way.
 
 ## 9. Rebuilding the payload
 

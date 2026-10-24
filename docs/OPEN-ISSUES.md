@@ -25,9 +25,9 @@ verified on the TV, including a forced cold reboot.
 |---|---|---|
 | 1 | **closed** | `Beacon()` 500 ms connect cap; boot after the change still rooted (`ROOTCHAN` +2 s after the successful attempt) |
 | 2 | **closed** | fork children `close(_fd)` + `waitpid(WNOHANG)`; a boot-time attempt-1 failure followed by attempt-2 success no longer hits the 120 s open retry |
-| 3 | **closed** | `deploy.sh` snapshots a known-stock IL/AOT when absent and records the md5 (`BACKUP_IL=exists` here because they pre-existed) |
-| 4 | **closed** | both `.ps1` pass `$TvIp`, check the exit code; `root_shell.py` also accepts `ROOT_TV` and fails on a broken stream. A destructive full uninstall run is still the one unproven step |
-| 5 | **closed** | `recover.sh` prefers `deploy_local.sh`, rewrites `H=`, aborts without `DEPLOY_DONE` (unit-checked; not yet run on the TV) |
+| 3 | **closed, proven on a stock state** | the stock IL/AOT were put back on disk and the backups deleted; the next deploy created them (`BACKUP_IL=ok`, `BACKUP_NI=ok`) with md5s `f61f60dd…` / `6c9bdcc4…` and recorded `mcs_orig.md5` / `mcs_ni_orig.md5` |
+| 4 | **closed** | both `.ps1` pass `$TvIp`, check the exit code; `root_shell.py` also accepts `ROOT_TV` and fails on a broken stream. `uninstall.ps1 -NoWait` ran end-to-end on the TV: stock IL/AOT restored + relabelled, boot row removed (`remain=0`), `UNINSTALL_DONE`, exit 0 |
+| 5 | **closed, proven on the TV** | `recover.sh` ran from the root channel: `RECOVER=deploy_local.sh` → deploy → `DEPLOY_DONE` → `RECOVER_DONE` |
 | 6 | **closed** | lock released before `rpc_queue.get`; `tools/test_gateway.py` asserts `RSET` in ~2 ms while a client waits |
 | 7 | **closed on hardware** | silent client dropped at 30 s, second client served in 31.3 s after it |
 | 8 | **closed** | label verified on the temp DLL before the rename; boot-row and AUL failures now `exit 1` |
@@ -41,17 +41,27 @@ P2 items are fixed as well (dead `physmap` modes removed, `MapPage` munmap,
 `TrySelfUpdate` PE check + rollback, `tv_rootwatch` python discovery + loop, the
 `physrpc.S`/blob drift, `find_task.py` runs from a clone, doc constants).
 
-**Still open:** a real `uninstall.ps1` end-to-end run (destructive: it removes the
-boot row and restores the stock app — do it only when the TV can be down), the
-stub-side clamp in `physrpc.S` (needs a rebuild + re-embed, tracked by the
-`--check-embedded` note), and binding 31337 to one address (`AGENTS.md` §11).
+**Still open:** the stub-side clamp in `physrpc.S` (#10/M3 — the PC-side limits are
+in; the stub still trusts its header, and fixing it needs a rebuild + re-embed), and
+binding 31337 to one address (`AGENTS.md` §11). #8's negative branches (a real label
+mismatch / bad boot row) are code-reviewed and `sh -n` clean but cannot be forced
+without breaking a working deploy.
 
 **Do not repeat this session's mistakes:** the `:80` server MUST run as
 `pysrv.exe` — Windows firewall has inbound *Block* rules for `python.exe`, so a
 `python server.py` server is invisible to the TV (no page, no beacons) while it
-looks fine from the PC's own loopback. Also: the remote power button is standby,
-not a boot; only a cold boot runs the AUL hook, and `systemctl --force reboot`
-from the root channel is the way to force one from the PC.
+looks fine from the PC's own loopback. The remote power button is standby, not a
+boot; only a cold boot runs the AUL hook. **Do not reboot the TV with
+`systemctl --force reboot` from the payload:** on 2026-10-24 that left the set in a
+deep standby that the remote could not wake and only a mains unplug cleared. Ask
+for a power cycle instead.
+
+A second footgun found the same day: `kernel_root._find_tag_near_tail()` returned
+only the *first* `PHYSRPC1` task, which can be a freed one from an earlier page
+load, so `root_via_fork` retried six times on a dead cred pointer
+(`skip 0xe234cf00 (not a cred)`) while the live stub sat further along. It now
+collects every tagged task (`_find_tags_near_tail`) and patches whichever
+validates; the same fix is in `tv_rootwatch.root_by_tail`.
 
 ## Environment — read before touching the TV
 
