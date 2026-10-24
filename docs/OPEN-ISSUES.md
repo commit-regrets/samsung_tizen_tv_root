@@ -45,6 +45,18 @@ P2 items are fixed as well (dead `physmap` modes removed, `MapPage` munmap,
 the review list is fixed and verified — the offline layers are
 `python tools/test_all.py`, the on-TV layer is `--tv` (`docs/TESTING.md`).
 
+## Second-pass review — 2026-10-24 (later)
+
+An independent re-read of the landed fixes found four leftovers. Three were
+PC-only and are fixed; the fourth is a payload change, staged.
+
+| # | Leftover | State |
+|---|---|---|
+| L1 | `tv_rootwatch.root_by_tail` returned `"already"` on the first uid-0 tag — a stale task's cred pointer can land on init's (or a previously patched) cred and hide the live uid-5001 stub | **fixed**: only uid-5001 creds are written, uid-0 tags are remembered without stopping; `already` only when no uid-5001 cred exists. Cases added to `tools/sim_rpc.py` |
+| L2 | `deploy.sh` continued past `BACKUP_IL=fail` / `BACKUP_NI=fail`, so a failed stock snapshot still reached `COPY=ok`/`DEPLOY_DONE` and re-opened the no-backup hole | **fixed**: both `exit 1` before anything is replaced; four new `tools/test_shell.py` checks (IL and NI failure) with a `cp` stub that fails on demand |
+| L3 | `SaneCred` accepts uid 0, and the payload patches a cred whose uid is 0 *or* 5001, so a bogus `real_parent` on init's cred would still be written | **staged for payload v15**: write only when the cred reads 5001, treat 0 as "already root" (see `AGENTS.md` §11) |
+| L4 | `tools/_selfroot.py` still used the single-hit walk; the two `REVIEW-FINDINGS-*.md` files are still on disk | `_selfroot.py` **fixed** (multi-tag, uid-5001 only). The review notes stay until v15 lands, then are deleted — they are untracked, so deletion is not reversible |
+
 **Do not repeat this session's mistakes:** the `:80` server MUST run as
 `pysrv.exe` — Windows firewall has inbound *Block* rules for `python.exe`, so a
 `python server.py` server is invisible to the TV (no page, no beacons) while it

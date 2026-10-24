@@ -1,4 +1,4 @@
-﻿# Testing this toolkit — on this TV and on yours
+# Testing this toolkit — on this TV and on yours
 
 Three layers, from "runs anywhere" to "needs the TV". `python tools/test_all.py`
 runs the offline ones and summarises; `--tv` adds the live-stub layer.
@@ -36,13 +36,16 @@ No TV and no browser. It caught a real bug: a socket timeout left over from the
 
 Runs copies of `server/deploy.sh` and `server/uninstall.sh` under a POSIX `sh`
 with `/opt/...` and `/tmp/...` redirected into a temp tree, and with stubs for
-the TV-only commands (`chsmack`, `sqlite3`, `aulctl`, `curl`, `ls -lZ`, `id`).
+the TV-only commands (`chsmack`, `sqlite3`, `aulctl`, `curl`, `ls -lZ`, `id`, and
+a `cp` that can be told to fail).
 
 It asserts the failure paths that used to be silent:
 
 - a payload with the wrong md5/size is refused and the live DLL is untouched;
 - a SMACK label mismatch aborts **before** the rename and removes the temp DLL;
 - a boot row that does not read back as 1 aborts without `DEPLOY_DONE`;
+- a failed stock snapshot (`BACKUP_IL=fail` / `BACKUP_NI=fail`) aborts before the
+  DLL is replaced;
 - the stock IL/AOT backups are created when absent, with their md5 recorded;
 - `uninstall.sh` refuses to run without a backup, rejects a corrupted one,
   restores and relabels on the happy path, removes the boot row, and aborts on a

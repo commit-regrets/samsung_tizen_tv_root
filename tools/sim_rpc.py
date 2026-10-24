@@ -223,6 +223,41 @@ def selftest() -> int:
         f"planted {[T.hexs(a) for a in ordinary]}, found {len(found)}",
     )
 
+    # tv_rootwatch.root_by_tail: a stale tag whose cred reads uid 0 must not
+    # short-circuit before the live uid-5001 tag.  This is the watchdog twin of
+    # the root_via_fork first-hit bug (docs/OPEN-ISSUES.md).
+    import tv_rootwatch as V
+    rpc3 = MemRPC()
+    head = (V.INIT_V + V.OFF) & 0xFFFFFFFF
+
+    def entry(phys):
+        return (0xA0000000 + phys + V.OFF) & 0xFFFFFFFF
+
+    t_stale, t_live = 0x20100000, 0x20102000
+    cred_stale, cred_live = 0x20101000, 0x20103000
+    rpc3.write32(V.INIT_P + V.OFF + 4, entry(t_stale))
+    rpc3.write32(t_stale + V.OFF + 4, entry(t_live))
+    rpc3.write32(t_live + V.OFF + 4, head)
+    for phys, cred in ((t_stale, cred_stale), (t_live, cred_live)):
+        rpc3.write(phys + K.O_COMM, b"PHYSRPC1" + b"\x00" * 8)
+        rpc3.write32(phys + K.O_CRED, 0xA0000000 + cred)
+        rpc3.write32(phys + K.O_REAL, 0xA0000000 + cred)
+    plant_cred(rpc3, cred_stale, uid=0, gid=0, usage=4)       # stale: uid 0
+    plant_cred(rpc3, cred_live, uid=5001, gid=100, usage=4)   # live: ours
+    state = V.root_by_tail(rpc3)
+    live_ids = struct.unpack("<8I", rpc3.read(cred_live + 4, 32))
+    stale_caps = int.from_bytes(rpc3.read(cred_stale + O_CAP_PERMITTED, 8), "little")
+    failed += not _check(
+        "root_by_tail skips a stale uid-0 tag",
+        state == "rooted" and all(v == 0 for v in live_ids) and stale_caps == 0,
+        f"state={state!r} live_ids={live_ids} stale cap_permitted={stale_caps:#x}",
+    )
+    failed += not _check(
+        "root_by_tail reports 'already' only when ours is root",
+        V.root_by_tail(rpc3) == "already",
+        "second pass: the live cred now reads uid 0, so nothing left to patch",
+    )
+
     print(flush=True)
     if failed:
         print(f"{failed} check(s) failed", flush=True)

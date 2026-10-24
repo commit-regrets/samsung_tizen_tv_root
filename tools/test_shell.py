@@ -111,6 +111,15 @@ case "$1" in
 esac
 exit 0
 """,
+    "cp": r"""#!/bin/sh
+# Fail only for the path the current case wants to fail (TEST_CP_FAIL).
+if [ -n "$TEST_CP_FAIL" ]; then
+  for a in "$@"; do
+    case "$a" in *"$TEST_CP_FAIL"*) exit 1 ;; esac
+  done
+fi
+exec /usr/bin/cp "$@"
+""",
 }
 
 
@@ -267,6 +276,31 @@ def deploy_cases(sh):
         out = r.stdout + r.stderr
         ok = r.returncode != 0 and "BOOT_ROW_WARN" in out and "DEPLOY_DONE" not in out
         failed += not check("deploy: bad boot row aborts", ok, f"rc={r.returncode}")
+    finally:
+        f.cleanup()
+
+    # --- a failed stock snapshot must abort BEFORE the DLL is replaced ------
+    f = fresh()
+    try:
+        r = f.run("deploy.sh", {"TEST_CP_FAIL": "mcs_orig"})
+        out = r.stdout + r.stderr
+        ok = (r.returncode != 0 and "BACKUP_IL=fail" in out
+              and "DEPLOY_DONE" not in out and "COPY=ok" not in out)
+        failed += not check("deploy: failed IL snapshot aborts", ok, f"rc={r.returncode}")
+        ok = (f.bin / "MultiControlService.dll").read_bytes() == STOCK_IL
+        failed += not check("deploy: live DLL untouched on IL snapshot failure", ok)
+    finally:
+        f.cleanup()
+
+    f = fresh()
+    try:
+        r = f.run("deploy.sh", {"TEST_CP_FAIL": "mcs_ni"})
+        out = r.stdout + r.stderr
+        ok = (r.returncode != 0 and "BACKUP_NI=fail" in out
+              and "DEPLOY_DONE" not in out and "COPY=ok" not in out)
+        failed += not check("deploy: failed NI snapshot aborts", ok, f"rc={r.returncode}")
+        ok = (f.bin / "MultiControlService.dll").read_bytes() == STOCK_IL
+        failed += not check("deploy: live DLL untouched on NI snapshot failure", ok)
     finally:
         f.cleanup()
 

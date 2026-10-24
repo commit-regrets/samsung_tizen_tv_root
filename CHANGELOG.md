@@ -231,6 +231,34 @@ entry).
 - `tools/requirements.txt` gains `websocket-client`; `AGENTS.md` §5/§7/§11 and
   `docs/OPEN-ISSUES.md` point at the new suite.
 
+### Second-pass review leftovers (PC-side)
+
+An independent re-read of the landed fixes found four leftovers. Three are PC-only
+and fixed here; the fourth needs a payload rebuild.
+
+- **`tv_rootwatch.root_by_tail` could short-circuit on a stale tag.** It walked
+  every `PHYSRPC1` task but returned `"already"` as soon as *any* of them had a
+  uid-0 cred — a freed task's cred pointer can land on init's, or on a cred a
+  previous run patched, and that hid a live uid-5001 stub. It now writes only a
+  uid-5001 cred, remembers uid-0 tags without stopping, and reports `"already"`
+  only when no uid-5001 cred exists. This is the watchdog twin of the
+  `root_via_fork` first-hit bug; `tools/sim_rpc.py` grew two cases for it
+  (stale-uid-0 tag → `"rooted"`, second pass → `"already"`).
+- **`deploy.sh` did not abort when the stock snapshot failed.** `BACKUP_IL=fail` /
+  `BACKUP_NI=fail` were warnings, so a failed `cp` could continue to `COPY=ok` /
+  `DEPLOY_DONE` and re-open the "uninstall has no backup" hole the snapshot was
+  added to close. Both now `exit 1` *before* the DLL is replaced, and
+  `tools/test_shell.py` gained four checks (IL and NI snapshot failure: abort + the
+  live DLL stays stock) using a `cp` stub that fails on demand.
+- **`tools/_selfroot.py`** (diagnostic) now uses the multi-tag walk and only
+  patches uid-5001 creds, matching the supported paths.
+- **`SaneCred` still accepts uid 0** — `kernel_root._sane_cred` is a pointer
+  validator, and the payload's call sites patch a cred whose uid is 0 *or* 5001,
+  so a bogus `real_parent` that landed on init's cred would still be written (a
+  near-no-op, but not ours). Proper close: only write when the cred reads 5001 and
+  treat 0 as "already root, nothing to do". That is a payload change (**v15**),
+  staged for the next maintenance window rather than done while the TV is in use.
+
 ---
 
 ## 2026-10-23

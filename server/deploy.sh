@@ -51,12 +51,19 @@ BIN=$(dirname "$D")
 # first-time user could root and never cleanly uninstall.  They are only made
 # when the file being replaced is the known stock build, and the md5 of what we
 # snapshotted is recorded so uninstall can verify a non-retail TV too.
+# A FAILED snapshot is fatal: continuing would replace the only stock copy and
+# silently re-open the "uninstall is impossible" hole this block closes.
 IL_MD5=$(md5sum "$D" 2>/dev/null | cut -d' ' -f1)
 if [ -f "$S/mcs_orig.dll" ]; then
   echo BACKUP_IL=exists
 elif [ "$IL_MD5" = "$IL_STOCK" ]; then
-  cp "$D" "$S/mcs_orig.dll" && echo "$IL_MD5" > "$S/mcs_orig.md5" \
-    && echo BACKUP_IL=ok || echo BACKUP_IL=fail
+  if cp "$D" "$S/mcs_orig.dll" && echo "$IL_MD5" > "$S/mcs_orig.md5"; then
+    echo BACKUP_IL=ok
+  else
+    echo BACKUP_IL=fail
+    echo "HINT: could not snapshot the stock IL - refusing to replace the only stock copy"
+    exit 1
+  fi
 else
   # Already running our payload (or an unknown build): copying it would only
   # make uninstall restore the wrong thing, so say so instead.
@@ -68,8 +75,13 @@ elif [ -d "$BIN/.native_image" ]; then
   NI=$(ls "$BIN"/.native_image/*.ni.dll 2>/dev/null | head -n1)
   NI_MD5=$([ -n "$NI" ] && md5sum "$NI" | cut -d' ' -f1)
   if [ -n "$NI" ] && [ "$NI_MD5" = "$NI_STOCK" ]; then
-    cp "$NI" "$S/mcs_ni_orig.dll" && echo "$NI_MD5" > "$S/mcs_ni_orig.md5" \
-      && echo BACKUP_NI=ok || echo BACKUP_NI=fail
+    if cp "$NI" "$S/mcs_ni_orig.dll" && echo "$NI_MD5" > "$S/mcs_ni_orig.md5"; then
+      echo BACKUP_NI=ok
+    else
+      echo BACKUP_NI=fail
+      echo "HINT: could not snapshot the stock AOT image"
+      exit 1
+    fi
   else
     echo "BACKUP_NI=skip (AOT md5 ${NI_MD5:-none} is not the stock build)"
   fi

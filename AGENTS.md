@@ -377,10 +377,13 @@ gateway, deploy/uninstall control flow, source↔blob↔page consistency). Then:
     worked once and then left the set in a deep standby that the remote could not
     wake; only unplugging it from the wall brought it back. Ask for a power cycle
     (or press the TV's own button) instead.
-13. **`root_via_fork` needs every tag, not the first one.** A freed `PHYSRPC1`
-    task from an earlier page load can sit nearer the list tail than the live
-    stub; patching its cred pointer fails the sane-cred check and the rooter gives
-    up. `_find_tags_near_tail()` now returns all of them — keep it that way.
+13. **`root_via_fork` needs every tag, not the first one — and a uid-0 cred must
+    not end the walk.** A freed `PHYSRPC1` task from an earlier page load can sit
+    nearer the list tail than the live stub; its cred pointer fails the sane-cred
+    check, and if it happens to point at a uid-0 cred, an "already rooted" early
+    return hides the live stub. `_find_tags_near_tail()` returns all of them;
+    `tv_rootwatch.root_by_tail` only writes uid-5001 creds and reports `already`
+    only when none exist. Keep both properties.
 
 ## 9. Rebuilding the payload
 
@@ -429,6 +432,11 @@ that downloads it) and reboot. Things to preserve when editing `Program.cs`:
 
 ## 11. Open work
 
+- **Payload v15: finish the M4 close.** `_sane_cred` validates a *pointer*, and
+  the payload currently patches a cred whose uid is 0 or 5001, so a bogus
+  `real_parent` that lands on init's cred would still be written. Only write when
+  the cred reads 5001, treat 0 as "already root". Needs a rebuild, `WANT=`/size,
+  deploy and a live boot check — not done while the TV was in use.
 - Bind 31337 to a single address instead of `0.0.0.0`. Partly mitigated in v7:
   the payload checks the peer IP against `rootchan.allow` (one address, written
   by `deploy.sh`), so only that host is served — but the socket still listens on
