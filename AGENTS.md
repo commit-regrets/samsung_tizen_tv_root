@@ -184,11 +184,17 @@ TV boot: com.samsung.tv.MultiControl-Service (dotnet-inhouse, app_onboot)
 | `tools/root_shell.py` | root-channel client (TCP 31337) |
 | `tools/run_root.py` | run a shell command as root via op 7 (manual) |
 | `tools/write_root.py` | write a file as root via op 8 (manual) |
-| `tools/physrpc.S` | ARM32 RPC stub source |
-| `tools/build_physrpc.py` | assembles the stub (keystone/capstone) |
+| `tools/physrpc.S` | ARM32 RPC stub source (clamps every client length) |
+| `tools/build_physrpc.py` | assembles the stub (keystone/capstone); `--check-embedded` diffs it against the page |
+| `tools/physrpc_shellcode.bin` | the assembled stub (committed; `embed_physrpc.py` needs it) |
+| `tools/embed_physrpc.py` | writes the blob into `browser_payload.js`'s `SHELLCODE` (`--check`) |
 | `tools/taskwalk.py` | task-list chain diagnostic (`next`/`prev`; not a validated pair) |
 | `tools/sim_rpc.py` | in-memory physmap RPC (no TV); `python tools/sim_rpc.py` self-test |
 | `tools/test_gateway.py` | gateway integration test (no TV): RSET, pairing, forwarding, BUSY, /save cap |
+| `tools/test_shell.py` | deploy/uninstall dry tests under `sh` (no TV): backups, label, boot row |
+| `tools/test_stub.py` | live-stub protocol + clamp checks (fresh page load) |
+| `tools/test_all.py` | runs every layer above; `--tv` adds the live stub |
+| `tools/tv_ws_launch.py` | Samsung remote-control WebSocket diagnostic/launcher (refused on this unit) |
 | `payload/Program.cs` | boot payload source (v14) |
 | `payload/BootPayload.csproj` | net6.0 project, assembly `MultiControlService` |
 | `root.ps1` | one-command runner (server + root + deploy + verify) |
@@ -330,11 +336,16 @@ python root_shell.py "cat /proc/self/status | grep -E '^Uid|^CapEff'" <TV_IP>
 
 ## 7. Verification checklist
 
+Run `python tools/test_all.py` first — it covers the offline layers (cred layout,
+gateway, deploy/uninstall control flow, source↔blob↔page consistency). Then:
+
 - [ ] `root_shell.py "id" <TV_IP>` returns `uid=0(root)`.
 - [ ] `root_shell.py "cat /proc/self/status | grep CapEff" <TV_IP>` → `0000003fffffffff`.
 - [ ] `root_shell.py "md5sum /opt/usr/apps/com.samsung.tv.MultiControl-Service/bin/MultiControlService.dll" <TV_IP>` → `5b7980…`.
 - [ ] Cold boot with the browser closed → channel is back within ~60–90 s.
 - [ ] `kill -9 <app pid>` → channel back in ~12 s, still uid 0.
+- [ ] `python tools/test_all.py --tv` against a fresh page load (stub protocol
+      + clamps). Details per layer: `docs/TESTING.md`.
 
 ## 8. Traps (each cost hours — read `docs/FAILED.md`)
 
@@ -412,8 +423,9 @@ that downloads it) and reboot. Things to preserve when editing `Program.cs`:
   `payload_backup.dll` is whatever was in `bin/` before the last deploy — it is
   **not** guaranteed to be stock, so uninstall never uses it (it restores from
   `mcs_orig.dll` and checks the md5).
-- **Browser stub rebuild:** `tools/physrpc.S` + `tools/build_physrpc.py`; the
-  shellcode must then be re-embedded in `browser_payload.js` (manual step).
+- **Browser stub rebuild:** `tools/physrpc.S` + `tools/build_physrpc.py`, then
+  `tools/embed_physrpc.py` (no manual paste; it refuses a staging overflow). Both
+  `--check` modes must pass before a page test.
 
 ## 11. Open work
 
@@ -421,6 +433,10 @@ that downloads it) and reboot. Things to preserve when editing `Program.cs`:
   the payload checks the peer IP against `rootchan.allow` (one address, written
   by `deploy.sh`), so only that host is served — but the socket still listens on
   all interfaces.
+- ~~Clamp the stub's client-controlled lengths~~ — **done**: `physrpc.S` bounds
+  READ/WRITE32/READMANY/RUN/FILE, refuses with -EINVAL, and ends the stub for the
+  two ops whose payload would desync the stream; blob rebuilt (7552 B), page
+  re-embedded by `tools/embed_physrpc.py`, live-verified by `tools/test_stub.py`.
 - ~~Retry `open("/dev/video40")` instead of sleeping 120 s~~ — **done in v7**
   (120 s retry), so a browser stub holding the device no longer costs a cycle.
 - ~~Replace the task-list walk with a list-independent locator~~ — **done**: `tools/scan_cred.py` finds creds by content
@@ -431,9 +447,10 @@ that downloads it) and reboot. Things to preserve when editing `Program.cs`:
   pid-hash and IDR locators are both blocked on this kernel (no kallsyms, and
   `init_pid_ns` has no `idr` field) — the cred-content scan above made them
   unnecessary. Full reasoning: `docs/SCRIPT-REVIEW.md`.
-- Automate re-embedding the shellcode in `browser_payload.js` after a rebuild
-  (`tools/build_physrpc.py --check-embedded` now catches source/blob drift, and
-  `physrpc.S` matches the shipped blob's `/dev/video30`).
+- ~~Automate re-embedding the shellcode in `browser_payload.js` after a rebuild~~
+  — **done**: `tools/embed_physrpc.py` writes the blob into the page (refusing a
+  staging overflow) and `--check` proves page == blob; `build_physrpc.py
+  --check-embedded` proves blob == `physrpc.S`.
 - Repoint the remote's app buttons by patching `com.samsung.tv.hotkey-service`
   (see `docs/REMOTE.md`): capture the `XF86AppN` key, decompile the service IL,
   change the appid, deploy with a backup, test one button.

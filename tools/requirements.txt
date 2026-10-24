@@ -1,6 +1,8 @@
 # Python dependencies for the PC-side tools.
 # The runtime root/deploy path needs only the standard library.
-# These are required only to rebuild the browser stub (tools/build_physrpc.py).
+# keystone + capstone rebuild the browser stub (tools/build_physrpc.py);
+# websocket-client is only for the diagnostic tools/tv_ws_launch.py.
 
 keystone-engine>=0.9.2
 capstone>=5.0.0
+websocket-client>=1.6

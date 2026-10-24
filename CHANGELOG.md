@@ -169,8 +169,8 @@ entry).
   the server looked healthy from the PC. Running it as `pysrv.exe` (the interpreter
   `root.ps1` already prefers) fixed both. This is now written down in
   `docs/OPEN-ISSUES.md` and `AGENTS.md` §1.
-- Not yet done: a destructive `uninstall.ps1` run end-to-end (it removes the boot
-  row), the stub-side clamp in `physrpc.S`, and binding 31337 to one address.
+- Still open from the review list: binding 31337 to one address (`AGENTS.md` §11).
+  Everything else was closed later the same day (below).
 
 ### Uninstall, backup creation and recovery — verified on the TV
 
@@ -192,6 +192,44 @@ entry).
   first one worked; the second left the set in a deep standby that the remote
   could not wake, and only unplugging it from the wall brought it back. Ask for a
   power cycle instead (also recorded in `AGENTS.md` and `OPEN-ISSUES.md`).
+
+### Stub hardening (#10/M3) and a test suite for other TVs
+
+- **`tools/physrpc.S` now clamps everything the client controls.** READ requires
+  `offset < 0x1000` and `offset+len <= 0x1000`; WRITE32 requires
+  `offset <= 0xFFC`; READMANY caps the batch at 32768 pages; RUN caps the command
+  at the 512-byte `cmdbuf`; FILE caps path 256 / data 4096. A refusal returns
+  `-EINVAL`; for the two ops whose payload is already in the socket (RUN, FILE)
+  the stub then exits, because parsing those leftover bytes as the next header is
+  how a malformed request would otherwise turn into a corrupt write. The other
+  three keep serving (no payload follows).
+- Blob rebuilt 7440 → **7552 B**. Re-embedding is no longer a manual step:
+  `tools/embed_physrpc.py` writes the array into `browser_payload.js` (refusing a
+  staging overflow; `--check` proves page == blob), and
+  `build_physrpc.py --check-embedded` proves blob == `physrpc.S`. Both pass
+  byte-identical (`tools/physrpc_shellcode.bin` is committed so the check works
+  without keystone).
+- **Live-verified on the TV** (`tools/test_stub.py`): oversized READ refused with
+  `-22` and the stub kept serving, cross-page WRITE refused with `-22`, overlong
+  op 7 refused with `-22` and the stub ended; then `kernel_root.py --fork` rooted
+  the same hardened stub and its op-7 shell returned `uid=0` with full caps.
+- Tests for other TVs:
+  - `tools/test_shell.py` — 17 dry checks of `deploy.sh`/`uninstall.sh` under
+    `sh` with stubbed `chsmack`/`sqlite3`/`aulctl`/`curl`/`ls -lZ`/`id`: bad
+    payload refused, label mismatch aborts before the rename and leaves the DLL
+    intact, bad boot row aborts, stock backups created with md5 recorded,
+    uninstall refuses missing/corrupt backups, restores + relabels, removes the
+    boot row, aborts on label mismatch.
+  - `tools/test_stub.py` — the live wire-contract + clamp layer.
+  - `tools/test_all.py` — runs every layer; `--tv` adds the live stub;
+    `docs/TESTING.md` documents each layer and how to port the suite.
+- `tools/tv_ws_launch.py` — the Samsung remote-control WebSocket probe/launcher
+  from the research tree, adapted into `tools/` (token under `server/logs/`,
+  `--secure` for 8002). Its docstring records the measured result on this unit:
+  `ms.channel.unauthorized` with or without the old token, so it is a diagnostic
+  and a launcher for other sets, not a way in here.
+- `tools/requirements.txt` gains `websocket-client`; `AGENTS.md` §5/§7/§11 and
+  `docs/OPEN-ISSUES.md` point at the new suite.
 
 ---
 

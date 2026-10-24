@@ -30,9 +30,9 @@ verified on the TV, including a forced cold reboot.
 | 5 | **closed, proven on the TV** | `recover.sh` ran from the root channel: `RECOVER=deploy_local.sh` → deploy → `DEPLOY_DONE` → `RECOVER_DONE` |
 | 6 | **closed** | lock released before `rpc_queue.get`; `tools/test_gateway.py` asserts `RSET` in ~2 ms while a client waits |
 | 7 | **closed on hardware** | silent client dropped at 30 s, second client served in 31.3 s after it |
-| 8 | **closed** | label verified on the temp DLL before the rename; boot-row and AUL failures now `exit 1` |
+| 8 | **closed** | label verified on the temp DLL before the rename; boot-row and AUL failures now `exit 1`. `tools/test_shell.py` now exercises the label-mismatch and bad-boot-row aborts offline (a real mismatch on the TV is not forceable without breaking it) |
 | 9 | **closed** | `POST /save` body cap 1 MB → 413, proven by the gateway test |
-| 10 | **closed** | 509 B / 255 B / 4 KB limits in `run_root`, `auto_root`, `write_root` |
+| 10 | **closed on hardware** | stub clamps `READ`/`WRITE32`/`READMANY`/`RUN`/`FILE`; live: oversized READ and cross-page WRITE refused with `-22` while the stub kept serving, overlong op 7 refused and ended the stub. Blob rebuilt (7552 B) and re-embedded automatically |
 | 12 | **closed** | allowlist fails closed; `ALLOW=` printed before `COPY=ok` on the live deploy |
 | 13 | **closed** | `SaneCred` (range, alignment, usage, ids) before every cred write; payload v14 |
 | 14 | **closed** | shared `iter_owner_creds` with a 31-byte carry; `sim_rpc` self-test proves the straddle case |
@@ -41,11 +41,9 @@ P2 items are fixed as well (dead `physmap` modes removed, `MapPage` munmap,
 `TrySelfUpdate` PE check + rollback, `tv_rootwatch` python discovery + loop, the
 `physrpc.S`/blob drift, `find_task.py` runs from a clone, doc constants).
 
-**Still open:** the stub-side clamp in `physrpc.S` (#10/M3 — the PC-side limits are
-in; the stub still trusts its header, and fixing it needs a rebuild + re-embed), and
-binding 31337 to one address (`AGENTS.md` §11). #8's negative branches (a real label
-mismatch / bad boot row) are code-reviewed and `sh -n` clean but cannot be forced
-without breaking a working deploy.
+**Still open:** binding 31337 to one address (`AGENTS.md` §11). Everything else on
+the review list is fixed and verified — the offline layers are
+`python tools/test_all.py`, the on-TV layer is `--tv` (`docs/TESTING.md`).
 
 **Do not repeat this session's mistakes:** the `:80` server MUST run as
 `pysrv.exe` — Windows firewall has inbound *Block* rules for `python.exe`, so a

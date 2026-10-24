@@ -144,6 +144,16 @@ loop:
     b       loop
 
 op_read:
+    @ The client controls offset/len; without this, send_full() would walk past
+    @ the 4 KB mapping (a bad client, or a desynced stream, turns into a renderer
+    @ SIGSEGV or a read of adjacent mappings).  No payload follows, so a reject
+    @ can keep serving.
+    movw    r2, #0x1000
+    cmp     r10, r2
+    bcs     op_bad
+    sub     r2, r2, r10
+    cmp     r11, r2
+    bhi     op_bad
     mov     r0, r4
     bl      map_page
     cmn     r0, #4096
@@ -162,6 +172,10 @@ op_read:
     b       loop
 
 op_write:
+    @ offset+4 must stay inside the page (off <= 0xFFC).
+    movw    r2, #0xffc
+    cmp     r10, r2
+    bhi     op_bad
     mov     r0, r4
     bl      map_page
     cmn     r0, #4096
@@ -178,6 +192,11 @@ op_write:
     b       loop
 
 op_readmany:
+    @ Bound the batch: each page costs a 4 KB send, so a huge count is a
+    @ self-inflicted stall (and the client can always ask again).
+    movw    r2, #0x8000       @ at most 32768 pages (128 MB) per batch
+    cmp     r11, r2
+    bhi     op_bad
     mov     r10, r4           @ current page
 rm_next:
     cmp     r11, #0
@@ -269,6 +288,9 @@ fork_pause:
 @ ("/bin/sh", ["/bin/sh","-c",cmd], NULL).  Parent keeps the socket alive
 @ and returns the child pid.
 op_run:
+    movw    r2, #512          @ cmdbuf: "-c\0" + command, no more
+    cmp     r11, r2
+    bhi     op_bad_die        @ the payload follows; never overflow then parse it
     mov     r0, r6
     movw    r1, #OFF_cmdbuf
     add     r1, r12, r1
@@ -317,6 +339,12 @@ run_child:
 @ op 8 FILE: a=flags (0 trunc, 1 append), b=pathlen, c=datalen.
 @ Reads path then data from the socket and writes it as the (root) stub.
 op_file:
+    movw    r2, #256          @ pathbuf
+    cmp     r10, r2
+    bhi     op_bad_die
+    movw    r2, #4096         @ databuf
+    cmp     r11, r2
+    bhi     op_bad_die
     mov     r0, r6
     movw    r1, #OFF_pathbuf
     add     r1, r12, r1
@@ -359,6 +387,17 @@ file_open:
     mov     r0, #0
     bl      send_status
     b       loop
+
+op_bad:
+    mvn     r0, #21           @ -EINVAL, and no payload was sent: keep serving
+    bl      send_status
+    b       loop
+
+op_bad_die:
+    mvn     r0, #21           @ -EINVAL, but the op's payload is still in the
+    bl      send_status       @ socket: parsing it as the next header is how a
+    b       op_exit           @ bad client turns into a corrupt write, so die
+                              @ cleanly and let the next page load give a stub
 
 op_err:
     bl      send_status       @ r0 already holds negative errno
