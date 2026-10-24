@@ -10,6 +10,150 @@ entry is an incomplete change. `AGENTS.md` repeats this rule for agents.
 
 ---
 
+## 2026-10-24
+
+Worked through `docs/OPEN-ISSUES.md` (triaged from the 2026-10-23 code review).
+PC-side items were verified offline; the payload change is **built and staged, not
+yet deployed** (the TV's channel went down before the deploy — see the end of this
+entry).
+
+### Added
+
+- `tools/test_gateway.py` — integration test for the port-80 RPC gateway: starts
+  `server.py` on scratch ports, proves `RSET` answers while a client is still
+  waiting for a stub, that the waiting client survives it and receives the 12-byte
+  hello from the next fake stub, that bytes flow both ways, that a second client
+  gets `BUSY`, and that an oversized `POST /save` gets 413. It found a real bug on
+  its first run (see *Fixed*).
+- `tools/kernel_root.iter_owner_creds()` — the owner-cred content scan as one
+  page-straddle-safe generator, now used by `scan_cred.py` and
+  `tv_rootwatch.root_by_cred_scan` instead of two copies of a per-page
+  `data.find()` that could never see a 32-byte pattern split across pages.
+- `tools/build_physrpc.py --check-embedded` — compares `physrpc.S` with the
+  `SHELLCODE` the page actually runs (byte-identical with keystone; literals-only
+  fallback without it). It exists because the two had drifted.
+- `tools/smack_relabel.py`: `CRED_SECURITY` and `sane_smack_blob()`, so
+  `tools/find_task.py` no longer imports the reference tree's `smack_borrow`.
+
+### Changed
+
+- **Payload v14** (23,040 B, md5 `5b798012ae35c9c567fa7a5ea91d6683`):
+  - `Beacon()` caps the connect at 500 ms. Every beacon was a blocking
+    `TcpClient.Connect`; a stale `rootchan.host` could burn the ~40 s boot budget
+    in SYN retries, contradicting "root at boot with no PC".
+  - fork children close `/dev/video40` (`syscall(6, _fd, …)`) before sleeping, and
+    the fast-exit path closes it before `Environment.Exit`. Previously each failed
+    round left a child holding the single RDWR opener for 120 s, so the next AUL
+    launch sat in the `open()` retry (a slow-boot cause that looked like a failed
+    round). Children are also reaped with `waitpid(pid, WNOHANG)` — exact pids, so
+    .NET's own `Process.Start` children are never stolen.
+  - `Serve()` sets 30 s read/write timeouts, caps a command line at 4 KB and
+    pending input at 8 KB. The channel serves one client at a time, so one silent
+    or half-open connection used to own 31337 until the app restarted.
+  - `PatchCred()` validates the cred first (`SaneCred`: physical range, aligned,
+    `usage <= 0x10000`, plausible ids) — the analogue of Python's `_sane_cred`. A
+    bogus `real_parent` that looked like a kernel pointer could patch a foreign
+    cred (init's included).
+  - The 31337 allowlist fails closed: a missing/unreadable `rootchan.allow` denies
+    instead of allowing everyone. `deploy.sh` now writes that file before the DLL,
+    so an interrupted deploy cannot leave an open root channel. A hand-copied
+    payload needs the file too (`AGENTS.md` §1).
+  - `TrySelfUpdate()` requires an MZ/PE image and keeps the previous DLL as
+    `MultiControlService.dll.prev`; any `share/next.dll` over 1 KB used to replace
+    the payload with no check and no rollback.
+  - `MapPage()` `munmap`s when it evicts the cache (it used to `Pages.Clear()` and
+    leak every mapping), and the `mmap2` fallback treats only `-errno` values
+    (`-4095..-1`) as failures — a successful mapping in the top half of the
+    address space is a negative int32. The `mmap64` `== -1` check was left alone
+    (that half of the review finding was wrong).
+- `server/server.py`:
+  - The RPC gateway claims the client slot under `rpc_lock`, then **releases the
+    lock before `rpc_queue.get(1800)`**. Holding it across the wait froze `RSET`,
+    the TV forwarder and every later client for as long as no page was open —
+    which is the normal flow, since `auto_root.py` connects first.
+  - `CTRL_PORT`/`RPC_PORT` can be overridden from the environment (needed by the
+    new test), `POST /save` bodies are capped at 1 MB (413 beyond), and the shell
+    bookkeeping no longer leaks: `tv_sock` is cleared when the shell closes, the
+    output buffer is trimmed to 1 MB with an absolute position so a client cannot
+    lose output after a clear, and `rpc_tv_reader` uses the same trim.
+  - The `RSET` peek timeout is 0.5 s and is now always cleared afterwards.
+- `server/deploy.sh`: fail loud and snapshot the stock app.
+  - `DLL_LABEL_MISMATCH`, `BOOT_ROW_WARN` and `AUL_RELOAD=fail` now `exit 1`
+    (`auto_root.py` only checks the output tokens, so a warning used to be
+    reported as a verified deploy).
+  - The label is set and **verified on `$D.tmp` before it replaces the live DLL**;
+    aborting after the rename would have left the app unable to start (the
+    2026-10-22 regression).
+  - `share/mcs_orig.dll` / `mcs_ni_orig.dll` are created from a *known-stock*
+    file when they are absent (md5-gated, with the md5 recorded in
+    `mcs_orig.md5`/`mcs_ni_orig.md5`), because `uninstall.sh` hard-failed without
+    them and no script had ever created them.
+  - `rootchan.allow` is written before the DLL; `WANT=`/`SIZE_WANT=` are named
+    constants.
+- `server/uninstall.sh`: accepts a backup whose md5 matches the recorded
+  snapshot (a non-retail TV can still uninstall), and a `LABEL_WARN` now aborts
+  instead of printing `UNINSTALL_DONE`.
+- `server/recover.sh`: prefers `deploy_local.sh`, otherwise rewrites `H=` inside
+  the fetched `deploy.sh`; aborts (and says so) unless the deploy prints
+  `DEPLOY_DONE`; the verify hint names `root_shell.py` instead of the non-existent
+  `chan.py`.
+- `tools/root_shell.py`: accepts `ROOT_TV` as well as `TV_IP` (the `.ps1`
+  wrappers only set `ROOT_TV`), returns non-zero on a connection or protocol
+  failure, and its docstring no longer says `chan.py`.
+- `root.ps1` / `uninstall.ps1`: pass `$TvIp` to `root_shell.py` and check its exit
+  code — the bare form exited 2, and `root.ps1` printed "Permanent root is up"
+  without the check ever running. `uninstall.ps1` also declares `-NoServer`, adds
+  the process-name check to `Stop-ToolkitServer`, and watches 31337 for the whole
+  boot budget instead of 20 s (a still-booting payload could be reported gone).
+- `root.ps1` no longer claims persistence it did not observe: it says plainly that
+  `deploy.sh` restarted the app, so an open 31337 proves the payload runs, not
+  that it starts at boot.
+- `tools/run_root.py` / `auto_root.py` refuse commands over 509 B and
+  `write_root.py` enforces 255 B paths / 4 KB chunks: the stub's `cmdbuf` is 512 B
+  and it trusts the header, so a long command scribbled over adjacent stub data.
+- `tools/tv_rootwatch.py`: finds an interpreter from `TVWATCH_PYSRV`/`PATH`
+  instead of requiring the author's `pysrv.exe`, and loop mode now keeps watching
+  after a successful `op 5` (it used to return 0 unless `--no-shell`).
+- `tools/physmap.py`: the dead `root`/`rootexec` modes and `full_root()` are gone.
+  They called an undefined `find_tasks_offset`/`walk_tasks`, required a firmware
+  `uImage` that is not in the repo, and gated creds at `0xD0000000` while claiming
+  success. `verify` no longer touches the uImage.
+- `tools/physrpc.S` opens `/dev/video30`, matching the shipped blob. The source
+  said `/dev/video40`, so a rebuild + re-embed would have silently switched device
+  nodes; `--check-embedded` now catches that drift.
+- `tools/smack_relabel.py` / `tools/find_task.py`: no hardcoded author paths,
+  `find_task.py` defaults to the real comm (`DN_trol-Service`) and runs from a
+  clone; both are labelled diagnostics (the supported path to the app label is the
+  app's own channel).
+- `tools/_selfroot.py` and `tools/taskwalk.py` are labelled DIAGNOSTIC, including
+  the fact that `taskwalk`'s "next" is a guess, not a validated link.
+- Docs: `AGENTS.md` v14 size/md5, the new channel-hardening facts, the payload
+  invariants (close the fd in the child, `Sleep(700)`, `SaneCred`), the 509 B
+  command limit, and `root_shell.py <TV_IP>` in every example; `README.md` payload
+  row; `docs/SCRIPT-REVIEW.md` no longer claims `find_task.py` cannot run.
+
+### Fixed
+
+- **The gateway dropped a client that had just been paired.** The `RSET` peek set
+  a 0.5 s socket timeout and only cleared it on success, so the timeout survived
+  into the forwarding loop and the first idle read raised `socket.timeout` — the
+  client was detached, `rpc_client` cleared, and the next client got the cached
+  hello instead of `BUSY`. Caught by `tools/test_gateway.py`.
+- `kernel_root.patch_full`'s uid readback (already fixed on 2026-10-23) is now
+  covered by the extended `sim_rpc.py` self-test, together with the page-straddle
+  case for the real scan generator.
+
+### Still open on this list
+
+`docs/OPEN-ISSUES.md` items that need the TV: deploying v14 and verifying
+boot-to-root, then `recover.sh` end-to-end. The TV's 31337 channel went down
+during this session (the app process exited while the TV stayed on, and neither
+the remote-control WebSocket nor sdb can launch it again), so the deploy is
+staged: `server/payload.dll`, `deploy.sh` and `deploy_local.sh` all carry v14 and
+are waiting for a cold boot or a browser page load.
+
+---
+
 ## 2026-10-23
 
 An independent code review landed: `tools/sim_rpc.py` plus a `patch_full` fix, the

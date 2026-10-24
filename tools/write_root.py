@@ -12,6 +12,12 @@ src = sys.argv[2]
 data = open(src, "rb").read()
 pb = path.encode()
 CH = 4096
+# The stub has pathbuf 256 and databuf 4096 and does not clamp the header, so a
+# longer path or chunk overruns the stub's own buffers.
+if len(pb) > 255:
+    raise SystemExit(f"[-] path is {len(pb)} B; the stub limit is 255 B")
+if CH > 4096:
+    raise SystemExit("[-] chunk size exceeds the stub's 4096 B buffer")
 
 rpc = T.RPC(timeout=60)
 for off in range(0, len(data), CH):

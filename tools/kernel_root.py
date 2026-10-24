@@ -37,6 +37,44 @@ CAP_FULL_LO = 0xFFFFFFFF
 CAP_FULL_HI = 0x0000003F          # 0x3fffffffff = all 38 caps in the bounding set
 O_CAP_PERMITTED = 48
 O_CAP_EFFECTIVE = 56
+# ids = (5001, 100) x4 for an owner process: 32 bytes that cannot occur by accident
+OWNER_PAT = struct.pack("<8I", 5001, 100, 5001, 100, 5001, 100, 5001, 100)
+PAGE = 0x1000
+
+
+def iter_owner_creds(rpc, start, stop, batch_pages=4096, pattern=OWNER_PAT,
+                     progress=None):
+    """Yield the cred address implied by every owner-id pattern in [start, stop).
+
+    Page-straddle safe.  `data.find(PAT)` on one 4 KiB page cannot see a 32-byte
+    pattern split across two pages (sim_rpc's self-test proves a 16/16 split is
+    invisible per page); keeping the last len(pattern)-1 bytes of each page as a
+    carry finds it without a second full scan.  A page that fails to read breaks
+    the carry: the next page is not physically adjacent to the last good one.
+    """
+    overlap = len(pattern) - 1
+    page = start
+    carry = b""
+    scanned = 0
+    hits = 0
+    while page < stop:
+        count = min(batch_pages, max(1, (stop - page + PAGE - 1) // PAGE))
+        for p, data in rpc.readmany(page, count):
+            scanned += 1
+            if data is None:
+                carry = b""
+                continue
+            blob = carry + data
+            off = blob.find(pattern)
+            while off >= 0:
+                # carry belongs to the page before p
+                yield (p - len(carry) + off - 4) & 0xFFFFFFFF
+                hits += 1
+                off = blob.find(pattern, off + 1)
+            carry = data[-overlap:] if overlap else b""
+        page += count * PAGE
+        if progress:
+            progress(page, scanned, hits)
 
 
 def _find_seq(rpc, base):

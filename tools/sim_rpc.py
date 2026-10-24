@@ -194,6 +194,35 @@ def selftest() -> int:
         "32-byte pattern split 16/16 is invisible per page, visible with overlap=31",
     )
 
+    # The REAL scanner used by scan_cred.py / tv_rootwatch.py must find a cred
+    # whose ids straddle the page boundary (M5).  Plant one 16 bytes before it.
+    rpc2 = MemRPC()
+    base = 0x20200000
+    straddle = base + PAGE - 20            # ids at straddle+4 = base+PAGE-16
+    plant_cred(rpc2, straddle, usage=4)
+    found = list(K.iter_owner_creds(rpc2, base, base + 2 * PAGE))
+    failed += not _check(
+        "iter_owner_creds page straddle",
+        straddle in found,
+        f"cred at {T.hexs(straddle)}; found {[T.hexs(f) for f in found]}",
+    )
+    per_page = [bytes(rpc2.read(base + i * PAGE, PAGE)) for i in range(2)]
+    failed += not _check(
+        "old page-local scan misses it",
+        find_owner_pat(per_page, overlap=0) == [],
+        "this is the M5 bug the carry window fixes",
+    )
+
+    ordinary = [base + PAGE + 0x80, base + 2 * PAGE + 0x100, base + 3 * PAGE + 0x40]
+    for addr in ordinary:
+        plant_cred(rpc2, addr, usage=2)
+    found = set(K.iter_owner_creds(rpc2, base, base + 4 * PAGE))
+    failed += not _check(
+        "iter_owner_creds ordinary hits",
+        all(a in found for a in ordinary),
+        f"planted {[T.hexs(a) for a in ordinary]}, found {len(found)}",
+    )
+
     print(flush=True)
     if failed:
         print(f"{failed} check(s) failed", flush=True)

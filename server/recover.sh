@@ -20,12 +20,15 @@
 # recorded on the TV, otherwise refuse rather than guess (a wrong IP just hangs).
 H="${1:-}"
 if [ -z "$H" ] && [ -f /opt/usr/home/owner/share/rootchan.host ]; then
-  H="http://$(cat /opt/usr/home/owner/share/rootchan.host)"
+  host=$(cat /opt/usr/home/owner/share/rootchan.host 2>/dev/null | head -n1)
+  [ -n "$host" ] && H="http://$host"
 fi
 if [ -z "$H" ]; then
   echo "RECOVER=fail - pass the PC address: sh recover.sh http://<pc-ip>"
   exit 1
 fi
+case "$H" in http://*|https://*) ;; *) H="http://$H" ;; esac
+H=${H%/}
 APPID=com.samsung.tv.MultiControl-Service
 LABEL="User::Pkg::$APPID"
 
@@ -46,6 +49,28 @@ echo "RELABEL=ok ($LABEL)"
 # stop+start in deploy.sh has something to restart
 aulctl is-active "$APPID" 2>/dev/null
 
-curl -s "$H/deploy.sh" | sh
+# Prefer the copy root.ps1 already rewrote.  The plain deploy.sh as served still
+# carries H="http://HOST_IP" (only root.ps1 rewrites it, into deploy_local.sh), so
+# fetching that one blind ended in CURL_FAIL and still printed RECOVER_DONE.
+SCRIPT=$(curl -fsS "$H/deploy_local.sh" 2>/dev/null)
+if [ -z "$SCRIPT" ]; then
+  SCRIPT=$(curl -fsS "$H/deploy.sh" 2>/dev/null)
+  if [ -z "$SCRIPT" ]; then
+    echo "RECOVER=fail (cannot fetch $H/deploy.sh - is the PC server up?)"
+    exit 1
+  fi
+  SCRIPT=$(printf '%s\n' "$SCRIPT" | sed "s|^H=.*|H=\"$H\"|")
+  echo "RECOVER=deploy.sh (host rewritten to $H)"
+else
+  echo "RECOVER=deploy_local.sh"
+fi
+
+printf '%s\n' "$SCRIPT" | sh > /tmp/recover.out 2>&1
+STATUS=$?
+cat /tmp/recover.out
+if [ "$STATUS" -ne 0 ] || ! grep -q DEPLOY_DONE /tmp/recover.out; then
+  echo "RECOVER=fail (deploy failed; see above)"
+  exit 1
+fi
 echo "RECOVER_DONE"
-echo "verify from the PC:  python tools/root_shell.py \"id\"   (or tools/chan.py)"
+echo "verify from the PC:  python tools/root_shell.py \"id\" <tv-ip>"

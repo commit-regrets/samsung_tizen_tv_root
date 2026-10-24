@@ -1,6 +1,11 @@
-"""Walk init_task.tasks in one direction and report comm tags (diagnostic).
+"""Walk init_task.tasks in one direction and report comm tags (DIAGNOSTIC).
 
-Usage: python taskwalk.py [next|prev] [max_hops]
+Not on the production path: it trusts the list, which is exactly what is damaged
+on this kernel.  `prev` is the usable direction; anything else is a diagnostic
+guess (it is not a validated `next`/`prev` pair).  Use scan_cred.py when the walk
+fails.
+
+Usage: python tools/taskwalk.py [next|prev] [max_hops]
 """
 import sys
 

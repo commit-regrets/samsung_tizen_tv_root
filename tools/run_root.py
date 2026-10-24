@@ -11,6 +11,10 @@ import physmap as T
 
 cmd = sys.argv[1]
 wait = float(sys.argv[2]) if len(sys.argv) > 2 else 3.0
+# The stub's cmdbuf is 512 B and it stores "-c\0" + command there; a longer one
+# writes past the buffer into adjacent stub data.
+if len(cmd.encode()) > 509:
+    raise SystemExit(f"[-] command is {len(cmd.encode())} B; the stub limit is 509 B")
 
 rpc = T.RPC(timeout=20)
 buf = b"-c\x00" + cmd.encode()

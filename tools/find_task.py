@@ -1,5 +1,9 @@
 """Resumable physical scan for a task comm, then borrow its SMACK label.
 
+DIAGNOSTIC - not on the production path (deploy/recover do not use it).  It is
+kept because borrowing a running app's label is the fastest way to write its
+`bin/` without the app's own channel, and it documents the scan/reconnect trick.
+
 The task list is damaged on this kernel (walks die within a few dozen hops, and
 `init_task`'s own links are corrupt), so the only reliable way to find another
 process's task_struct is a physical scan for its comm. Long scans can desync the
@@ -7,7 +11,7 @@ RPC stream when a batch aborts on an unmappable page; the desync is per-connecti
 so this loop reconnects to the *same* stub and resumes from the failed page
 instead of starting over.
 
-Usage: python recon/find_task.py [--comm MultiControl] [--apply]
+Usage: python tools/find_task.py [--comm DN_trol-Service] [--apply]
 """
 import argparse
 import struct
@@ -15,15 +19,12 @@ import sys
 import time
 from pathlib import Path
 
-RECON = Path(__file__).resolve().parent
-TOOLS = Path(r"C:\Users\Raghav\Documents\projects\samsung_tv_root\tools")
+TOOLS = Path(__file__).resolve().parent
 sys.path.insert(0, str(TOOLS))
-sys.path.insert(0, str(RECON))
 
 import physmap as T            # noqa: E402
 import kernel_root as K        # noqa: E402
 import smack_relabel as R      # noqa: E402
-import smack_borrow as B       # noqa: E402
 
 LO, HI = 0x20000000, 0x40000000
 PAGE = 0x1000
@@ -111,7 +112,9 @@ def scan(comm, lo=LO, hi=HI, batch=128):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--comm", default="MultiControl")
+    ap.add_argument("--comm", default="DN_trol-Service",
+                    help="task comm prefix (the payload app shows as "
+                         "DN_trol-Service: 16-char TASK_COMM_LEN truncation)")
     ap.add_argument("--apply", action="store_true")
     ap.add_argument("--lo", default=hex(LO))
     ap.add_argument("--hi", default=hex(HI))
@@ -142,15 +145,15 @@ def main():
         excl = K._tagged_near_tail(rpc, 0xC0957180, 0x20957180, R.OFF, b"PHYRFORK", 40)
         me = rpc.read_u32(K.PHYS(R.find_stub_task(rpc, excl)) + 0x2F0)
         my_cred = rpc.read_u32(K.PHYS(me) + K.O_CRED)
-        my_blob = rpc.read_u32(K.PHYS(my_cred) + B.CRED_SECURITY)
-        mine = B.sane_blob(rpc, my_blob)
+        my_blob = rpc.read_u32(K.PHYS(my_cred) + R.CRED_SECURITY)
+        mine = R.sane_smack_blob(rpc, my_blob)
         if not mine:
             print("[-] our cred->security is not a task_smack", flush=True)
             return 5
         app_task = hits[0][0]
         app_cred = rpc.read_u32(K.PHYS(app_task) + K.O_CRED)
-        app_blob = rpc.read_u32(K.PHYS(app_cred) + B.CRED_SECURITY)
-        theirs = B.sane_blob(rpc, app_blob)
+        app_blob = rpc.read_u32(K.PHYS(app_cred) + R.CRED_SECURITY)
+        theirs = R.sane_smack_blob(rpc, app_blob)
         if not theirs:
             print("[-] app cred->security is not a task_smack", flush=True)
             return 6

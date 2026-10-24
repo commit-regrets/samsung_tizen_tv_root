@@ -33,8 +33,8 @@ LOGS_TV.mkdir(exist_ok=True)
 LOG = LOGS / "shell.log"
 BEACON_LOG = LOGS / "beacons.log"
 TV_KEEP = int(os.environ.get("TV_OUTPUT_KEEP", "100"))
-CTRL_PORT = 9999
-RPC_PORT = 9998
+CTRL_PORT = int(os.environ.get("CTRL_PORT", "9999"))
+RPC_PORT = int(os.environ.get("RPC_PORT", "9998"))
 HTTP_PORT = int(os.environ.get("HTTP_PORT", "80"))
 HTTP_BIND = os.environ.get("HTTP_BIND", "0.0.0.0")
 
@@ -45,10 +45,13 @@ TYPES = {".html": "text/html", ".js": "application/javascript",
 DENY_SUFFIX = {".py", ".log", ".out", ".err", ".db", ".pem", ".key", ".journal"}
 DENY_NAMES = {"shell.log", "server.out", "server.err"}
 LOG_MAX = 8 * 1024 * 1024
+MAX_BODY = 1024 * 1024       # POST /save: enough for a page dump, not a disk fill
+OUTPUT_MAX = 1024 * 1024     # rolling TV output kept for shell clients
 
 state_lock = threading.Lock()
 tv_sock = None
 output = bytearray()          # everything the TV printed (rolling)
+output_dropped = 0            # bytes trimmed off the front of `output`
 rpc_queue = queue.Queue()     # TV connections that announced "PGDB"
 rpc_lock = threading.Lock()
 rpc_tv = None                 # live TV physmap-RPC socket
@@ -112,6 +115,22 @@ def _prune_tv_outputs():
         pass
 
 
+def _append_output(chunk: bytes):
+    """Append TV output to the rolling buffer, trimming it to OUTPUT_MAX.
+
+    The trim is tracked in `output_dropped` so shell clients can still compute
+    an absolute read position (a bare `output.clear()` used to leave their saved
+    offset past the end and silently swallow everything that followed).
+    """
+    global output_dropped
+    with state_lock:
+        output.extend(chunk)
+        excess = len(output) - OUTPUT_MAX
+        if excess > 0:
+            del output[:excess]
+            output_dropped += excess
+
+
 def _is_textish(chunk: bytes) -> bool:
     """True for shell/console output; False for 4 KB binary physmap pages."""
     if not chunk:
@@ -142,6 +161,10 @@ def _read_full_request(conn, first):
                 clen = int(line.split(b":", 1)[1].strip())
             except ValueError:
                 clen = 0
+    if clen > MAX_BODY:
+        # Refuse instead of growing logs/tv/ without bound (or eating the LAN's
+        # bandwidth): the header cap alone left the body unlimited.
+        raise ValueError(f"body too large ({clen} B > {MAX_BODY} B)")
     while len(body) < clen:
         try:
             chunk = conn.recv(min(65536, clen - len(body)))
@@ -155,7 +178,13 @@ def _read_full_request(conn, first):
 
 def serve_http(conn, req):
     try:
-        head, body = _read_full_request(conn, req)
+        try:
+            head, body = _read_full_request(conn, req)
+        except ValueError as exc:
+            conn.sendall(b"HTTP/1.1 413 Payload Too Large\r\n"
+                         b"Content-Length: 0\r\nConnection: close\r\n\r\n")
+            print(f"[http] rejected: {exc}", flush=True)
+            return
         line = head.split(b"\r\n", 1)[0].decode("latin-1")
         parts = line.split()
         method = parts[0] if parts else "GET"
@@ -202,7 +231,7 @@ def serve_http(conn, req):
 
 
 def tv_reader(conn):
-    global output
+    global tv_sock
     while True:
         try:
             chunk = conn.recv(65536)
@@ -211,10 +240,12 @@ def tv_reader(conn):
         if not chunk:
             break
         if len(chunk) <= 512 and _is_textish(chunk):
-            with state_lock:
-                output.extend(chunk)
+            _append_output(chunk)
             log(chunk.decode("latin-1", "replace"))
         print(f"[tv] {chunk[:200]!r}", flush=True)
+    with state_lock:
+        if tv_sock is conn:          # do not drop a newer shell's slot
+            tv_sock = None
     print("[tv] shell closed", flush=True)
 
 
@@ -258,8 +289,7 @@ def rpc_tv_reader(conn):
                     if rpc_client is c:
                         rpc_client = None
         if _is_textish(chunk):
-            with state_lock:
-                output.extend(chunk)
+            _append_output(chunk)
             log(chunk.decode("latin-1", "replace"))
     with rpc_lock:
         if rpc_tv is conn:
@@ -268,8 +298,15 @@ def rpc_tv_reader(conn):
 
 
 def rpc_gateway_client(client):
-    """Attach a local client to the live TV RPC stub (re-pairing supported)."""
+    """Attach a local client to the live TV RPC stub (re-pairing supported).
+
+    The client slot is CLAIMED under rpc_lock, then the lock is released before
+    waiting for a stub.  Holding it across ``rpc_queue.get(1800)`` froze RSET,
+    the TV forwarder and every later client for as long as nobody had opened
+    the page yet - which is the normal flow (auto_root connects first).
+    """
     global rpc_tv, rpc_client, rpc_hello, tv_sock
+
     with rpc_lock:
         if rpc_client is not None:
             try:
@@ -278,48 +315,55 @@ def rpc_gateway_client(client):
                 pass
             client.close()
             return
+        rpc_client = client           # reservation: one client at a time
         conn = rpc_tv
         first = conn is None
-        if first:
-            print("[rpc] local client connected, waiting for TV", flush=True)
-            try:
-                conn = rpc_queue.get(timeout=1800)
-            except queue.Empty:
-                print("[rpc] no TV connection, closing client", flush=True)
-                client.close()
-                return
-            rpc_tv = conn
-            print("[rpc] paired with TV physmap stub", flush=True)
-        else:
+        old = None
+        if not first:
             # A page reload leaves a newer stub in the queue.  Always prefer it
             # over the current one: an op-7 shell shares the stub socket and can
             # leave the stub deaf, and without this a single wedged stub blocks
-            # every later attempt until the server is restarted (this is what
-            # stalled the previous session).
+            # every later attempt until the server is restarted.
             try:
                 fresh = rpc_queue.get_nowait()
             except queue.Empty:
                 fresh = None
             if fresh is not None:
-                try:
-                    conn.close()
-                except OSError:
-                    pass
-                conn = fresh
-                rpc_tv = fresh
-                first = True
+                old, conn, rpc_tv, first = rpc_tv, fresh, fresh, True
                 print("[rpc] fresh TV stub replaced the wedged one", flush=True)
             else:
                 print("[rpc] client re-attached to live TV stub", flush=True)
-        rpc_client = client
+
+    if old is not None:
+        try:
+            old.close()
+        except OSError:
+            pass
+
+    if first and conn is None:
+        print("[rpc] local client connected, waiting for TV", flush=True)
+        try:
+            conn = rpc_queue.get(timeout=1800)
+        except queue.Empty:
+            print("[rpc] no TV connection, closing client", flush=True)
+            with rpc_lock:
+                if rpc_client is client:
+                    rpc_client = None
+            client.close()
+            return
+        with rpc_lock:
+            rpc_tv = conn
+        print("[rpc] paired with TV physmap stub", flush=True)
 
     if first:
         hello = _recv_exact(conn, 12)
         if hello is None:
             print("[rpc] TV closed before hello", flush=True)
             with rpc_lock:
-                rpc_tv = None
-                rpc_client = None
+                if rpc_tv is conn:
+                    rpc_tv = None
+                if rpc_client is client:
+                    rpc_client = None
             client.close()
             return
         rpc_hello = hello
@@ -364,13 +408,15 @@ def control_client(client):
                     break
 
     def from_tv():
-        pos = 0
+        # Track an ABSOLUTE stream position (output_dropped + index): trimming or
+        # clearing the rolling buffer must not make a client miss later output.
         with state_lock:
-            pos = len(output)
+            pos = output_dropped + len(output)
         while True:
             with state_lock:
-                new = bytes(output[pos:])
-                pos = len(output)
+                start = max(0, pos - output_dropped)
+                new = bytes(output[start:])
+                pos = output_dropped + len(output)
             if new:
                 try:
                     client.sendall(new)
@@ -423,10 +469,16 @@ def rpc_server():
         # Without this the only cure was restarting the whole server, because a
         # stub that was consumed by op 5/op 7 (or half-dead after a power cycle)
         # stays as rpc_tv and answers every later client with a cached hello.
+        # RSET is sent immediately after connect, so a short peek is enough and
+        # keeps the accept loop from stalling 2 s on every silent client.
+        # The timeout MUST be cleared even when the peek times out: a socket that
+        # keeps it detaches the gateway client on its first idle read (0.5 s).
         try:
-            c.settimeout(2.0)
-            head = c.recv(4, socket.MSG_PEEK)
-            c.settimeout(None)
+            c.settimeout(0.5)
+            try:
+                head = c.recv(4, socket.MSG_PEEK)
+            finally:
+                c.settimeout(None)
         except OSError:
             head = b""
         if head == b"RSET":

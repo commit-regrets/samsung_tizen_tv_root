@@ -16,7 +16,7 @@ stays closed) → `root.ps1` → reboot → channel back, `uid=0`.
 | Kernel | Linux 5.4.249, ARM32 LPAE, `PHYS_OFFSET 0x20000000` |
 | Browser | Chromium 120.0.6099.5 (`SamsungBrowser/7.0`) |
 | Root | `uid=0`, `CapEff=0x3fffffffff` |
-| Persistent payload | 21,504 B, md5 `176914345bcc81ca8c87de712b4a044f` (v13) |
+| Persistent payload | 23,040 B, md5 `5b798012ae35c9c567fa7a5ea91d6683` (v14) |
 | Root channel | TCP **31337** on the TV, line protocol, replies end with `__END__` |
 
 ## Quick start
@@ -36,7 +36,7 @@ after the reboot. Two steps stay on the TV remote, and it prompts for both:
 Then:
 
 ```powershell
-python tools\root_shell.py "id"     # talk to the TV's root channel
+python tools\root_shell.py "id" <tv-ip>   # talk to the TV's root channel
 ```
 
 Every option, the exact prompts, expected output, the host-IP caveat and the

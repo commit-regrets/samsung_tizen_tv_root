@@ -28,6 +28,7 @@ param(
     [string]$ToolkitDir,
     [string]$Python,
     [switch]$KeepBoot,
+    [switch]$NoServer,
     [switch]$RestartServer,
     [switch]$DryRun,
     [switch]$NoWait,
@@ -128,7 +129,7 @@ function Stop-ToolkitServer {
             Select-Object -First 1
     if (-not $conn) { return }
     $proc = Get-CimInstance Win32_Process -Filter "ProcessId=$($conn.OwningProcess)" -ErrorAction SilentlyContinue
-    if ($proc -and $proc.CommandLine -match '(shellsrv|server)\.py') {
+    if ($proc -and $proc.Name -match 'python|pysrv' -and $proc.CommandLine -match '(shellsrv|server)\.py') {
         Say "server  : stopping pid $($proc.ProcessId) ($($proc.Name))"
         Stop-Process -Id $proc.ProcessId -Force
         Start-Sleep -Milliseconds 600
@@ -185,7 +186,7 @@ if ($DryRun) {
         Say "server on :80 : a DIFFERENT server / no uninstall.sh (would need -RestartServer)"
     }
     Say "31337 on TV   : $(if ($tvUp) { 'open (can uninstall)' } else { 'closed (TV off, or already unrooted)' })"
-    Say "would run     : $py $($layout.Tools)\root_shell.py `"curl -s http://$HostIp/uninstall.sh | sh`""
+    Say "would run     : $py $($layout.Tools)\root_shell.py `"curl -s http://$HostIp/uninstall.sh | sh`" $TvIp"
     Say "then          : reboot the TV; verify 31337 stays closed"
     exit 0
 }
@@ -222,8 +223,12 @@ else { $cmd = "rm -f /tmp/keep_boot; " + $cmd }
 
 Say ""
 Say "1) Running the uninstall script on the TV as root..."
-$out = & $py (Join-Path $layout.Tools "root_shell.py") $cmd | Out-String
+$out = & $py (Join-Path $layout.Tools "root_shell.py") $cmd $TvIp | Out-String
 Write-Host $out
+if ($LASTEXITCODE -ne 0) {
+    Say "root_shell.py failed (exit $LASTEXITCODE) - is the TV still rooted and on the LAN?"
+    exit 1
+}
 if ($out -notmatch "UNINSTALL_DONE") {
     Say "The TV did not report UNINSTALL_DONE - stock app not restored."
     exit 1
@@ -251,10 +256,21 @@ if (-not (Test-Connection -ComputerName $TvIp -Count 1 -Quiet -ErrorAction Silen
 }
 
 Start-Sleep -Seconds 20
+# The payload takes ~40 s from boot to open 31337, so a single 20 s look can call
+# a still-booting payload "gone".  Watch for the rest of the boot budget instead:
+# a stock app must never open it, at any point in this window.
+$settle = (Get-Date).AddSeconds([Math]::Max(60, $BootTimeoutSec))
+while ((Get-Date) -lt $settle) {
+    if (Test-TvPort -Tv $TvIp -Port 31337) {
+        Say "31337 came back after the reboot - uninstall FAILED (payload still active)."
+        exit 1
+    }
+    Start-Sleep -Seconds 5
+}
 if (Test-TvPort -Tv $TvIp -Port 31337) {
     Say "31337 came back after the reboot - uninstall FAILED (payload still active)."
     exit 1
 }
 Say ""
-Say "Uninstall verified: the TV booted with the stock app and 31337 is closed."
+Say "Uninstall verified: the TV booted with the stock app and 31337 stayed closed."
 exit 0

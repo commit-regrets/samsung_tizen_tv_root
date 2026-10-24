@@ -1,3 +1,9 @@
+"""DIAGNOSTIC scratch script - not part of the toolkit's supported paths.
+
+Patches the stub's own cred by walking the task-list tail for PHYSRPC1.  Kept
+because it is the smallest reproduction of `kernel_root.root_via_fork` when the
+tail walk works; prefer `kernel_root.py --fork` (validated, with retries).
+"""
 import struct, time
 import physmap as T
 import kernel_root as K

