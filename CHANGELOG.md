@@ -12,6 +12,26 @@ entry is an incomplete change. `AGENTS.md` repeats this rule for agents.
 
 ## 2026-10-25
 
+### Payload v35 — high-alloc gate must not be vetoed by junk on a high parent page
+
+A high parent task page is exactly the half video40 cannot read, so its
+`cred`/`real_cred` words are junk. The v33 gate still fed those words to
+`sawLow`: a junk value in `0xC0000000..0xDFFFFFFF` looked like a readable low
+cred and suppressed `highAlloc && !sawLow`, keeping the 5 s waits and the scan
+instead of re-rolling. The existing boots happened not to hit it
+(`b51a4594`, `0`, `ffffffff`), which is why the gate looked reliable.
+
+- Ignore `cred` and `real_cred` for `sawLow` when the **parent** pointer is at or
+  above `0xE0000000`; a low parent with a readable low cred still keeps `sawLow`.
+- The gate beacon now logs the raw word read, not only high kptrs: a high parent
+  with `cred=b51a4594` logs `cred=b51a4594` instead of `cred=00000000`.
+- `tools/sim_rpc.py` gains `high_alloc_gate()` and tests the junk-word case, the
+  zero/non-kptr log case, a genuine low-cred suppression, high-cred/high-real
+  firing, and long mode never fast-exiting. All sim tests pass.
+- Build `e33d6f6a7e415e033db1e26a2a99ecb2`, 29,184 B, reproducible (two builds).
+  Deployed; on-TV md5 verified. A v35 cold boot is still pending (the gate change
+  only affects the failure path).
+
 ### auto_root — retry root on a fresh stub (root.ps1 reliability)
 
 The 2026-10-25 stock→root cycle showed the one-command path failing when the

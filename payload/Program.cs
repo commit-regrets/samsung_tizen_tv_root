@@ -1207,17 +1207,27 @@ internal static class Program
                                 try { real = U32(ReadPhys(V2P(parent) + O_REAL, 4), 0); } catch { }
                             }
                             if (Kptr(cred) || Kptr(real)) sawKptr = true;
-                            if (Kptr(parent) && parent >= 0xE0000000)
+                            // A high parent page is exactly the half video40
+                            // cannot read: cred/real are junk there.  Never let
+                            // that junk veto the gate via sawLow (a junk word in
+                            // 0xC0000000..0xDFFFFFFF used to look like a low
+                            // cred).  When the parent is low, keep sawLow as the
+                            // "readable but not patched" signal.
+                            bool parentHigh = Kptr(parent) && parent >= 0xE0000000;
+                            if (parentHigh)
                             {
                                 highAlloc = true;
                                 highParent = parent;
+                                // log the word actually read, even if it is not
+                                // a pointer (the old code logged 0 for this case)
+                                highCred = cred;
                             }
-                            if (Kptr(cred))
+                            if (!parentHigh && Kptr(cred))
                             {
                                 if (cred >= 0xE0000000) { highAlloc = true; highCred = cred; }
                                 else sawLow = true;
                             }
-                            if (Kptr(real))
+                            if (!parentHigh && Kptr(real))
                             {
                                 if (real >= 0xE0000000) { highAlloc = true; highCred = real; }
                                 else sawLow = true;

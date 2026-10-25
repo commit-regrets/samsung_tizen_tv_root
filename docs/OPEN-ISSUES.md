@@ -2,14 +2,15 @@
 
 ## Current state — 2026-10-25 (payload v34)
 
-TV: **v34** (`5c780eea…`, 29,184 B), rooted, channel 31337 up. v34 is v33 with
-the unused `next.dll` self-update and the remote research/tool removed; the boot
-path is unchanged. Cold boots: **34 s** (2026-10-25 19:40, attempt 2) and **68 s**
-on the full stock→root cycle (19:59, attempt 3; attempt 2's hunt saw no new
-`PHYRFORK`). The fifth pass is **closed**: attempt 1 is an allocation lottery on
-this unit; attempt 2 is the floor, but a slow hunt can push to attempt 3. Read
-everything below the "History" line as history; do not reopen attempt 1 without a
-new read path.
+TV: **v35** (`e33d6f6a…`, 29,184 B), rooted, channel 31337 up. v35 is v34 plus
+the high-allocation gate fix: junk `cred`/`real_cred` words read from a high
+parent page no longer set `sawLow` and cannot suppress the fast-exit; the gate
+beacon logs the raw word. v35 is deployed but not cold-booted yet. v34 cold
+boots: **34 s** (2026-10-25 19:40, attempt 2) and **68 s** on the full stock→root
+cycle (19:59, attempt 3; attempt 2's hunt saw no new `PHYRFORK`). The fifth pass
+is **closed**: attempt 1 is an allocation lottery on this unit; attempt 2 is the
+floor, but a slow hunt can push to attempt 3. Read everything below the "History"
+line as history; do not reopen attempt 1 without a new read path.
 
 **Pending / next, in order:**
 

@@ -465,6 +465,34 @@ def patch_gate(rpc, cred: int) -> bool:
     return K.patch_full(rpc, cred)
 
 
+def high_alloc_gate(parent: int, cred: int, real: int, *, fast_mode: bool = True):
+    """Twin of the v33/v35 high-allocation gate (Program.cs, direct-parent block).
+
+    A parent task at/above 0xE0000000 is unreadable through video40: its
+    cred/real_cred words are junk and must NOT set sawLow.  A low parent with a
+    readable low cred (or a write that did not stick) keeps sawLow, so the normal
+    wait/scan path still runs.  Returns (fires, parent_high, high_cred, saw_low).
+    """
+    parent_high = kptr(parent) and parent >= 0xE0000000
+    high_alloc = parent_high
+    high_cred = cred if parent_high else 0
+    saw_low = False
+    if not parent_high:
+        if kptr(cred):
+            if cred >= 0xE0000000:
+                high_alloc = True
+                high_cred = cred
+            else:
+                saw_low = True
+        if kptr(real):
+            if real >= 0xE0000000:
+                high_alloc = True
+                high_cred = real
+            else:
+                saw_low = True
+    return (high_alloc and not saw_low and fast_mode), parent_high, high_cred, saw_low
+
+
 def direct_parent_patch(rpc, child_virt: int, *, beacon,
                         retries: int = 8,
                         probe_prs: tuple[int, ...] = (0, -1)):
@@ -1072,6 +1100,30 @@ def selftest() -> int:
         kernel_uid(s1, pp1v) == OWNER_UID,
         "nothing was written behind the closed gate",
     )
+
+    # ---- v35 high-allocation gate: junk on a high parent must not veto -------
+    gate_cases = [
+        ("high parent + junk low kptr does not suppress",
+         0xE3400B80, 0xC0000100, 0, True, (True, True, 0xC0000100, False)),
+        ("high parent + zero cred",
+         0xE3400B80, 0, 0, True, (True, True, 0, False)),
+        ("high parent + non-kptr word is logged",
+         0xE3400B80, 0xB51A4594, 0, True, (True, True, 0xB51A4594, False)),
+        ("low parent + low cred keeps sawLow",
+         0xD5D905C0, 0xCCB27D00, 0xCCB27D00, True, (False, False, 0, True)),
+        ("low parent + high cred fires",
+         0xD5D905C0, 0xE0000100, 0, True, (True, False, 0xE0000100, False)),
+        ("low parent + high real fires",
+         0xD5D905C0, 0, 0xE0000100, True, (True, False, 0xE0000100, False)),
+        ("long mode never fast-exits",
+         0xE3400B80, 0, 0, False, (False, True, 0, False)),
+    ]
+    for desc, parent, cred, real, fast, want in gate_cases:
+        got = high_alloc_gate(parent, cred, real, fast_mode=fast)
+        failed += not _check(
+            f"high-alloc gate: {desc}", got == want,
+            f"got={got} want={want}",
+        )
 
     s1.publish()   # the v24 alias-correct mapping / the line finally wrote back
     b2: list[str] = []

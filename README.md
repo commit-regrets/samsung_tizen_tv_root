@@ -11,7 +11,7 @@ browser, and the root is made persistent through a stock on-boot service app.
 | Kernel | Linux 5.4.249, ARM32 LPAE, `PHYS_OFFSET 0x20000000` |
 | Browser | Chromium 120.0.6099.5 (`SamsungBrowser/7.0`) |
 | Root | `uid=0`, `CapEff=0x3fffffffff` |
-| Persistent payload | 29,184 B, md5 `5c780eea5ca951fb05dee5da37fa6186` (v34; deployed 2026-10-25) |
+| Persistent payload | 29,184 B, md5 `e33d6f6a7e415e033db1e26a2a99ecb2` (v35; deployed 2026-10-25) |
 | Root channel | TCP **31337** on the TV, line protocol, replies end with `__END__` |
 
 ## Quick start
