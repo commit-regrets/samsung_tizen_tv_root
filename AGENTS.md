@@ -592,6 +592,26 @@ payload-replacement path), the remote/hotkey research (`docs/REMOTE.md` and
 `tools/tv_ws_launch.py`), and the OTA-measurement task (running an OTA against a
 rooted set risks the root; the warning to keep auto-update off remains).
 
+### Caveats for a fresh clone
+
+- **`server/deploy.sh` ships `H=http://192.0.2.1`.** Never serve it unrewritten.
+  `root.ps1` detects the PC address and writes the ignored
+  `server/deploy_local.sh`; use that for manual deploys. `server/recover.sh`
+  prefers it and rewrites the fallback.
+- **Compiled address fallbacks still exist.** `payload/Program.cs` has
+  `Host = "192.168.178.214"`, and `tools/physrpc.S` / the page have a baked
+  callback. The normal flow overwrites them (`rootchan.host`; the page rewrites
+  from `location.hostname`), so open the page by **IP**, not hostname. Do not
+  rely on the compiled default; changing `Host` needs a new payload version.
+- **31337 is an unauthenticated LAN root shell.** The allowlist is the only
+  filter; see `SECURITY.md`.
+- **Attempt 1 after a cold boot is an allocation lottery.** Do not chase it with
+  waits (v31: 132 s); the high-half read limit is in §1 and trap 16.
+- **Do not re-add the v34 removals without a design.** A `next.dll` update needs
+  a pinned hash or auth; remote/OTA work is out of scope.
+- **Third-party browser chain is not covered by `LICENSE`.** See `NOTICE.md`
+  before redistributing.
+
 ## 12. Safety rules
 
 - Only on hardware you own. A bad physical write can brick the TV.

@@ -85,6 +85,11 @@ relaunch gap, not the waits.
 - `AGENTS.md` no longer carries a “committed: ~N files / ~N KB” inventory; that
   was agent bookkeeping and is noise in a public handoff. `.gitignore` is the
   source of truth.
+- `AGENTS.md` has a short **Caveats for a fresh clone** section: the
+  `deploy.sh` placeholder vs `deploy_local.sh`, the compiled address fallbacks
+  (`payload/Program.cs`, physrpc/page), the unauthenticated 31337 channel, the
+  attempt-1 allocation lottery, the v34 removals, and the third-party license
+  boundary.
 
 ### Payload v32 — attempt-1 root cause: high-half reads are unreliable; revert the 10 s wait
 
