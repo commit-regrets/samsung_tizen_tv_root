@@ -45,12 +45,13 @@ relaunch gap, not the waits.
 - Added `LICENSE` (MIT for the original work; third-party browser-chain files
   excluded) and `NOTICE.md`'s license-scope note, plus `SECURITY.md` covering the
   unauthenticated 31337 backdoor, scope, reporting and legal use.
-- `README.md`: current 39 s cold-boot status, a short “Porting to another Tizen 9
-  TV” checklist, a stronger safety/backdoor/license section, and the new docs in
-  the index. `docs/PORTABILITY.md`: the v31 high-half read limit, its evidence,
-  and a file-by-file port checklist. `docs/EXPLOIT.md`: the read-reliability
-  limit next to the address-space table. `docs/USAGE.md`: the committed
-  `deploy.sh` `H=` is a placeholder and must be rewritten by `root.ps1`.
+- `README.md`: a short “Porting to another Tizen 9 TV” checklist, a stronger
+  safety/backdoor/license section, and the new docs in the index (the test-unit
+  status paragraph was removed — the facts table and `docs/OPEN-ISSUES.md` carry
+  what matters). `docs/PORTABILITY.md`: the v31 high-half read limit, its
+  evidence, and a file-by-file port checklist. `docs/EXPLOIT.md`: the
+  read-reliability limit next to the address-space table. `docs/USAGE.md`: the
+  committed `deploy.sh` `H=` is a placeholder and must be rewritten by `root.ps1`.
 - Removed private LAN addresses from docs, changelog entries, examples and code
   comments. `server/deploy.sh` now ships `H=http://192.0.2.1` (TEST-NET-1) as a
   placeholder; `root.ps1` still rewrites it into the ignored `deploy_local.sh`.
@@ -62,6 +63,9 @@ relaunch gap, not the waits.
   `AGENTS.md` §11 carries the same pending list.
 - Removed the stale “21.5 KB” `.gitignore` comment and the dangling review-note
   ignore marker.
+- `AGENTS.md` no longer carries a “committed: ~N files / ~N KB” inventory; that
+  was agent bookkeeping and is noise in a public handoff. `.gitignore` is the
+  source of truth.
 
 ### Payload v32 — attempt-1 root cause: high-half reads are unreliable; revert the 10 s wait
 

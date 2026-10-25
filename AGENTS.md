@@ -327,22 +327,14 @@ shell - that corrupts the stream and wastes the page load.
 
 ### Repository hygiene (`.gitignore`, `.gitattributes`)
 
-**Committed** (~57 files, ~420 KB on a fresh clone): `docs/`, `payload/*.cs` +
-`*.csproj`, `server/{server.py,index.html,payload.dll,deploy.sh,uninstall.sh,diag.sh}`,
-`server/lib/`, `server/payloads/`, `tools/*.py|*.S|*.txt`, `root.ps1`,
-`uninstall.ps1`, `AGENTS.md`, `README.md`, `NOTICE.md`, `LICENSE`, `SECURITY.md`.
+`.gitignore` is the source of truth for what is tracked versus ignored; do not
+duplicate an inventory here.
 
-**Ignored**: `server/logs/` (runtime), `payload/obj/` + `payload/out/` +
-`payload/bin/` (rebuildable: `cd payload && dotnet build -c Release`),
-`tools/__pycache__/`, `server/deploy_local.sh` (per-host, contains the PC IP),
-`.root_probe`, plus the usual editor/OS/scratch/secret patterns and
-`*.tpk`/`*.wgt`.
-
-`server/payload.dll` is committed **deliberately** — it is the artifact the TV
-fetches during deploy, and it is byte-identical to the build output
-`payload/out/MultiControlService.dll` (md5 `63dc2652…`, v33; reproducible — see §9), so the repo runs
-without a .NET SDK. Rebuild with `dotnet build payload/BootPayload.csproj -c
-Release`, then update the `WANT=`/`SIZE_WANT=` gate in `server/deploy.sh`.
+`server/payload.dll` is the artifact the TV fetches during deploy and is
+byte-identical to `payload/out/MultiControlService.dll` (md5 `63dc2652…`, v33;
+reproducible — see §9), so a clone runs without a .NET SDK. Rebuild with
+`dotnet build payload/BootPayload.csproj -c Release`, then update the
+`WANT=`/`SIZE_WANT=` gate in `server/deploy.sh`.
 
 `.gitattributes` pins `*.sh`/`*.py` to **LF**: the TV's busybox `sh` treats a CR
 as part of the token (`#!/bin/sh^M: not found`), so a Windows checkout must not
