@@ -12,6 +12,31 @@ entry is an incomplete change. `AGENTS.md` repeats this rule for agents.
 
 ## 2026-10-25
 
+### Payload v33 — high-address fast-exit (optional boot-latency lever)
+
+v32 reverted the harmful 10 s wait and closed the fifth pass at attempt 2 (59 s cold
+boot). The remaining cost is that attempt 1 can spend ~55 s on a high allocation
+that video40 cannot read. v33 adds one **fast-mode-only** gate: after the
+direct-parent probe, if the parent task or its cred is at/above `0xE0000000` and no
+low cred/real was ever seen, beacon `high-alloc parent=… cred=… fast-exit` and break
+to the existing fast-exit instead of running the waits/scan. A fresh AUL process is
+the only allocation re-roll, so a high-allocation boot should fall sharply; a low
+allocation is unchanged (the deploy relaunch rooted attempt 1 in ~1 s). `sawLow`
+keeps a low-but-write-failed cred on the normal retry/scan path, and the gate is
+fast-mode only (attempts 1–4) so long mode cannot loop early exits.
+
+Build: `63dc2652259cec5f0886b2dae143b837`, 30,208 B, reproducible (two clean
+builds). Deployed 2026-10-25 (`COPY=ok`, `DEPLOY_DONE`; on-TV md5 verified).
+
+Cold boot on v33 (2026-10-25 18:35, wall unplug) validated the gate: attempt 1's
+round 0 hunt failed (`seen=0`), round 1 found the child with `parent=e3400b80`
+(high) and a low-but-not-kptr garbage cred (`cred=b51a4594`, `pplain` the same;
+`sawLow` stays false because Kptr(cred) is false), and the payload beacons
+`high-alloc parent=e3400b80 cred=00000000 fast-exit` at t=32. AUL relaunched at
+t=36; attempt 2 rooted at t=38–39. **Boot-to-root 39 s vs 59 s on v32** — the gate
+saved ~20 s. The remaining 39 s is app start + the failed round-0 hunt + the AUL
+relaunch gap, not the waits.
+
 ### Payload v32 — attempt-1 root cause: high-half reads are unreliable; revert the 10 s wait
 
 The v31 cold boot (wall unplug) was worse than v30: attempt 1 failed (round 3's

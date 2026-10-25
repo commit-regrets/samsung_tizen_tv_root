@@ -367,6 +367,17 @@ round 3's child cred high → `cred-scan skip`), fast-exit t=55, **attempt 2 roo
 t=59** (`self=d9356780`, `cred=c5b78080`). No 132 s regression; 59 s is in the
 v30-profile class.
 
+- **v33: high-alloc fast-exit (optional latency; deployed 2026-10-25).** The
+  remaining cost was attempt 1 spending ~55 s on a high allocation it cannot read.
+  v33 sets `highAlloc` from the direct-parent probe and, in fast mode only, beacons
+  `high-alloc … fast-exit` and breaks to the existing fast-exit instead of running
+  the waits/scan. It requires no low cred/real (`sawLow`), so a low-but-write-failed
+  cred keeps the normal retry/scan path, and it is fast-mode only so long mode
+  cannot loop exits. Deploy relaunch rooted attempt 1 in ~1 s. The cold boot
+  (2026-10-25 18:35) validated it: attempt 1 found `parent=e3400b80` high, beaconed
+  `high-alloc … fast-exit` at t=32, AUL relaunched at t=36, **attempt 2 rooted at
+  t=38–39 — 39 s vs 59 s on v32**.
+
 The attempt-1 marker to look for: `attempt=1` → (optionally `retry in 5s`)
 → `child=… pu=5001` → `direct-parent+2f0=…` → `direct-patch uid=0` →
 `SUCCESS` → `ROOTCHAN`. Attempt-2 `SUCCESS` is now the accepted floor; an attempt-1
@@ -377,7 +388,7 @@ The attempt-1 marker to look for: `attempt=1` → (optionally `retry in 5s`)
 - **Work in this repo.** The `samsungtv` tree is reference material (vendored
   clones, firmware extract, the DWARF/kernel build). Nothing under it is needed to
   fix the items below, and nothing there should be edited as "the toolkit".
-- **TV:** `192.168.178.175`, rooted, payload **v32** (`a4ccba98…`), channel on
+- **TV:** `192.168.178.175`, rooted, payload **v33** (`63dc2652…`), channel on
   `31337` (`python tools/root_shell.py "id" 192.168.178.175`). PC: `192.168.178.214`.
 - **Port 80 is the firewall's fault line.** The Windows firewall has inbound
   *Block* rules for `python.exe` and *Allow* rules for `pysrv.exe` (path

