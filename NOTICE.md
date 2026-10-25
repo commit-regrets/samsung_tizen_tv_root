@@ -16,3 +16,11 @@ Parts of this toolkit are derived from or build on public work:
 
 Everything else (task-list walk, cred patch, boot payload, deployment tooling,
 documentation) is original work by the repository author.
+
+## License scope
+
+The MIT license in `LICENSE` covers the original work only. It does **not**
+relicense the third-party browser-chain files listed above; those remain under
+whatever terms their authors provide (upstream had no LICENSE file at the time of
+writing). If you redistribute this repository, keep this notice and the upstream
+attribution intact.

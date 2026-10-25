@@ -206,7 +206,7 @@ Also learned: `chsmack <path>` with **no options prints** the label
 > app's label directly with
 > `echo -n "User::Pkg::com.samsung.tv.MultiControl-Service" > /proc/self/attr/current`,
 > after which `deploy.sh` writes the payload as the app's own file. The payload
-> was reinstalled and verified on a cold boot (31337 in 41 s). See
+> was reinstalled and verified on a cold boot (v33: 39 s). See
 > `docs/ROOT-METHODS.md` and `server/recover.sh`. The text below is kept as the
 > accurate record of why the obvious route fails.
 

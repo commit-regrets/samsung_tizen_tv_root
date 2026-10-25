@@ -1,4 +1,34 @@
-# Open issues — triaged from the code review
+# Open issues — current state, pending work, and closed history
+
+## Current state — 2026-10-25 (payload v33)
+
+TV: **v33** (`63dc2652…`, 30,208 B), rooted, channel 31337 up. The last cold boot
+was **39 s**: attempt 1 landed on a high allocation, the `high-alloc` gate
+fast-exited, AUL relaunched, attempt 2 rooted. The fifth pass is **closed**:
+attempt 1 is an allocation lottery on this unit; attempt 2 is the floor. Read
+everything below the "History" line as history; do not reopen attempt 1 without a
+new read path.
+
+**Pending / next, in order:**
+
+1. **High-half read mechanism (open question, not blocking).** Reads at/above
+   `0xE0000000` are unreliable (`0/21` high creds coherent, `0/81` high task
+   pointers; every successful patch used a cred below it). Whether this is a
+   video40 pfn-mapping limit or a cache-visibility effect is unproven. It only
+   matters if a future unit must root on its first process.
+2. **Portability** — no second model/firmware has been tested. Follow
+   `docs/PORTABILITY.md`; the real risks are the browser gate (Chromium 120) and
+   the physmap. Record each unit's results in that file.
+3. **31337 is an unauthenticated LAN root shell.** The allowlist is the only
+   filter; keep it off untrusted networks. See `SECURITY.md`.
+4. **Public-release hygiene** — `LICENSE` (MIT for original work), `NOTICE.md`
+   (third-party browser chain is not relicensed), private LAN IPs removed from
+   docs/examples, logs and build output ignored, only the payload DLL and the
+   physrpc shellcode blob tracked as binaries.
+5. **Optional features** — remote hotkey repoint (`docs/REMOTE.md`), a `next.dll`
+   self-update test, OTA behaviour (does an update replace the app/boot row?).
+
+## History
 
 The review notes (`docs/REVIEW-FINDINGS-2026-10-23.md` and
 `docs/REVIEW-FINDINGS-DUMMY-SECOND-PASS.md`, both untracked and marked "do not
@@ -7,7 +37,7 @@ detail and line numbers live on in this file, in `CHANGELOG.md`, and in the code
 comments. This file is the record: what was broken, what fixed it, and how it was
 proven.
 
-State when this list was written: TV rooted with payload **v13** (21,504 B, md5
+Historical state (v13, 2026-10-24): TV rooted with payload **v13** (21,504 B, md5
 `176914345bcc81ca8c87de712b4a044f`), 47 tracked files, working tree clean.
 
 Already fixed and committed with this handoff: **#9** (`patch_full` read `uid`
@@ -85,15 +115,22 @@ list head. The marker distinguishes the other two:
 then `fail round 0/1` (no `direct-parent` beacon). Attempt 2 `SUCCESS` at `t=44s`.
 Do not `systemctl --force reboot`. Full handoff is **Fifth pass** below.
 
-## Fifth pass — 2026-10-25 (attempt-1 patch)
+## Fifth pass — 2026-10-25 (attempt-1 patch) — **closed**
 
-**Goal:** cold-boot `SUCCESS` on **attempt 1**, not attempt 2. Hunt is no longer
-the blocker. Do not spend time on latch/`skip-orphan` unless a new beacon shows
-`fail no new PHYRFORK` again.
+**Closed 2026-10-25:** attempt 1 is an allocation lottery on this unit. v32
+reverted the harmful 10 s wait and closed the pass with attempt 2 as the floor;
+v33 added the `high-alloc` fast-exit, and the next cold boot rooted at 39 s
+(attempt 1 gate, attempt 2 root). Do not reopen attempt 1 without a new read
+path — more rounds/waits made it worse (v31: 132 s). The history below is kept
+for the evidence and the dead ends.
 
-TV `192.168.178.175` is on **v23** (`cad2e7042c5f4c6e1411c719c6f2fe24`, 25,600 B),
-rooted, 31337 up. PC `192.168.178.214`. Port 80 = `pysrv.exe` only. Cold boot =
-wall unplug (not remote standby, not `systemctl --force reboot`).
+**Goal as originally written:** cold-boot `SUCCESS` on **attempt 1**, not attempt
+2. Hunt is no longer the blocker. Do not spend time on latch/`skip-orphan`
+unless a new beacon shows `fail no new PHYRFORK` again.
+
+The fifth pass started on **v23** (`cad2e704…`, 25,600 B); the constants and
+carrier below are unchanged through v33. Cold boot = wall unplug (not remote
+standby, not `systemctl --force reboot`).
 
 ### What is proven
 
@@ -126,7 +163,7 @@ t=43s attempt=2 (fast mode)
 t=44s child=c597f300 self=00000000
 t=44s direct-parent+2f0=ca2be1c0 cred=df30cf00
 t=44s direct-patch uid=0
-t=44s SUCCESS … ROOTCHAN bind=192.168.178.175
+t=44s SUCCESS … ROOTCHAN bind=<tv-ip>
 ```
 
 `fail round` means `getuid()` still 5001 after: skipped `self` (comm unread),
@@ -388,8 +425,8 @@ The attempt-1 marker to look for: `attempt=1` → (optionally `retry in 5s`)
 - **Work in this repo.** The `samsungtv` tree is reference material (vendored
   clones, firmware extract, the DWARF/kernel build). Nothing under it is needed to
   fix the items below, and nothing there should be edited as "the toolkit".
-- **TV:** `192.168.178.175`, rooted, payload **v33** (`63dc2652…`), channel on
-  `31337` (`python tools/root_shell.py "id" 192.168.178.175`). PC: `192.168.178.214`.
+- **TV:** `<tv-ip>`, rooted, payload **v33** (`63dc2652…`), channel on
+  `31337` (`python tools/root_shell.py "id" <tv-ip>`). PC: `<pc-ip>`.
 - **Port 80 is the firewall's fault line.** The Windows firewall has inbound
   *Block* rules for `python.exe` and *Allow* rules for `pysrv.exe` (path
   `...\pythoncore-3.14-64\pysrv.exe`, plus a "TV lab HTTP (pysrv)" rule). Serve
@@ -403,7 +440,7 @@ The attempt-1 marker to look for: `attempt=1` → (optionally `retry in 5s`)
 - **Do not launch a second server** while the task's one owns `:80`; the TV would
   fetch whichever answered.
 
-## P0 — a promise the docs make that the code does not keep
+## P0 (historical, closed) — a promise the docs make that the code does not keep
 
 | # | Issue | Why it matters | Fix sketch | How to verify |
 |---|---|---|---|---|
@@ -413,7 +450,7 @@ The attempt-1 marker to look for: `attempt=1` → (optionally `retry in 5s`)
 | 4 | **`root_shell.py` address requirement breaks both `.ps1` callers** (F1) | `root_shell.py` exits 2 without an address (`$TV_IP` or argv[2]); `uninstall.ps1` and `root.ps1` call it with only the command, and `root.ps1` never checks `$LASTEXITCODE`, so it prints "Permanent root is up" even though the check never ran. The uninstall path cannot run at all. | Pass `$TvIp` as the second argument in both scripts and check the exit code. Audit other call sites and docs using the bare form. | `python tools/root_shell.py id` → exit 2 (confirms); after the fix, `root.ps1 -DryRun` and a real uninstall run. |
 | 5 | **`recover.sh` fetches the un-rewritten `deploy.sh`** (F3) | `deploy.sh` still contains `H="http://HOST_IP"`; only `root.ps1` rewrites it (into `deploy_local.sh`). So `recover.sh` ends in `CURL_FAIL` and still prints `RECOVER_DONE`. It also points at `tools/chan.py`, which does not exist. | Fetch `deploy_local.sh` when present, else rewrite `H=` inside `recover.sh`; abort unless the output contains `DEPLOY_DONE`; fix the hint to `root_shell.py`. | Run `recover.sh` from a root shell on the current TV: expect `COPY=ok` … `DEPLOY_DONE`. |
 
-## P1 — robustness; no user-visible promise broken
+## P1 (historical, closed) — robustness; no user-visible promise broken
 
 | # | Issue | Fix sketch |
 |---|---|---|
@@ -426,7 +463,7 @@ The attempt-1 marker to look for: `attempt=1` → (optionally `retry in 5s`)
 | 13 | **`PatchCred` has no sanity check** (M4) — it accepts any kernel-looking pointer whose cred uid is 0 or 5001, so a bogus `real_parent` could patch a foreign cred (even `init`). Python's `_sane_cred` is stricter. | Mirror `_sane_cred` in the payload (usage 1..0x10000, ids plausible) before writing. |
 | 14 | **Cred scan misses a page-straddling pattern** (M5) — `scan_cred.py` and `tv_rootwatch` search each 4 K page with no overlap. Proven by the `sim_rpc.py` self-test: a 16/16 split is invisible per page, visible with 31 bytes of overlap. | Carry `PAT[:-1]` as overlap between pages. Extend the sim test to cover the fix. |
 
-## P2 — hygiene, latent paths, or cosmetic
+## P2 (historical, closed) — hygiene, latent paths, or cosmetic
 
 - **`physmap.py` dead modes** (F6): `full_root` calls `load_image_head()` (no uImage ships), then undefined `find_tasks_offset`/`walk_tasks`, and gates creds to `< 0xD0000000` while claiming success. Not on the production path (`kernel_root.py --fork`). Delete or repair.
 - **`TrySelfUpdate()`** (F13): any `share/next.dll` over 1 KB replaces the payload with no hash check and no rollback. Add a pinned hash (or PE sanity) and keep the previous DLL.

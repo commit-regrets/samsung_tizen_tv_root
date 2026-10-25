@@ -2,7 +2,7 @@
 #
 # Rule of thumb: source, docs, scripts and the shipped payload artifact are
 # tracked; anything generated at runtime, rebuilt, or host-specific is not.
-# `server/payload.dll` IS tracked on purpose - it is the 21.5 KB artifact the
+# `server/payload.dll` IS tracked on purpose - it is the 30,208-byte artifact the
 # toolkit serves to the TV, so the repo runs without a .NET SDK (byte-identical
 # to payload/out/MultiControlService.dll).
 
@@ -80,4 +80,3 @@ tmp/
 # dotnet build scratch dirs (-o out10, out11, ...); only server/payload.dll is tracked
 payload/out*/
 python/
-# Temporary review handoff - working notes, not for publication (see docs/OPEN-ISSUES.md)

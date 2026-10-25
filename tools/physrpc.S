@@ -507,7 +507,7 @@ send_status:
 tag:        .ascii "PHYSRPC1\0"
 forktag:    .ascii "PHYRFORK\0"
 sa:         .word 0x50000002      @ AF_INET, port 80 (big endian)
-            .word 0xd6b2a8c0      @ 192.168.178.214
+            .word 0xd6b2a8c0      @ <pc-ip>
             .word 0
             .word 0
 path:       .ascii "/dev/video30\0"

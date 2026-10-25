@@ -1,8 +1,8 @@
 """Samsung TV remote-control WebSocket probe / app launcher (diagnostic).
 
-    python tools/tv_ws_launch.py --tv 192.168.178.175                 # pair only
-    python tools/tv_ws_launch.py --tv 192.168.178.175 --launch --url http://<pc>/index.html
-    python tools/tv_ws_launch.py --tv 192.168.178.175 --launch --app com.samsung.tv.MultiControl-Service
+    python tools/tv_ws_launch.py --tv <tv-ip>                 # pair only
+    python tools/tv_ws_launch.py --tv <tv-ip> --launch --url http://<pc>/index.html
+    python tools/tv_ws_launch.py --tv <tv-ip> --launch --app com.samsung.tv.MultiControl-Service
 
 What it does: connects to the TV's local remote-control channel
 (`samsung.remote.control`), prints the TV's messages, saves the pairing token,
@@ -33,7 +33,7 @@ TOKEN_FILE = ROOT / "server" / "logs" / "ws_token.txt"
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument("--tv", required=True, help="TV address (e.g. 192.168.178.175)")
+    ap.add_argument("--tv", required=True, help="TV address (e.g. <tv-ip>)")
     ap.add_argument("--name", default="dsh-toolkit", help="name shown in the TV's Allow dialog")
     ap.add_argument("--url", default="http://127.0.0.1/index.html",
                     help="URL for the DEEP_LINK metaTag")

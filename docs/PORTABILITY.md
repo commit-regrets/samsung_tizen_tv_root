@@ -65,6 +65,65 @@ documented fallbacks in `docs/ROOT-METHODS.md` (`/dev/tzmem`, GPU CVEs, the
 installer write primitive) each failed or were closed on this unit — do not
 assume they work elsewhere.
 
+## The read-reliability limit (test it on the new unit)
+
+On this unit the physmap is **not uniformly readable**. The v31 cold boot showed
+every coherent task/cred read below `0xE0000000`, while reads at/above it
+returned 0, junk or `0xFF`:
+
+| Observation | Count |
+|---|---|
+| coherent child creds (`cuid=5001`) with `ccred < 0xE0000000` | 78 / 78 |
+| child creds `>= 0xE0000000` reading 0 / junk / `0xFF` | 21 / 21 |
+| successful `direct-parent+` / `self-patch` with a low cred | 15 / 15 and 19 / 19 |
+| task pointers (`child=`/`self=`) ever `>= 0xE0000000` | 0 / 81 |
+
+This is why cold-boot attempt 1 is an allocation lottery here: the first process
+landed high, and no in-process wait changes the address. The payload's `Kptr`
+still accepts the full direct map (`>= 0xC0000000`) for **pointer shape**; the
+`high-alloc` gate (v33) is a **read-reliability** decision, not a validity bound.
+
+On a foreign unit, before trusting the root path:
+
+1. Read a known low page (for example the kernel Image at `PHYS_OFFSET + 0x8000`)
+   and a known high page (a task/cred you can identify at `>= 0xE0000000`).
+2. If high reads are coherent there, the high gate is harmless but unnecessary.
+3. If high reads are junk like this unit, keep the gate and accept attempt 2;
+   do not add waits (v31 proved they make the boot worse).
+4. The exact cause here — a video40 pfn-mapping limit versus a cache-visibility
+   effect — is still unproven. Do not generalise the `0xE0000000` split without
+   measuring it.
+
+## Port checklist — what to edit
+
+Run the four gates first; then these are the files that carry model-specific
+values.
+
+| What | Where | Notes |
+|---|---|---|
+| V4L2 device node | `payload/Program.cs` (`open("/dev/video40")`), `tools/physrpc.S` (`/dev/video40`), `server/payloads/browser_payload.js` | The stub's device path is in the assembled blob; rebuild it with `build_physrpc.py`, re-embed with `embed_physrpc.py`, and keep both `--check` modes green |
+| `PHYS_OFFSET`, Image base, `init_task` | `payload/Program.cs` top constants (`PHYS_OFF`, `IMAGE_A/B`) | `init_task` is found at run time by `LocateInit`; the Image signature must match |
+| Task/cred offsets | `payload/Program.cs` (`O_COMM`, `O_CRED`, `O_REAL`, task-list offsets) | Re-measure from GPL source + `.config` or a matching DWARF build |
+| VIPT alias period | `payload/Program.cs` `SlotStride` | 32 KiB here; if a new L1 way size differs, test 8/16/32 KiB |
+| High-read boundary | `payload/Program.cs` high-alloc gate and `Kptr` | Keep `Kptr` wide; only the read gate is bounded |
+| Carrier app | `server/deploy.sh` (`APPID`, `D`, `S`, `DB`), `server/uninstall.sh`, `server/recover.sh` | Must be `dotnet-inhouse`, `app_onboot`, writable `/opt`, and you must be able to carry its SMACK label |
+| Payload artifact + gate | `server/payload.dll`, `server/deploy.sh` (`WANT=`, `SIZE_WANT=`) | Rebuild reproducibly (two builds), copy `payload/out/MultiControlService.dll` |
+| Browser ROP constants | `server/payloads/browser_payload.js`, `server/lib/wasm_builder.js` | Tied to the Chromium/libchrome build; re-derive |
+| PC/TV addresses | runtime only | `server/deploy.sh` ships a placeholder `H=`; `root.ps1` rewrites `deploy_local.sh`; the page rewrites the shellcode callback; the payload reads `rootchan.host` |
+
+Build and deploy:
+
+```sh
+cd payload
+dotnet build -c Release -o out          # twice; md5s must match
+# copy out/MultiControlService.dll to server/payload.dll, update WANT/SIZE_WANT
+python ../tools/test_all.py
+# then root.ps1 -TvIp <tv-ip>, deploy, cold boot, verify channel + md5
+```
+
+Acceptance on a new unit: attempt 2 `self-patch uid=0` / `SUCCESS` / `ROOTCHAN`,
+and a cold boot that comes back without a PC. Attempt 1 is a bonus.
+
 ## Gate 2 — re-measure the kernel constants
 
 These are the values that are *specific to the kernel build* and must be redone:

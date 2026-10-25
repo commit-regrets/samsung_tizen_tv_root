@@ -46,7 +46,11 @@ almost certainly wrong for your network.
 `root.ps1` works out your PC's address on the TV's subnet automatically and writes
 it into the deploy script; `deploy.sh` records it on the TV as
 `share/rootchan.host`, which the payload (v10+) uses for beacons and
-`server/recover.sh` uses to find the PC again.
+`server/recover.sh` uses to find the PC again. The committed `server/deploy.sh`
+ships a placeholder `H=` (`192.0.2.1`, TEST-NET-1); `root.ps1` rewrites it into
+the ignored `server/deploy_local.sh`. Do not serve the committed copy unrewritten
+— the TV would fetch the DLL from the wrong address. The payload's compiled-in
+`Host` in `payload/Program.cs` is only a fallback when `rootchan.host` is missing.
 
 If you ever want to check or change it, that file is the one to edit:
 

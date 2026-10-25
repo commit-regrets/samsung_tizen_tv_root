@@ -4,11 +4,6 @@ Unofficial security research on a 2024 Samsung Neo QLED running **Tizen 9**.
 No sdb, no developer mode, no firmware flashing: the TV is rooted from its own
 browser, and the root is made persistent through a stock on-boot service app.
 
-**Status: rooted and persistent on the test unit.** After a cold boot the root
-channel is up in well under a minute with no PC and no browser involvement. The
-whole path is verified end to end from a stock TV: uninstall → reboot (channel
-stays closed) → `root.ps1` → reboot → channel back, `uid=0`.
-
 | | |
 |---|---|
 | Test unit | 2024 Neo QLED, QNX1D series (QTV T09 platform) |
@@ -68,13 +63,16 @@ part; the stage-by-stage writeup with the measured constants is
 | [`docs/ROOT-METHODS.md`](docs/ROOT-METHODS.md) | every root/persistence method evaluated and the one that won |
 | [`docs/FAILED.md`](docs/FAILED.md) | what did not work and why — reads like a list of dead ends, saves weeks |
 | [`docs/BOOT-REGRESSION-SMACK.md`](docs/BOOT-REGRESSION-SMACK.md) | the subtlest bug in the project: a wrong SMACK label made the app die before `Main` |
-| [`docs/PORTABILITY.md`](docs/PORTABILITY.md) | another Tizen 9 TV: the four gates, what to re-measure, what transfers |
+| [`docs/PORTABILITY.md`](docs/PORTABILITY.md) | another Tizen 9 TV: the four gates, what to re-measure, a step-by-step port |
 | [`docs/SERVER-HOSTING.md`](docs/SERVER-HOSTING.md) | the PC-side server: how it must run, the silent-death trap, firewall, logs |
 | [`docs/SCRIPT-REVIEW.md`](docs/SCRIPT-REVIEW.md) | production-readiness audit of the scripts |
-| [`docs/OPEN-ISSUES.md`](docs/OPEN-ISSUES.md) | triaged work list from the independent code review, with fix order |
+| [`docs/OPEN-ISSUES.md`](docs/OPEN-ISSUES.md) | current state, pending work, and the closed review/pass history |
 | [`docs/REMOTE.md`](docs/REMOTE.md) | remote-control / hotkey remapping investigation |
 | [`AGENTS.md`](AGENTS.md) | hand-off: tools, procedure, verification, traps, recovery |
 | [`CHANGELOG.md`](CHANGELOG.md) | dated history of what changed and why |
+| [`SECURITY.md`](SECURITY.md) | the unauthenticated 31337 backdoor, scope, reporting, legal |
+| [`NOTICE.md`](NOTICE.md) | third-party attribution; which files are not relicensed |
+| [`LICENSE`](LICENSE) | MIT for the original work (third-party files excluded) |
 
 ## Repository layout
 
@@ -85,6 +83,8 @@ server/                     port-80 server, exploit page, TV-side deploy scripts
 tools/                      physmap client, kernel helpers, build scripts
 docs/                       the documents above
 AGENTS.md                   hand-off notes
+LICENSE, NOTICE.md          license + third-party attribution
+SECURITY.md                 backdoor/scope/reporting
 ```
 
 The whole toolkit is committed, so a clone runs without any other working tree.
@@ -97,31 +97,63 @@ per-host generated deploy script are git-ignored and never served over HTTP.
 - The same TV family and firmware generation — see
   [`docs/PORTABILITY.md`](docs/PORTABILITY.md) before trying another model.
 - A PC on the same LAN, able to receive TCP/80 from the TV and reach TCP/31337
-  on it. Nothing is tied to a particular address: the page rewrites the shellcode's
-  callback from the host that served it, and `root.ps1` detects your PC address.
+  on it. No address is committed for the normal flow: `server/deploy.sh` ships a
+  placeholder `H=`, `root.ps1` rewrites it into the ignored `server/deploy_local.sh`,
+  the page rewrites the shellcode's callback, and the payload reads
+  `share/rootchan.host`. The compiled-in `Host` in `payload/Program.cs` is only a
+  fallback when that file is missing.
 - Python 3 on the PC. On Windows the server must run under an interpreter path the
   firewall allows (see [`docs/SERVER-HOSTING.md`](docs/SERVER-HOSTING.md)).
 - .NET SDK 6+ only if you rebuild the boot payload.
 
-## Compatibility — other Tizen 9 TVs?
+## Porting to another Tizen 9 TV
 
 The method is portable; this build is not. `payload.dll` hardcodes this kernel's
 `PHYS_OFFSET`, `init_task` and four `task_struct` offsets, and the browser chain
-is specific to Chromium 120. On another unit, test in this order: browser
-(`server/probe.html` — safe, executes nothing), physmap, constants, carrier.
-Full protocol: [`docs/PORTABILITY.md`](docs/PORTABILITY.md).
+is specific to Chromium 120. The short version:
+
+1. **Browser gate** — serve `server/probe.html` (safe; it executes nothing) and
+   open it on the TV. You need Chromium ~120 with WasmGC; otherwise this CVE does
+   not apply.
+2. **Physmap gate** — get code execution as `owner` (browser chain), then prove
+   an arbitrary-pfn mmap on one of the TV's `/dev/video*` nodes with
+   `tools/physmap.py` / `tools/physrpc.S`. If the offset is validated, stop.
+3. **Constants** — measure `PHYS_OFFSET`, the Image base, `init_task`, and the
+   `tasks`/`comm`/`cred`/`real_parent` offsets. Edit the constants in
+   `payload/Program.cs`; re-check the read-reliability limit below.
+4. **Carrier** — find a `dotnet-inhouse`, `app_onboot` app on writable `/opt`
+   whose files you can rewrite under its own SMACK label. Set its app id/paths
+   in `server/deploy.sh`, `server/uninstall.sh`, and `server/recover.sh`.
+5. **Build, deploy, verify** — `dotnet build -c Release -o out`, update
+   `server/payload.dll` + the `WANT=`/`SIZE_WANT=` gate, deploy via
+   `root.ps1`, then cold boot. Attempt 2 is the expected floor.
+
+**Read-reliability limit found on the test unit:** the video40 physmap returns
+garbage for reads at/above `0xE0000000` even when the VA/PA alias is correct.
+Test a known low page and a known high page on the new model before trusting
+`Kptr`; all successful cred patches here were below `0xE0000000`. This is not a
+pointer-validity bound (the direct map really is that wide), it is a read-path
+limit and it affects how you interpret "not found".
+
+Full gates, measurement recipes, and a file-by-file porting checklist:
+[`docs/PORTABILITY.md`](docs/PORTABILITY.md).
 
 ## Safety and legal
 
 - Use only on hardware you own. Rooting voids the warranty, and a bad write to the
   wrong physical page can crash or brick the set.
+- **The root channel on 31337 is an unauthenticated LAN root shell** (the allowlist
+  is the only filter). Never expose it to the internet or a network you do not
+  control. See [`SECURITY.md`](SECURITY.md).
 - The boot payload takes an exclusive resource (`/dev/video40` allows one RDWR
   opener). It closes it after rooting so the browser path keeps working.
 - Keep the stock `mcs_orig.dll` / `mcs_ni_orig.dll` backups and leave TV
   auto-update **off** — an OTA can replace the app and undo persistence.
 - No Samsung firmware, proprietary images or dumps are distributed here.
 - Provided as-is, without warranty, for security research and interoperability on
-  devices you own.
+  devices you own. Original code is MIT licensed ([`LICENSE`](LICENSE)); the
+  third-party browser-chain files are attributed in [`NOTICE.md`](NOTICE.md) and
+  are not relicensed by that file.
 
 ## Acknowledgements
 

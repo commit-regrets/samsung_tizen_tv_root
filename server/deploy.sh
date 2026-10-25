@@ -2,7 +2,9 @@
 # Install the root-on-boot payload into the MultiControl-Service app.
 # Runs on the TV as root (the deploy child inherits the patched stub cred).
 # The caller rewrites the H= line with the real host IP before serving this.
-H=http://192.168.178.214
+# Placeholder: root.ps1 rewrites this to the PC's address and writes
+# server/deploy_local.sh (ignored, per-host); never serve this file unrewritten.
+H=http://192.0.2.1
 HIP=${H#http://}
 S=/opt/usr/home/owner/share
 D=/opt/usr/apps/com.samsung.tv.MultiControl-Service/bin/MultiControlService.dll

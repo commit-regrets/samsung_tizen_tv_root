@@ -37,6 +37,32 @@ t=36; attempt 2 rooted at t=38–39. **Boot-to-root 39 s vs 59 s on v32** — th
 saved ~20 s. The remaining 39 s is app start + the failed round-0 hunt + the AUL
 relaunch gap, not the waits.
 
+### Public-release preparation (docs only)
+
+- Deleted the untracked `docs/REVIEW-BRIEF-2026-10-25.md` working note; its
+  conclusions are in `docs/OPEN-ISSUES.md`, `CHANGELOG.md` and the payload
+  comments. `.gitignore` no longer carries the “do not publish” marker.
+- Added `LICENSE` (MIT for the original work; third-party browser-chain files
+  excluded) and `NOTICE.md`'s license-scope note, plus `SECURITY.md` covering the
+  unauthenticated 31337 backdoor, scope, reporting and legal use.
+- `README.md`: current 39 s cold-boot status, a short “Porting to another Tizen 9
+  TV” checklist, a stronger safety/backdoor/license section, and the new docs in
+  the index. `docs/PORTABILITY.md`: the v31 high-half read limit, its evidence,
+  and a file-by-file port checklist. `docs/EXPLOIT.md`: the read-reliability
+  limit next to the address-space table. `docs/USAGE.md`: the committed
+  `deploy.sh` `H=` is a placeholder and must be rewritten by `root.ps1`.
+- Removed private LAN addresses from docs, changelog entries, examples and code
+  comments. `server/deploy.sh` now ships `H=http://192.0.2.1` (TEST-NET-1) as a
+  placeholder; `root.ps1` still rewrites it into the ignored `deploy_local.sh`.
+  The payload's compiled `Host` remains a fallback only; changing it would
+  require a new payload version for no functional gain.
+- `docs/OPEN-ISSUES.md` now opens with the current state and a short pending
+  list (high-half mechanism, portability, unauthenticated channel, public
+  hygiene, optional features) and marks the review/pass sections as history.
+  `AGENTS.md` §11 carries the same pending list.
+- Removed the stale “21.5 KB” `.gitignore` comment and the dangling review-note
+  ignore marker.
+
 ### Payload v32 — attempt-1 root cause: high-half reads are unreliable; revert the 10 s wait
 
 The v31 cold boot (wall unplug) was worse than v30: attempt 1 failed (round 3's
@@ -310,7 +336,7 @@ Cold boot: `t=25s attempt=1`, round 0 `child=cc335640` (no skip-orphan drop), th
 `fail round 0` / `fail round 1` with no `direct-parent` beacon — cred uid never
 read as 5001 on that first process. Fast-exit. Attempt 2 at `t=43s` latched
 immediately, `direct-parent+2f0` → `SUCCESS` at `t=44s`, `ROOTCHAN`
-bind=192.168.178.175, md5 `cad2e704…`, `uid=0`. Hunt latch is what v22 missed.
+bind=<tv-ip>, md5 `cad2e704…`, `uid=0`. Hunt latch is what v22 missed.
 Attempt-1 SUCCESS still depends on a fresh mmap (the fast-exit path).
 
 ### Payload v23 — latch every new PHYRFORK (deployed, cold boot pending)
@@ -329,7 +355,7 @@ v23 = 25,600 B, md5 `cad2e7042c5f4c6e1411c719c6f2fe24`. Deployed over 31337:
 
 Cold boot after v22 deploy: `t=17s start`, attempt 1 round 0 `seen=0`, round 1
 `seen=1 skip-orphan=1` then fast-exit; attempt 2 `direct-patch uid=0` at `t=43s`,
-`ROOTCHAN` bind=192.168.178.175, md5 `17b8bcdb…`, `uid=0`. Same shape as v21 —
+`ROOTCHAN` bind=<tv-ip>, md5 `17b8bcdb…`, `uid=0`. Same shape as v21 —
 the 0/unreadable latch was too narrow.
 
 ### sim_rpc: hunt walk, cache alias, exclusive video40
@@ -349,7 +375,7 @@ no TV.
 Deployed over 31337 from v21: `SIZE=25088`, `MD5=17b8bcdb…`, `COPY=ok`,
 `DLL_LABEL=…::RO`, `BOOT_ROW_COUNT=1`, `RESTART=kill 3226`, `DEPLOY_DONE`.
 AUL relaunch at kernel uptime 34232 s loaded the new IL (`reopen video40 fd=67`,
-`SUCCESS` pid=11150, `ROOTCHAN` bind=192.168.178.175). Attempt 1 of that
+`SUCCESS` pid=11150, `ROOTCHAN` bind=<tv-ip>). Attempt 1 of that
 relaunch was `seen=0` (unreadable comms), round 1 rooted via `direct-parent`.
 That is not a cold boot — the attempt-1 `skip-orphan=1` latch is still unproven.
 
@@ -420,7 +446,7 @@ respawned as pid 7022 on attempt 1 round 0 (`direct-patch uid=0`, ~1 s). Live:
 Cold boot (mains): channel at kernel **t=40 s**. Attempt 1 fast-exited (`fail no
 new PHYRFORK` ×2); attempt 2 round 0 **`self-patch uid=0`** (the v17 failure
 mode was the same patch with `getuid()` still 5001). `uid=0`, full caps, md5
-match, `ROOTCHAN … bind=192.168.178.175`.
+match, `ROOTCHAN … bind=<tv-ip>`.
 
 ### Payload v18 — deployed (slow-boot diagnosis)
 
@@ -481,7 +507,7 @@ Cold-boot proof is still a mains unplug. Do not `systemctl --force reboot`.
   v16 purely from dropping the SHA string from the metadata).
 - Deployed over 31337 (label verified, `COPY=ok`, `BOOT_ROW_COUNT=1`, `DEPLOY_DONE`)
   and loaded with the documented `kill -9` path: AUL respawned it in ~11 s, beacon
-  `ROOTCHAN 31337 uid=0 bind=192.168.178.175`, `uid=0`, full caps, md5 match,
+  `ROOTCHAN 31337 uid=0 bind=<tv-ip>`, `uid=0`, full caps, md5 match,
   `/proc/net/tcp` shows the single-address LISTEN.
 - **Cold boot (mains) on the slow path:** the first four fast attempts failed and
   the in-process fallback rooted on `round=1`, so the channel came up ~3.5 min
@@ -776,8 +802,8 @@ and fixed here; the fourth needs a payload rebuild.
 - Same behaviour otherwise. New size/hash: **v16, 24,064 B,
   `ef8721881df2903f36371aaa482eed9f`**.
 - Live verification: after a `kill -9` reload and again after a mains cold boot,
-  the beacon reads `ROOTCHAN 31337 uid=0 bind=192.168.178.175` and
-  `/proc/net/tcp` shows `AFB2A8C0:7A69` LISTEN (192.168.178.175:31337), **not**
+  the beacon reads `ROOTCHAN 31337 uid=0 bind=<tv-ip>` and
+  `/proc/net/tcp` shows `AFB2A8C0:7A69` LISTEN (<tv-ip>:31337), **not**
   `00000000:7A69`; `uid=0`, `CapEff=0000003fffffffff`, md5 match, boot row intact.
 
 ### Third pass — Python cred gate, bind fallback, comment

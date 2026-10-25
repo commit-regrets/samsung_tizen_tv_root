@@ -196,7 +196,8 @@ the channel until the TV was power-cycled. A timed-out command now returns
 These constants are specific to this firmware build. Before using the toolkit on
 another model or firmware, re-measure the Image base, `init_task`, the task-list
 offset and the cred offsets, and verify the physmap still works (see
-`README.md` → Compatibility).
+[`docs/PORTABILITY.md`](docs/PORTABILITY.md) and `README.md` → Porting to another
+Tizen 9 TV).
 
 ## 3. Architecture
 
@@ -326,10 +327,10 @@ shell - that corrupts the stream and wastes the page load.
 
 ### Repository hygiene (`.gitignore`, `.gitattributes`)
 
-**Committed** (~50 files, ~420 KB on a fresh clone): `docs/`, `payload/*.cs` +
+**Committed** (~57 files, ~420 KB on a fresh clone): `docs/`, `payload/*.cs` +
 `*.csproj`, `server/{server.py,index.html,payload.dll,deploy.sh,uninstall.sh,diag.sh}`,
 `server/lib/`, `server/payloads/`, `tools/*.py|*.S|*.txt`, `root.ps1`,
-`uninstall.ps1`, `AGENTS.md`, `README.md`, `NOTICE.md`.
+`uninstall.ps1`, `AGENTS.md`, `README.md`, `NOTICE.md`, `LICENSE`, `SECURITY.md`.
 
 **Ignored**: `server/logs/` (runtime), `payload/obj/` + `payload/out/` +
 `payload/bin/` (rebuildable: `cd payload && dotnet build -c Release`),
@@ -559,7 +560,21 @@ that downloads it) and reboot. Things to preserve when editing `Program.cs`:
 
 ## 11. Open work
 
-- ~~Bind 31337 to a single address~~ — **done in v16**: the listener binds the TV address derived from the route to the recorded PC (re-derived every 30 s, `Any` fallback with a beacon if there is no route), so it is off Wi-Fi Direct/tethering while staying portable. Live: `/proc/net/tcp` shows `AFB2A8C0:7A69` (192.168.178.175:31337), not `00000000:7A69`.
+- ~~Bind 31337 to a single address~~ — **done in v16**: the listener binds the TV address derived from the route to the recorded PC (re-derived every 30 s, `Any` fallback with a beacon if there is no route), so it is off Wi-Fi Direct/tethering while staying portable. `/proc/net/tcp` shows the TV's own address on 31337, not `00000000:7A69`.
+- **Pending: high-half read mechanism.** Reads at/above `0xE0000000` are
+  unreliable (0/21 high creds, 0/81 high task pointers); whether the cause is a
+  video40 pfn-mapping limit or a cache effect is unproven. It no longer blocks
+  this unit (v33 accepts attempt 2) but matters for porting and for any future
+  attempt-1 work. See `docs/OPEN-ISSUES.md` → Pending.
+- **Pending: portability.** No second model/firmware has been tested. Use the
+  four gates and the file-by-file checklist in `docs/PORTABILITY.md`; record each
+  unit there.
+- **Pending: 31337 is an unauthenticated LAN root shell.** The allowlist is the
+  only filter. Keep it off untrusted networks; see `SECURITY.md`.
+- **Pending: public-release maintenance.** `LICENSE` covers original work only;
+  the browser-chain files are third-party (`NOTICE.md`). Keep private LAN IPs
+  out of docs/examples and keep `server/deploy.sh`'s `H=` a placeholder
+  (`root.ps1` rewrites it).
 - ~~Clamp the stub's client-controlled lengths~~ — **done**: `physrpc.S` bounds
   READ/WRITE32/READMANY/RUN/FILE, refuses with -EINVAL, and ends the stub for the
   two ops whose payload would desync the stream; blob rebuilt (7552 B), page
@@ -597,4 +612,4 @@ that downloads it) and reboot. Things to preserve when editing `Program.cs`:
   (`curl -s http://<pc>/recover.sh | sh`) to reinstall the payload end-to-end: it
   takes the app's SMACK label via `/proc/self/attr/current`, runs `deploy.sh`, and
   `deploy.sh` restarts the app so the new DLL loads. Verified on
-  a cold boot (31337 in 41 s, no PC involvement).
+  a cold boot (v33: 39 s, no PC involvement).
