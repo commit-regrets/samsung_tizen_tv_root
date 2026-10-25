@@ -493,6 +493,17 @@ def high_alloc_gate(parent: int, cred: int, real: int, *, fast_mode: bool = True
     return (high_alloc and not saw_low and fast_mode), parent_high, high_cred, saw_low
 
 
+def junk_low_word(parent: int, cred: int, real: int) -> bool:
+    """The `junk=1` beacon flag: a low kptr in the 0xC0000000..0xDFFFFFFF window
+    read from an unreadable high parent page.  This is the value that used to set
+    sawLow and veto the gate."""
+    parent_high = kptr(parent) and parent >= 0xE0000000
+    if not parent_high:
+        return False
+    return ((kptr(cred) and cred < 0xE0000000) or
+            (kptr(real) and real < 0xE0000000))
+
+
 def direct_parent_patch(rpc, child_virt: int, *, beacon,
                         retries: int = 8,
                         probe_prs: tuple[int, ...] = (0, -1)):
@@ -1132,6 +1143,19 @@ def selftest() -> int:
             f"high-alloc gate: {desc}", got == want,
             f"got={got} want={want}",
         )
+
+    junk_cases = [
+        ("junk=1 for a low-kptr cred", 0xE3400B80, 0xC0000000, 0, True),
+        ("junk=1 for a low-kptr real", 0xE3400B80, 0, 0xC0000100, True),
+        ("junk=0 for a non-kptr word", 0xE3400B80, 0xB09AA3B5, 0, False),
+        ("junk=0 for a high cred", 0xE3400B80, 0xE0000000, 0, False),
+        ("junk=0 for a low parent", 0xD5D905C0, 0xC0000100, 0, False),
+        ("junk=0 for zero words", 0xE3400B80, 0, 0, False),
+    ]
+    for desc, parent, cred, real, want in junk_cases:
+        got = junk_low_word(parent, cred, real)
+        failed += not _check(f"high-alloc beacon: {desc}", got == want,
+                             f"got={got} want={want}")
 
     s1.publish()   # the v24 alias-correct mapping / the line finally wrote back
     b2: list[str] = []

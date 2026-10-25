@@ -2,16 +2,16 @@
 
 ## Current state — 2026-10-25 (payload v34)
 
-TV: **v35** (`e33d6f6a…`, 29,184 B), rooted, channel 31337 up. v35 is v34 plus
-the high-allocation gate fix: junk `cred`/`real_cred` words read from a high
-parent page no longer set `sawLow` and cannot suppress the fast-exit; the gate
-beacon logs the raw word. v35 cold boot (21:54) was **37 s**: attempt 1 parent
-`e2df7300` high, raw cred `b09aa3b5`, gate t=26, attempt 2 rooted t=37. v34 cold
-boots: **34 s** (19:40, attempt 2) and **68 s** on the stock→root cycle (19:59,
-attempt 3; attempt 2's hunt saw no new `PHYRFORK`). The fifth pass is **closed**:
-attempt 1 is an allocation lottery on this unit; attempt 2 is the floor, but a
-slow hunt can push to attempt 3. Read everything below the "History" line as
-history; do not reopen attempt 1 without a new read path.
+TV: **stock on disk**, boot row removed, awaiting the final `root.ps1` retest.
+v35 was the last deployed (`e33d6f6a…`, 37 s cold boot); v36 (`28a9f2fd…`,
+29,184 B) adds `real=`/`junk=` to the high-alloc beacon and is built but not
+deployed. v35 cold boot (21:54): attempt 1 parent `e2df7300` high, raw cred
+`b09aa3b5`, gate t=26, attempt 2 rooted t=37. v34 cold boots: **34 s** (19:40,
+attempt 2) and **68 s** on the stock→root cycle (19:59, attempt 3; attempt 2's
+hunt saw no new `PHYRFORK`). The fifth pass is **closed**: attempt 1 is an
+allocation lottery on this unit; attempt 2 is the floor, but a slow hunt can push
+to attempt 3. Read everything below the "History" line as history; do not reopen
+attempt 1 without a new read path.
 
 **Pending / next, in order:**
 

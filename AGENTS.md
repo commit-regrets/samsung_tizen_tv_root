@@ -34,8 +34,8 @@ channel on TCP 31337 (line protocol, replies end with `__END__`).
 
 | | |
 |---|---|
-| Payload | **v35 on the TV and in the repo** (`e33d6f6a…`, 29,184 B), deployed 2026-10-25 |
-| Boot-to-root | **Fifth pass closed: attempt 2 is the floor; v35 cold boot 37 s.** v35 cold boot (2026-10-25 21:54): attempt 1 parent `e2df7300` high, raw cred `b09aa3b5`, gate at t=26, fast-exit; attempt 2 rooted at t=37. This boot confirms the v35 beacon change (it logged the raw `b09aa3b5` instead of `00000000`). v34 cold boots: 34 s (19:40, attempt 2) and 68 s on the stock→root cycle (19:59, attempt 3; attempt 2 hunt `seen=0`). v33: attempt 1 high, gate t=32, attempt 2 root t=38–39; v32: attempt 1 high, attempt 2 low, root t=59; v31: attempts 1–3 high, attempt 4 t=132 s. Evidence: every coherent task/cred read < `0xE0000000` (78/78 `cuid=5001` creds low; 21/21 high creds junk; 15/15 `direct-parent+` and 19/19 `self-patch` successes low; 0/81 task pointers high). Marker: `share/root_boot.txt` |
+| Payload | **v36 in the repo** (`28a9f2fd…`, 29,184 B), built 2026-10-25; TV is stock on disk awaiting the final `root.ps1` retest. v35 was the last deployed. |
+| Boot-to-root | **Fifth pass closed: attempt 2 is the floor; v35 cold boot 37 s.** v35 cold boot (2026-10-25 21:54): attempt 1 parent `e2df7300` high, raw cred `b09aa3b5`, gate at t=26, fast-exit; attempt 2 rooted at t=37. v36 is v35 plus the `real=`/`junk=` beacon and is not booted yet. v34 cold boots: 34 s (19:40) and 68 s on the stock→root cycle (19:59, attempt 3). v33: attempt 2 t=38–39; v32: t=59; v31: attempt 4 t=132 s. Evidence: every coherent task/cred read < `0xE0000000` (78/78 `cuid=5001` creds low; 21/21 high creds junk; 15/15 `direct-parent+` and 19/19 `self-patch` successes low; 0/81 task pointers high). Marker: `share/root_boot.txt` |
 | Root identity | `uid=0`, `CapEff=0x3fffffffff`, running under the app's own SMACK label |
 | Boot hook | a `boot_sequence` row in `/opt/dbspace/user/5001/.appsvc.db` |
 | Device | `/dev/video40`, one RDWR opener; the app runs as uid 5001, gid 44 |
@@ -254,7 +254,7 @@ TV boot: com.samsung.tv.MultiControl-Service (dotnet-inhouse, app_onboot)
 | `tools/test_shell.py` | deploy/uninstall dry tests under `sh` (no TV): backups, label, boot row |
 | `tools/test_stub.py` | live-stub protocol + clamp checks (fresh page load) |
 | `tools/test_all.py` | runs every layer above; `--tv` adds the live stub |
-| `payload/Program.cs` | boot payload source (v35; TV on v35) |
+| `payload/Program.cs` | boot payload source (v36; TV stock, deploy pending) |
 | `payload/BootPayload.csproj` | net6.0 project, assembly `MultiControlService` |
 | `root.ps1` | one-command runner (server + root + deploy + verify) |
 | `uninstall.ps1` | one-command uninstall (restore stock + verify) |
@@ -329,7 +329,7 @@ shell - that corrupts the stream and wastes the page load.
 duplicate an inventory here.
 
 `server/payload.dll` is the artifact the TV fetches during deploy and is
-byte-identical to `payload/out/MultiControlService.dll` (md5 `e33d6f6a…`, v35;
+byte-identical to `payload/out/MultiControlService.dll` (md5 `28a9f2fd…`, v36;
 reproducible — see §9), so a clone runs without a .NET SDK. Rebuild with
 `dotnet build payload/BootPayload.csproj -c Release`, then update the
 `WANT=`/`SIZE_WANT=` gate in `server/deploy.sh`.
@@ -375,7 +375,7 @@ python run_root.py "id" 6               # uid=0(root)
 #    if it is absent, run root.ps1 once to generate it. The committed deploy.sh
 #    has a placeholder H= and must not be served as-is.)
 python run_root.py "curl -s http://<HOST_IP>/deploy_local.sh | sh" 45
-#    expect: UID=0, SIZE=29184, MD5=e33d6f6a..., COPY=ok, HOST_FILE=..., DEPLOY_DONE
+#    expect: UID=0, SIZE=29184, MD5=28a9f2fd..., COPY=ok, HOST_FILE=..., DEPLOY_DONE
 
 # 5. reboot the TV (exit the browser first so it does not restore the page)
 
@@ -393,7 +393,7 @@ gateway, deploy/uninstall control flow, source↔blob↔page consistency). Then:
 
 - [ ] `root_shell.py "id" <TV_IP>` returns `uid=0(root)`.
 - [ ] `root_shell.py "cat /proc/self/status | grep CapEff" <TV_IP>` → `0000003fffffffff`.
-- [ ] `root_shell.py "md5sum /opt/usr/apps/com.samsung.tv.MultiControl-Service/bin/MultiControlService.dll" <TV_IP>` → `e33d6f6a…`
+- [ ] `root_shell.py "md5sum /opt/usr/apps/com.samsung.tv.MultiControl-Service/bin/MultiControlService.dll" <TV_IP>` → `28a9f2fd…`
 - [ ] Cold boot with the browser closed → attempt 1 high exits in ~2 s (`high-alloc … fast-exit`), attempt 2 roots; v35 cold boot observed **37 s** (attempt 2); v34 saw 34 s and 68 s (the latter attempt 3 on the stock cycle). Attempt-1 `SUCCESS` is a bonus; attempt 2 is the floor, but a slow hunt can push to attempt 3.
 - [ ] `kill -9 <app pid>` → channel back in ~5–45 s (v33's high-alloc gate skips a high attempt quickly; otherwise attempt 2 roots), still uid 0.
 - [ ] `python tools/test_all.py --tv` against a fresh page load (stub protocol

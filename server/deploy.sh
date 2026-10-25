@@ -12,7 +12,7 @@ B="$S/payload_backup.dll"
 A="$S/rootchan.allow"
 HOSTF="$S/rootchan.host"
 DB=/opt/dbspace/user/5001/.appsvc.db
-WANT=e33d6f6a7e415e033db1e26a2a99ecb2
+WANT=28a9f2fdbfcc0b2b15998cbc88e6f009
 SIZE_WANT=29184
 APPID=com.samsung.tv.MultiControl-Service
 # SMACK label the app runs under.  Files in bin/ carry "<label>::RO" and the app

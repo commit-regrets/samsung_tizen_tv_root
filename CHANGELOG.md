@@ -12,6 +12,23 @@ entry is an incomplete change. `AGENTS.md` repeats this rule for agents.
 
 ## 2026-10-25
 
+### Payload v36 — high-alloc beacon exposes `real_cred` and the junk flag
+
+The v35 gate logs only the `cred` word. If the junk is in `real_cred` while
+`cred=0`, the beacon shows `cred=00000000` and the exact case is invisible on
+hardware (the sim covers it, but the log cannot prove it happened).
+
+- `high-alloc` now logs `parent=… cred=… real=… junk=0|1`, with both raw words
+  read from the high parent page. `junk=1` means a low kernel pointer in
+  `0xC0000000..0xDFFFFFFF` was present in either word — the value that used to
+  veto the gate via `sawLow`.
+- `tools/sim_rpc.py` gains `junk_low_word()` with six cases (low-kptr cred, low-kptr
+  real, non-kptr, high cred, low parent, zero words).
+- Build `28a9f2fdbfcc0b2b15998cbc88e6f009`, 29,184 B, reproducible (two builds).
+  **Not deployed yet:** the TV is stock on disk awaiting the final `root.ps1`
+  retest; that run will deploy v36. A later cold boot can then show `real=` and
+  `junk=` in the log.
+
 ### Payload v35 — high-alloc gate must not be vetoed by junk on a high parent page
 
 A high parent task page is exactly the half video40 cannot read, so its
