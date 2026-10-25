@@ -12,6 +12,23 @@ entry is an incomplete change. `AGENTS.md` repeats this rule for agents.
 
 ## 2026-10-25
 
+### Payload v37 — high-alloc summary: parent always set, first junk latched
+
+Two diagnostic holes from the v36 review:
+
+- `parent=` was only assigned in the high-parent arm. If the gate fired because a
+  **low** parent had a high `cred`/`real_cred`, the beacon logged
+  `parent=00000000` even though the pointer was read. Both `!parentHigh` arms now
+  set `highParent = parent`.
+- Junk values were the last high-parent read, so a junk sample followed by a zero
+  read logged `cred=00000000 real=00000000 junk=1`. The first junk sample is now
+  latched (`junkCred`/`junkReal`) and logged; later zero reads cannot erase it.
+- `tools/sim_rpc.py` gains `high_alloc_summary()` tests: first-junk-before-zero,
+  low parent + high cred, low parent + high real, low-cred suppression.
+- Build `968e1154f3fc5ba9b14b0d67e59306d2`, 29,184 B, reproducible (two builds).
+  **Not deployed yet:** TV is stock on disk; the final `root.ps1` retest will
+  deploy v37.
+
 ### Payload v36 — high-alloc beacon exposes `real_cred` and the junk flag
 
 The v35 gate logs only the `cred` word. If the junk is in `real_cred` while

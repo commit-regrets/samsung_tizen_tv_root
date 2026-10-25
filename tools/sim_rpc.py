@@ -504,6 +504,48 @@ def junk_low_word(parent: int, cred: int, real: int) -> bool:
             (kptr(real) and real < 0xE0000000))
 
 
+def high_alloc_summary(samples, *, fast_mode: bool = True):
+    """Twin of the gate + summary state over a list of (parent, cred, real)
+    reads.  Returns (fires, parent, cred, real, junk).  It locks in two facts:
+    a high cred/real on a LOW parent still records that parent, and the first
+    junk sample is latched (later zero reads cannot erase it)."""
+    fires = False
+    parent_out = cred_out = real_out = 0
+    junk = False
+    junk_cred = junk_real = 0
+    saw_low = False
+    for parent, cred, real in samples:
+        parent_high = kptr(parent) and parent >= 0xE0000000
+        if parent_high:
+            fires = True
+            parent_out = parent
+            cred_out, real_out = cred, real
+            if not junk and ((kptr(cred) and cred < 0xE0000000) or
+                             (kptr(real) and real < 0xE0000000)):
+                junk = True
+                junk_cred, junk_real = cred, real
+        else:
+            if kptr(cred):
+                if cred >= 0xE0000000:
+                    fires = True
+                    parent_out = parent
+                    cred_out, real_out = cred, real
+                else:
+                    saw_low = True
+            if kptr(real):
+                if real >= 0xE0000000:
+                    fires = True
+                    parent_out = parent
+                    real_out = real
+                    if cred_out == 0:
+                        cred_out = cred
+                else:
+                    saw_low = True
+    if junk:
+        cred_out, real_out = junk_cred, junk_real
+    return (fires and not saw_low and fast_mode, parent_out, cred_out, real_out, junk)
+
+
 def direct_parent_patch(rpc, child_virt: int, *, beacon,
                         retries: int = 8,
                         probe_prs: tuple[int, ...] = (0, -1)):
@@ -1155,6 +1197,25 @@ def selftest() -> int:
     for desc, parent, cred, real, want in junk_cases:
         got = junk_low_word(parent, cred, real)
         failed += not _check(f"high-alloc beacon: {desc}", got == want,
+                             f"got={got} want={want}")
+
+    summary_cases = [
+        ("latches the first junk before a later zero",
+         [(0xE3400B80, 0xC0000100, 0), (0xE3400B80, 0, 0)],
+         (True, 0xE3400B80, 0xC0000100, 0, True)),
+        ("low parent + high cred records the parent",
+         [(0xD5D905C0, 0xE0000100, 0)],
+         (True, 0xD5D905C0, 0xE0000100, 0, False)),
+        ("low parent + high real records the parent",
+         [(0xD5D905C0, 0, 0xE0000100)],
+         (True, 0xD5D905C0, 0, 0xE0000100, False)),
+        ("low parent + low cred suppresses without a parent",
+         [(0xD5D905C0, 0xCCB27D00, 0xCCB27D00)],
+         (False, 0, 0, 0, False)),
+    ]
+    for desc, samples, want in summary_cases:
+        got = high_alloc_summary(samples)
+        failed += not _check(f"high-alloc summary: {desc}", got == want,
                              f"got={got} want={want}")
 
     s1.publish()   # the v24 alias-correct mapping / the line finally wrote back
