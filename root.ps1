@@ -198,7 +198,7 @@ if ($DryRun) {
     }
     Say "31337 on TV   : $(if ($tvRooted) { 'open (TV looks rooted)' } else { 'closed' })"
     Say "would write   : $deployLocal"
-    Say "would run     : $py $($layout.Tools)\auto_root.py --host $HostIp --script deploy_local.sh --stub-wait $StubWaitSec"
+    Say "would run     : $py $($layout.Tools)\auto_root.py --host $HostIp --script deploy_local.sh --stub-wait $StubWaitSec --root-retries 3"
     Say "then wait     : 31337 for up to $BootTimeoutSec s after the reboot"
     exit 0
 }
@@ -267,9 +267,11 @@ Say ""
 Say "   Wait until the page shows RUNNING, then leave it in the foreground."
 Say "   The script CANNOT open the TV browser for you - it is waiting now,"
 Say "   and will remind you every 30 s if the page has not connected."
+Say "   If a stub dies during root, it will ask you to RELOAD the page once"
+Say "   and then continues automatically (up to 3 fresh stubs)."
 Say ""
 & $py (Join-Path $layout.Tools "auto_root.py") --host $HostIp --script "deploy_local.sh" `
-    --wait 150 --stub-wait $StubWaitSec --page $Page --heartbeat 30
+    --wait 150 --stub-wait $StubWaitSec --page $Page --heartbeat 30 --root-retries 3
 if ($LASTEXITCODE -ne 0) {
     Say ""
     Say "Deploy failed (exit $LASTEXITCODE)."

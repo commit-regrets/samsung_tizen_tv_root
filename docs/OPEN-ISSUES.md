@@ -21,11 +21,11 @@ new read path.
 2. **Portability** — no second model/firmware has been tested. Follow
    `docs/PORTABILITY.md`; the real risks are the browser gate (Chromium 120) and
    the physmap. Record each unit's results in that file.
-3. **`root.ps1` auto-root from a fresh stock boot is fragile.** In the
-   2026-10-25 stock→root cycle it failed twice (`probe 0x40008000 timed out`, then
-   `no PHYSRPC1 task found`); a manual `kernel_root.py --fork` on a freshly
-   reloaded page worked. This is stub lifetime, not addressing. Keep the manual
-   fallback in `docs/FAILED.md`/`USAGE` and start each attempt from a fresh page.
+3. **`root.ps1` auto-root retry is implemented, stock retest pending.**
+   `auto_root.py` now asks for a fresh page, `RSET`s the gateway, and retries up
+   to 3 (`tools/test_auto_root.py` covers the loop). The 2026-10-25 stock cycle
+   failed in the old single-attempt path but proved a fresh page works; run the
+   full cycle once with the retry loop to close this.
 3. **31337 is an unauthenticated LAN root shell.** The allowlist is the only
    filter; keep it off untrusted networks. See `SECURITY.md`.
 4. **Public-release hygiene** — `LICENSE` (MIT for original work), `NOTICE.md`

@@ -1,6 +1,6 @@
 # Testing this toolkit — on this TV and on yours
 
-Three layers, from "runs anywhere" to "needs the TV". `python tools/test_all.py`
+Several layers, from "runs anywhere" to "needs the TV". `python tools/test_all.py`
 runs the offline ones and summarises; `--tv` adds the live-stub layer.
 
 ```sh
@@ -62,6 +62,14 @@ It asserts the failure paths that used to be silent:
   label mismatch instead of printing `UNINSTALL_DONE`.
 
 Needs `sh` (Git Bash on Windows — `TEST_SH=/path/to/sh` overrides).
+
+## Offline retry loop — `tools/test_auto_root.py`
+
+Fakes the RPC and kernel layers: the first root attempt fails, the second
+succeeds. It asserts `auto_root` resets the gateway (`RSET`), asks for a fresh
+page, retries, and deploys exactly once. This catches the regression that made
+`root.ps1` exit when a single-use browser stub died during root. It is part of
+`tools/test_all.py`.
 
 ## 4. Shellcode consistency — `build_physrpc.py --check-embedded`
 

@@ -560,12 +560,12 @@ that downloads it) and reboot. Things to preserve when editing `Program.cs`:
 - **Pending: portability.** No second model/firmware has been tested. Use the
   four gates and the file-by-file checklist in `docs/PORTABILITY.md`; record each
   unit there.
-- **Pending: `root.ps1` auto-root from a fresh stock boot is fragile.** In the
-  2026-10-25 stock→root cycle, `auto_root.py` failed twice (stub probe timeout,
-  then `no PHYSRPC1 task found`); a manual `python tools/kernel_root.py --fork`
-  on a freshly reloaded page rooted and deployed fine. The address/deploy path is
-  not the problem; the browser stub lifetime is. Keep the manual fallback
-  documented and prefer a fresh page before each attempt.
+- **Pending: validate the `root.ps1` auto-root retry from stock.** `auto_root.py`
+  now treats a failed root as a dead single-use stub: it asks for a page reload,
+  `RSET`s the gateway, waits for a fresh stub, and retries up to 3
+  (`--root-retries`, passed by `root.ps1`). `tools/test_auto_root.py` covers the
+  loop offline; the 2026-10-25 manual recovery proved the fresh page works. A
+  full stock→root cycle with the retry loop is the remaining acceptance.
 - **Pending: 31337 is an unauthenticated LAN root shell.** The allowlist is the
   only filter. Keep it off untrusted networks; see `SECURITY.md`.
 - **Pending: public-release maintenance.** `LICENSE` covers original work only;

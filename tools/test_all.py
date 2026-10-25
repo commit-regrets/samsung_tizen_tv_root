@@ -47,6 +47,8 @@ def main() -> int:
     results.append(("sim_rpc", run("sim_rpc self-test", [py, "tools/sim_rpc.py"])))
     results.append(("gateway", run("gateway integration test", [py, "tools/test_gateway.py"])))
     results.append(("shell", run("deploy/uninstall dry tests", [py, "tools/test_shell.py"])))
+    results.append(("auto-root", run("auto_root fresh-stub retry loop",
+                                     [py, "tools/test_auto_root.py"])))
 
     # requires keystone+capstone; report the skip instead of failing a fresh clone
     try:

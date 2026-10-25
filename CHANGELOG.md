@@ -12,6 +12,24 @@ entry is an incomplete change. `AGENTS.md` repeats this rule for agents.
 
 ## 2026-10-25
 
+### auto_root — retry root on a fresh stub (root.ps1 reliability)
+
+The 2026-10-25 stock→root cycle showed the one-command path failing when the
+browser stub died during root: `root.ps1` ran `auto_root` once and exited. A
+manual fresh page + `kernel_root.py --fork` worked, so the failure was stub
+lifetime, not addressing.
+
+- `tools/auto_root.py` now treats a failed root as a dead single-use stub: it
+  prints a **RELOAD the page** request, sends `RSET` to the gateway, waits for a
+  fresh stub, and retries up to `--root-retries` total attempts (default 3). It
+  also gives the renderer 1 s to settle after pairing.
+- `root.ps1` passes `--root-retries 3`, says so in the prompt, and its dry run
+  shows the option.
+- New `tools/test_auto_root.py` fakes the RPC/kernel layers and asserts the loop
+  resets and retries; `tools/test_all.py` runs it. All offline layers pass.
+- A full stock cycle with the retry loop is the remaining acceptance; the loop
+  is the automation of the manual recovery that already worked.
+
 ### Payload v34 — remove the unauthenticated `next.dll` self-update; drop remote/OTA scope
 
 - Removed `TrySelfUpdate()`, `LooksLikeAssembly()` and the startup call. Any
