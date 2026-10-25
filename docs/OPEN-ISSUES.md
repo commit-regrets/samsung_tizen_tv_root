@@ -4,11 +4,12 @@
 
 TV: **v34** (`5c780eea…`, 29,184 B), rooted, channel 31337 up. v34 is v33 with
 the unused `next.dll` self-update and the remote research/tool removed; the boot
-path is unchanged. The v34 cold boot (2026-10-25 19:40) was **34 s**: attempt 1
-landed on a high allocation, the `high-alloc` gate fast-exited at t=25, AUL
-relaunched, attempt 2 rooted at t=34. The fifth pass is **closed**: attempt 1 is
-an allocation lottery on this unit; attempt 2 is the floor. Read everything below
-the "History" line as history; do not reopen attempt 1 without a new read path.
+path is unchanged. Cold boots: **34 s** (2026-10-25 19:40, attempt 2) and **68 s**
+on the full stock→root cycle (19:59, attempt 3; attempt 2's hunt saw no new
+`PHYRFORK`). The fifth pass is **closed**: attempt 1 is an allocation lottery on
+this unit; attempt 2 is the floor, but a slow hunt can push to attempt 3. Read
+everything below the "History" line as history; do not reopen attempt 1 without a
+new read path.
 
 **Pending / next, in order:**
 
@@ -20,6 +21,11 @@ the "History" line as history; do not reopen attempt 1 without a new read path.
 2. **Portability** — no second model/firmware has been tested. Follow
    `docs/PORTABILITY.md`; the real risks are the browser gate (Chromium 120) and
    the physmap. Record each unit's results in that file.
+3. **`root.ps1` auto-root from a fresh stock boot is fragile.** In the
+   2026-10-25 stock→root cycle it failed twice (`probe 0x40008000 timed out`, then
+   `no PHYSRPC1 task found`); a manual `kernel_root.py --fork` on a freshly
+   reloaded page worked. This is stub lifetime, not addressing. Keep the manual
+   fallback in `docs/FAILED.md`/`USAGE` and start each attempt from a fresh page.
 3. **31337 is an unauthenticated LAN root shell.** The allowlist is the only
    filter; keep it off untrusted networks. See `SECURITY.md`.
 4. **Public-release hygiene** — `LICENSE` (MIT for original work), `NOTICE.md`

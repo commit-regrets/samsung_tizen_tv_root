@@ -27,6 +27,18 @@ entry is an incomplete change. `AGENTS.md` repeats this rule for agents.
   (`parent=e3a08b80`), `high-alloc` gate at t=25, AUL relaunched, **attempt 2
   rooted at t=34** — 34 s, better than v33's 39 s. This removes unused code
   only; the boot path is unchanged.
+- **Full stock→root cycle (2026-10-25, 19:45–20:00).** `uninstall.ps1` restored
+  the stock IL/AOT and removed the boot row; after a cold boot, 31337 stayed
+  closed. `root.ps1` then generated `deploy_local.sh` with the auto-detected PC
+  address and started, but its auto-root failed twice on the browser stub
+  (`probe 0x40008000 timed out`; then `no PHYSRPC1 task found`). A manual
+  `python tools/kernel_root.py --fork` on a freshly reloaded page rooted, and
+  `run_root.py "curl …/deploy_local.sh | sh"` deployed v34 (`HOST_FILE=…`,
+  `COPY=ok`, `DEPLOY_DONE`). The final cold boot needed **attempt 3 at 68 s**
+  (attempt 1 high gate, attempt 2 hunt `seen=0`, attempt 3 root). So the
+  no-static-IP address path works end to end, but `root.ps1`'s automated
+  browser-root step is not reliable from a fresh stock boot yet; the manual
+  fallback is the proven path.
 - Manual procedure fix: `AGENTS.md` and `docs/EXPLOIT.md` now deploy
   `deploy_local.sh` (written by `root.ps1`), not the committed `deploy.sh` —
   the latter carries the placeholder `H=` and hangs if served as-is.

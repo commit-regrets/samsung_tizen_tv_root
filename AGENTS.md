@@ -35,7 +35,7 @@ channel on TCP 31337 (line protocol, replies end with `__END__`).
 | | |
 |---|---|
 | Payload | **v34 on the TV and in the repo** (`5c780eea…`, 29,184 B), deployed 2026-10-25 |
-| Boot-to-root | **Fifth pass closed: attempt 2 is the floor; v34 cold boot 34 s.** v34 cold boot (2026-10-25 19:40): attempt 1 found `parent=e3a08b80` high and a garbage cred, the `high-alloc` gate fired at t=25 and fast-exited; AUL relaunched, **attempt 2 rooted at t=34** (`self=cf018000`, `cred=d0b98080`). That is better than v33's 39 s and well under v32's 59 s. For the record, v33's first cold boot (18:35) was attempt 1 high (`parent=e3400b80`), gate at t=32, attempt 2 rooted t=38–39; the v32 cold boot (18:25) was attempt 1 high, attempt 2 low, rooted t=59. The v31 cold boot proved attempt 1 is an **allocation lottery**, not timing: attempts 1–3 high, attempt 4 at t=132 s. Whole-log evidence: every coherent task/cred read < `0xE0000000` (78/78 `cuid=5001` creds low; 21/21 high creds junk; 15/15 `direct-parent+` and 19/19 `self-patch` successes low; 0/81 task pointers high). Marker: `share/root_boot.txt` |
+| Boot-to-root | **Fifth pass closed: attempt 2 is the floor; v34 cold boot 34 s.** v34 cold boot (2026-10-25 19:40): attempt 1 found `parent=e3a08b80` high and a garbage cred, the `high-alloc` gate fired at t=25 and fast-exited; AUL relaunched, **attempt 2 rooted at t=34** (`self=cf018000`, `cred=d0b98080`). That is better than v33's 39 s and well under v32's 59 s. A second v34 cold boot, on the full stock→root cycle (19:59), needed **attempt 3 at t=68 s**: attempt 1 gated high at t=25, attempt 2's hunt saw no new `PHYRFORK` (`seen=0`) and ran its four rounds, attempt 3 rooted. The floor is attempt 2, but this variance is real. For the record, v33's first cold boot (18:35) was attempt 1 high (`parent=e3400b80`), gate at t=32, attempt 2 rooted t=38–39; the v32 cold boot (18:25) was attempt 1 high, attempt 2 low, rooted t=59. The v31 cold boot proved attempt 1 is an **allocation lottery**, not timing: attempts 1–3 high, attempt 4 at t=132 s. Whole-log evidence: every coherent task/cred read < `0xE0000000` (78/78 `cuid=5001` creds low; 21/21 high creds junk; 15/15 `direct-parent+` and 19/19 `self-patch` successes low; 0/81 task pointers high). Marker: `share/root_boot.txt` |
 | Root identity | `uid=0`, `CapEff=0x3fffffffff`, running under the app's own SMACK label |
 | Boot hook | a `boot_sequence` row in `/opt/dbspace/user/5001/.appsvc.db` |
 | Device | `/dev/video40`, one RDWR opener; the app runs as uid 5001, gid 44 |
@@ -394,7 +394,7 @@ gateway, deploy/uninstall control flow, source↔blob↔page consistency). Then:
 - [ ] `root_shell.py "id" <TV_IP>` returns `uid=0(root)`.
 - [ ] `root_shell.py "cat /proc/self/status | grep CapEff" <TV_IP>` → `0000003fffffffff`.
 - [ ] `root_shell.py "md5sum /opt/usr/apps/com.samsung.tv.MultiControl-Service/bin/MultiControlService.dll" <TV_IP>` → `5c780eea…`
-- [ ] Cold boot with the browser closed → attempt 1 high exits in ~2 s (`high-alloc … fast-exit`), attempt 2 roots; v34 cold boot observed **34 s** (v33: 39 s, v32: 59 s). Attempt-1 `SUCCESS` is a bonus; attempt 2 is the floor.
+- [ ] Cold boot with the browser closed → attempt 1 high exits in ~2 s (`high-alloc … fast-exit`), attempt 2 roots; v34 cold boots observed **34 s** (attempt 2) and **68 s** (attempt 3, full stock→root cycle; attempt 2 hunt `seen=0`). Attempt-1 `SUCCESS` is a bonus; attempt 2 is the floor, but a slow hunt can push to attempt 3.
 - [ ] `kill -9 <app pid>` → channel back in ~5–45 s (v33's high-alloc gate skips a high attempt quickly; otherwise attempt 2 roots), still uid 0.
 - [ ] `python tools/test_all.py --tv` against a fresh page load (stub protocol
       + clamps). Details per layer: `docs/TESTING.md`.
@@ -560,6 +560,12 @@ that downloads it) and reboot. Things to preserve when editing `Program.cs`:
 - **Pending: portability.** No second model/firmware has been tested. Use the
   four gates and the file-by-file checklist in `docs/PORTABILITY.md`; record each
   unit there.
+- **Pending: `root.ps1` auto-root from a fresh stock boot is fragile.** In the
+  2026-10-25 stock→root cycle, `auto_root.py` failed twice (stub probe timeout,
+  then `no PHYSRPC1 task found`); a manual `python tools/kernel_root.py --fork`
+  on a freshly reloaded page rooted and deployed fine. The address/deploy path is
+  not the problem; the browser stub lifetime is. Keep the manual fallback
+  documented and prefer a fresh page before each attempt.
 - **Pending: 31337 is an unauthenticated LAN root shell.** The allowlist is the
   only filter. Keep it off untrusted networks; see `SECURITY.md`.
 - **Pending: public-release maintenance.** `LICENSE` covers original work only;
@@ -623,4 +629,4 @@ rooted set risks the root; the warning to keep auto-update off remains).
   (`curl -s http://<pc>/recover.sh | sh`) to reinstall the payload end-to-end: it
   takes the app's SMACK label via `/proc/self/attr/current`, runs `deploy.sh`, and
   `deploy.sh` restarts the app so the new DLL loads. Verified on
-  a cold boot (v34: 34 s, no PC involvement).
+  a cold boot (v34: 34 s; the stock→root cycle boot took 68 s / attempt 3).
