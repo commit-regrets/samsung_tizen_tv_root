@@ -98,12 +98,10 @@ file, closes `/dev/video40`, and listens on TCP 31337.
 Design goals: no dependency on the PC after boot, survive app restarts, be
 usable from any LAN machine.
 
-- Listens on `0.0.0.0:31337`.
+- Listens on the TV's LAN address (v16; one address, not `0.0.0.0`).
 - Line protocol: send one command + `\n`; output is returned, terminated by
   `__END__`.
 - Commands run through `/bin/sh -c` with a 15 s timeout.
-- If `/opt/usr/home/owner/share/next.dll` exists, the payload installs it over
-  itself and exits so AUL restarts it with the new code (self-update).
 - AUL restarts the app after a crash; measured recovery: **~12 s**, and the new
   instance is root again.
 

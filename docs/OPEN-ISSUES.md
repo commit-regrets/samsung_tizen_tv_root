@@ -1,13 +1,14 @@
 # Open issues — current state, pending work, and closed history
 
-## Current state — 2026-10-25 (payload v33)
+## Current state — 2026-10-25 (payload v34)
 
-TV: **v33** (`63dc2652…`, 30,208 B), rooted, channel 31337 up. The last cold boot
-was **39 s**: attempt 1 landed on a high allocation, the `high-alloc` gate
-fast-exited, AUL relaunched, attempt 2 rooted. The fifth pass is **closed**:
-attempt 1 is an allocation lottery on this unit; attempt 2 is the floor. Read
-everything below the "History" line as history; do not reopen attempt 1 without a
-new read path.
+TV: **v34** (`5c780eea…`, 29,184 B), rooted, channel 31337 up. v34 is v33 with
+the unused `next.dll` self-update and the remote research/tool removed; the boot
+path is unchanged. The v34 cold boot (2026-10-25 19:40) was **34 s**: attempt 1
+landed on a high allocation, the `high-alloc` gate fast-exited at t=25, AUL
+relaunched, attempt 2 rooted at t=34. The fifth pass is **closed**: attempt 1 is
+an allocation lottery on this unit; attempt 2 is the floor. Read everything below
+the "History" line as history; do not reopen attempt 1 without a new read path.
 
 **Pending / next, in order:**
 
@@ -25,8 +26,6 @@ new read path.
    (third-party browser chain is not relicensed), private LAN IPs removed from
    docs/examples, logs and build output ignored, only the payload DLL and the
    physrpc shellcode blob tracked as binaries.
-5. **Optional features** — remote hotkey repoint (`docs/REMOTE.md`), a `next.dll`
-   self-update test, OTA behaviour (does an update replace the app/boot row?).
 
 ## History
 
@@ -425,7 +424,7 @@ The attempt-1 marker to look for: `attempt=1` → (optionally `retry in 5s`)
 - **Work in this repo.** The `samsungtv` tree is reference material (vendored
   clones, firmware extract, the DWARF/kernel build). Nothing under it is needed to
   fix the items below, and nothing there should be edited as "the toolkit".
-- **TV:** `<tv-ip>`, rooted, payload **v33** (`63dc2652…`), channel on
+- **TV:** `<tv-ip>`, rooted, payload **v34** (`5c780eea…`), channel on
   `31337` (`python tools/root_shell.py "id" <tv-ip>`). PC: `<pc-ip>`.
 - **Port 80 is the firewall's fault line.** The Windows firewall has inbound
   *Block* rules for `python.exe` and *Allow* rules for `pysrv.exe` (path
@@ -466,7 +465,7 @@ The attempt-1 marker to look for: `attempt=1` → (optionally `retry in 5s`)
 ## P2 (historical, closed) — hygiene, latent paths, or cosmetic
 
 - **`physmap.py` dead modes** (F6): `full_root` calls `load_image_head()` (no uImage ships), then undefined `find_tasks_offset`/`walk_tasks`, and gates creds to `< 0xD0000000` while claiming success. Not on the production path (`kernel_root.py --fork`). Delete or repair.
-- **`TrySelfUpdate()`** (F13): any `share/next.dll` over 1 KB replaces the payload with no hash check and no rollback. Add a pinned hash (or PE sanity) and keep the previous DLL.
+- **`TrySelfUpdate()`** (F13): any `share/next.dll` over 1 KB replaces the payload with no hash check and no rollback. **Removed in v34** rather than hardened — it was unused and an unauthenticated payload-replacement path.
 - **`MapPage`** (F14): `Pages.Clear()` leaks mappings without `munmap`; the `mmap2` fallback's `r < 0` is too strict for a high-half mapping (a successful map is a negative `int32`). **Do not** touch `mmap64`'s `== -1` check — that half of the finding was wrong.
 - **`tv_rootwatch.py`** (F16): hardcodes the author's `pysrv.exe`; loop mode returns after the first successful shell (only `--no-shell` loops).
 - **Embedded shellcode ≠ `tools/physrpc.S`** (F10): the shipped blob's device path decodes as `/dev/video30`, the source says `/dev/video40`. It works (same driver family), but a rebuild + re-embed would silently switch nodes. Align them, or rebuild and re-verify, and add a build check comparing blob against assembly.

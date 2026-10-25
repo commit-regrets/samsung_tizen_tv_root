@@ -2,9 +2,8 @@
 
 You are continuing a **Samsung Tizen 9 TV root** project. Read this file first,
 then `docs/EXPLOIT.md` (how it works), `docs/USAGE.md` (running it),
-`docs/ROOT-METHODS.md` (what was found), `docs/FAILED.md` (do not repeat these),
-`docs/SERVER-HOSTING.md` (the PC-side server) and `docs/REMOTE.md`
-(remote/hotkey remapping). History lives in `CHANGELOG.md`,
+`docs/ROOT-METHODS.md` (what was found), `docs/FAILED.md` (do not repeat these)
+and `docs/SERVER-HOSTING.md` (the PC-side server). History lives in `CHANGELOG.md`,
 and the current work list — triaged from an independent code review — is
 `docs/OPEN-ISSUES.md`: read it before changing anything, it says what is known
 broken, in what order to fix it, and how to prove each fix.
@@ -35,8 +34,8 @@ channel on TCP 31337 (line protocol, replies end with `__END__`).
 
 | | |
 |---|---|
-| Payload | **v33 on the TV and in the repo** (`63dc2652…`, 30,208 B), deployed 2026-10-25 |
-| Boot-to-root | **Fifth pass closed: attempt 2 is the floor; v33 cold boot 39 s.** v33's fast-mode `high-alloc` gate fired on the first cold boot (2026-10-25 18:35): attempt 1 found `parent=e3400b80` high and a garbage low-non-kptr cred, beaconed `high-alloc … fast-exit` at t=32, AUL relaunched at t=36, **attempt 2 rooted t=38–39** — 39 s vs 59 s on v32 (the gate saved ~20 s; the rest is app start, a failed round-0 hunt, and the relaunch gap). The v32 cold boot (18:25) had attempt 1 high, attempt 2 low, rooted t=59. The v31 cold boot had proved attempt 1 is an **allocation lottery**, not timing: attempts 1–3 high, attempt 4 at t=132 s. Whole-log evidence: every coherent task/cred read < `0xE0000000` (78/78 `cuid=5001` creds low; 21/21 high creds junk; 15/15 `direct-parent+` and 19/19 `self-patch` successes low; 0/81 task pointers high). Marker: `share/root_boot.txt` |
+| Payload | **v34 on the TV and in the repo** (`5c780eea…`, 29,184 B), deployed 2026-10-25 |
+| Boot-to-root | **Fifth pass closed: attempt 2 is the floor; v34 cold boot 34 s.** v34 cold boot (2026-10-25 19:40): attempt 1 found `parent=e3a08b80` high and a garbage cred, the `high-alloc` gate fired at t=25 and fast-exited; AUL relaunched, **attempt 2 rooted at t=34** (`self=cf018000`, `cred=d0b98080`). That is better than v33's 39 s and well under v32's 59 s. For the record, v33's first cold boot (18:35) was attempt 1 high (`parent=e3400b80`), gate at t=32, attempt 2 rooted t=38–39; the v32 cold boot (18:25) was attempt 1 high, attempt 2 low, rooted t=59. The v31 cold boot proved attempt 1 is an **allocation lottery**, not timing: attempts 1–3 high, attempt 4 at t=132 s. Whole-log evidence: every coherent task/cred read < `0xE0000000` (78/78 `cuid=5001` creds low; 21/21 high creds junk; 15/15 `direct-parent+` and 19/19 `self-patch` successes low; 0/81 task pointers high). Marker: `share/root_boot.txt` |
 | Root identity | `uid=0`, `CapEff=0x3fffffffff`, running under the app's own SMACK label |
 | Boot hook | a `boot_sequence` row in `/opt/dbspace/user/5001/.appsvc.db` |
 | Device | `/dev/video40`, one RDWR opener; the app runs as uid 5001, gid 44 |
@@ -58,7 +57,7 @@ wake).
 
 The boot sequence is deliberate: the first launch after a cold boot usually cannot read
 task memory coherently. v29 kept the exit-on-purpose design but gave attempt 1 four
-rounds; v33's rounds are `{0,0,5000,5000}` (the v31 10 s last wait was reverted).
+rounds; the rounds are `{0,0,5000,5000}` (the v31 10 s last wait was reverted).
 **Attempt 1 is an allocation lottery** — if the first process's task/cred land in
 the unreliable high half (≥ `0xE0000000` for reads), no amount of in-process waiting
 helps; v33's `high-alloc` gate fast-exits as soon as that is seen, and AUL
@@ -255,8 +254,7 @@ TV boot: com.samsung.tv.MultiControl-Service (dotnet-inhouse, app_onboot)
 | `tools/test_shell.py` | deploy/uninstall dry tests under `sh` (no TV): backups, label, boot row |
 | `tools/test_stub.py` | live-stub protocol + clamp checks (fresh page load) |
 | `tools/test_all.py` | runs every layer above; `--tv` adds the live stub |
-| `tools/tv_ws_launch.py` | Samsung remote-control WebSocket diagnostic/launcher (refused on this unit) |
-| `payload/Program.cs` | boot payload source (v33; TV on v33) |
+| `payload/Program.cs` | boot payload source (v34; TV on v34) |
 | `payload/BootPayload.csproj` | net6.0 project, assembly `MultiControlService` |
 | `root.ps1` | one-command runner (server + root + deploy + verify) |
 | `uninstall.ps1` | one-command uninstall (restore stock + verify) |
@@ -331,7 +329,7 @@ shell - that corrupts the stream and wastes the page load.
 duplicate an inventory here.
 
 `server/payload.dll` is the artifact the TV fetches during deploy and is
-byte-identical to `payload/out/MultiControlService.dll` (md5 `63dc2652…`, v33;
+byte-identical to `payload/out/MultiControlService.dll` (md5 `5c780eea…`, v34;
 reproducible — see §9), so a clone runs without a .NET SDK. Rebuild with
 `dotnet build payload/BootPayload.csproj -c Release`, then update the
 `WANT=`/`SIZE_WANT=` gate in `server/deploy.sh`.
@@ -373,10 +371,11 @@ python kernel_root.py --fork
 # 3. verify
 python run_root.py "id" 6               # uid=0(root)
 
-# 4. deploy the boot payload
-python run_root.py "curl -s http://<HOST_IP>/deploy.sh | sh" 45
-#    expect: UID=0, SIZE=30208, MD5=63dc2652..., COPY=ok, HOST_FILE=..., DEPLOY_DONE
-#    (deploy.sh now exits 1 on a label/boot-row/AUL failure instead of warning)
+# 4. deploy the boot payload (root.ps1 wrote deploy_local.sh with your PC address;
+#    if it is absent, run root.ps1 once to generate it. The committed deploy.sh
+#    has a placeholder H= and must not be served as-is.)
+python run_root.py "curl -s http://<HOST_IP>/deploy_local.sh | sh" 45
+#    expect: UID=0, SIZE=29184, MD5=5c780eea..., COPY=ok, HOST_FILE=..., DEPLOY_DONE
 
 # 5. reboot the TV (exit the browser first so it does not restore the page)
 
@@ -394,8 +393,8 @@ gateway, deploy/uninstall control flow, source↔blob↔page consistency). Then:
 
 - [ ] `root_shell.py "id" <TV_IP>` returns `uid=0(root)`.
 - [ ] `root_shell.py "cat /proc/self/status | grep CapEff" <TV_IP>` → `0000003fffffffff`.
-- [ ] `root_shell.py "md5sum /opt/usr/apps/com.samsung.tv.MultiControl-Service/bin/MultiControlService.dll" <TV_IP>` → `63dc2652…`
-- [ ] Cold boot with the browser closed → attempt 1 high exits in ~2 s (`high-alloc … fast-exit`), attempt 2 roots; v33 cold boot observed **39 s** (v32: 59 s). Attempt-1 `SUCCESS` is a bonus; attempt 2 is the floor.
+- [ ] `root_shell.py "md5sum /opt/usr/apps/com.samsung.tv.MultiControl-Service/bin/MultiControlService.dll" <TV_IP>` → `5c780eea…`
+- [ ] Cold boot with the browser closed → attempt 1 high exits in ~2 s (`high-alloc … fast-exit`), attempt 2 roots; v34 cold boot observed **34 s** (v33: 39 s, v32: 59 s). Attempt-1 `SUCCESS` is a bonus; attempt 2 is the floor.
 - [ ] `kill -9 <app pid>` → channel back in ~5–45 s (v33's high-alloc gate skips a high attempt quickly; otherwise attempt 2 roots), still uid 0.
 - [ ] `python tools/test_all.py --tv` against a fresh page load (stub protocol
       + clamps). Details per layer: `docs/TESTING.md`.
@@ -418,7 +417,7 @@ gateway, deploy/uninstall control flow, source↔blob↔page consistency). Then:
    `syscall(172,15,…)` in the child; a CLR allocation can deadlock.
 7. **Short commands.** The stub's `cmdbuf` is 512 B and `run_root.py` /
    `auto_root.py` now refuse commands over 509 B (`write_root.py`: 255 B path,
-   4 KB chunk); use `curl …/deploy.sh | sh`. Commands over ~100 chars were
+   4 KB chunk); use `curl …/deploy_local.sh | sh`. Commands over ~100 chars were
    observed killing a stub even under the limit.
 8. **Do not fork repeatedly on one stub**; zombies poison the task walk.
 9. **Do not touch `/mnt/systemrw`** (OTA/update data) and do not poke
@@ -556,7 +555,7 @@ that downloads it) and reboot. Things to preserve when editing `Program.cs`:
 - **Pending: high-half read mechanism.** Reads at/above `0xE0000000` are
   unreliable (0/21 high creds, 0/81 high task pointers); whether the cause is a
   video40 pfn-mapping limit or a cache effect is unproven. It no longer blocks
-  this unit (v33 accepts attempt 2) but matters for porting and for any future
+  this unit (v34 accepts attempt 2) but matters for porting and for any future
   attempt-1 work. See `docs/OPEN-ISSUES.md` → Pending.
 - **Pending: portability.** No second model/firmware has been tested. Use the
   four gates and the file-by-file checklist in `docs/PORTABILITY.md`; record each
@@ -585,13 +584,13 @@ that downloads it) and reboot. Things to preserve when editing `Program.cs`:
   — **done**: `tools/embed_physrpc.py` writes the blob into the page (refusing a
   staging overflow) and `--check` proves page == blob; `build_physrpc.py
   --check-embedded` proves blob == `physrpc.S`.
-- Repoint the remote's app buttons by patching `com.samsung.tv.hotkey-service`
-  (see `docs/REMOTE.md`): capture the `XF86AppN` key, decompile the service IL,
-  change the appid, deploy with a backup, test one button.
-- Add a `next.dll` self-update flow test (the code path exists but is unused).
 - Re-measure offsets on other Tizen 9 models; the physmap primitive may be
   shared even where the constants differ.
-- Measure OTA behaviour (does an update replace the app/boot row?).
+
+Removed in v34, deliberately: the `next.dll` self-update (an unauthenticated
+payload-replacement path), the remote/hotkey research (`docs/REMOTE.md` and
+`tools/tv_ws_launch.py`), and the OTA-measurement task (running an OTA against a
+rooted set risks the root; the warning to keep auto-update off remains).
 
 ## 12. Safety rules
 
@@ -604,4 +603,4 @@ that downloads it) and reboot. Things to preserve when editing `Program.cs`:
   (`curl -s http://<pc>/recover.sh | sh`) to reinstall the payload end-to-end: it
   takes the app's SMACK label via `/proc/self/attr/current`, runs `deploy.sh`, and
   `deploy.sh` restarts the app so the new DLL loads. Verified on
-  a cold boot (v33: 39 s, no PC involvement).
+  a cold boot (v34: 34 s, no PC involvement).

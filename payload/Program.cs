@@ -725,45 +725,6 @@ internal static class Program
         ReapChildren();
     }
 
-    // Minimum sanity for a dropped-in replacement assembly: any share/next.dll
-    // used to be installed with no check at all, so a truncated file (or an
-    // empty one over 1 KB) could brick boot persistence with no way back.
-    static bool LooksLikeAssembly(byte[] b)
-    {
-        if (b == null || b.Length < 1024 || b[0] != 'M' || b[1] != 'Z') return false;
-        int lfanew = b[0x3C] | (b[0x3D] << 8) | (b[0x3E] << 16) | (b[0x3F] << 24);
-        return lfanew > 0 && lfanew + 4 <= b.Length &&
-               b[lfanew] == 'P' && b[lfanew + 1] == 'E' && b[lfanew + 2] == 0 &&
-               b[lfanew + 3] == 0;
-    }
-
-    static bool TrySelfUpdate()
-    {
-        try
-        {
-            string next = Share + "/next.dll";
-            if (!File.Exists(next)) return false;
-            byte[] nb = File.ReadAllBytes(next);
-            if (!LooksLikeAssembly(nb)) { Beacon("self-update reject (not a PE)"); return false; }
-            string me = "/opt/usr/apps/com.samsung.tv.MultiControl-Service/bin/MultiControlService.dll";
-            byte[] cur = File.Exists(me) ? File.ReadAllBytes(me) : null;
-            if (cur != null && cur.Length == nb.Length)
-            {
-                bool same = true;
-                for (int i = 0; i < nb.Length; i++) if (cur[i] != nb[i]) { same = false; break; }
-                if (same) return false;
-            }
-            // keep the running payload so a bad replacement can be rolled back
-            try { if (cur != null) File.WriteAllBytes(me + ".prev", cur); } catch { }
-            string tmp = "/opt/usr/apps/com.samsung.tv.MultiControl-Service/bin/.next.tmp";
-            File.WriteAllBytes(tmp, nb);
-            File.Move(tmp, me, true);
-            Beacon("self-update " + nb.Length);
-            return true;
-        }
-        catch (Exception e) { Beacon("self-update fail " + e.Message); return false; }
-    }
-
     static bool PeerAllowed(string ip)
     {
         // Fail CLOSED.  deploy.sh writes rootchan.allow BEFORE the DLL, so a
@@ -1427,10 +1388,6 @@ internal static class Program
                 // Landmark children sleep 120 s; a later kill -9 reparents them
                 // to init and the next AUL launch wastes fast attempts on them.
                 KillChildren();
-
-                // self-update: if a new payload was dropped in the share, install
-                // it and exit so AUL restarts the app with the new assembly
-                if (TrySelfUpdate()) { Thread.Sleep(500); Environment.Exit(0); }
 
                 RootChannel();   // never returns
             }

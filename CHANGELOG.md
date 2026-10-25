@@ -12,6 +12,25 @@ entry is an incomplete change. `AGENTS.md` repeats this rule for agents.
 
 ## 2026-10-25
 
+### Payload v34 — remove the unauthenticated `next.dll` self-update; drop remote/OTA scope
+
+- Removed `TrySelfUpdate()`, `LooksLikeAssembly()` and the startup call. Any
+  process that could write `share/next.dll` could install a PE that the boot app
+  runs, with only PE-header sanity and no hash/signature. It was unused and
+  untested, so it is gone rather than hardened. Payload 29,184 B,
+  `5c780eea5ca951fb05dee5da37fa6186`, reproducible (two builds).
+- Removed `docs/REMOTE.md` and `tools/tv_ws_launch.py` (investigation only;
+  the TV's remote WebSocket refused it), the `websocket-client` dependency, and
+  the remote/`next.dll`/OTA items from `AGENTS.md` and `docs/OPEN-ISSUES.md`.
+  OTA remains a warning — keep auto-update off; measuring it risks the root.
+- Deployed; on-TV md5 verified. Cold boot (2026-10-25 19:40): attempt 1 high
+  (`parent=e3a08b80`), `high-alloc` gate at t=25, AUL relaunched, **attempt 2
+  rooted at t=34** — 34 s, better than v33's 39 s. This removes unused code
+  only; the boot path is unchanged.
+- Manual procedure fix: `AGENTS.md` and `docs/EXPLOIT.md` now deploy
+  `deploy_local.sh` (written by `root.ps1`), not the committed `deploy.sh` —
+  the latter carries the placeholder `H=` and hangs if served as-is.
+
 ### Payload v33 — high-address fast-exit (optional boot-latency lever)
 
 v32 reverted the harmful 10 s wait and closed the fifth pass at attempt 2 (59 s cold
