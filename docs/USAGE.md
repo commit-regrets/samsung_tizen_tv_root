@@ -15,9 +15,10 @@ port-80 server (reusing one that already serves this directory; `-RestartServer`
 replaces a different server on `:80`), waits for the browser page to connect,
 roots that stub, installs the payload, then waits for TCP 31337 and prints `id`.
 
-The payload usually starts **immediately** after the deploy: `deploy.sh` restarts
-the app (detached) so the new DLL loads without waiting for a reboot. The reboot is
-what proves the persistence is real, so do it anyway.
+The payload usually starts **immediately** after the deploy: `deploy.sh` kill -9s
+the running app (detached, after `DEPLOY_DONE`) so AUL loads the new DLL without
+waiting for a reboot. The reboot is what proves the persistence is real, so do
+it anyway.
 
 **Two steps stay on the TV remote**, and the script prompts for both and repeats
 a reminder with the URL every 30 seconds until the page connects:

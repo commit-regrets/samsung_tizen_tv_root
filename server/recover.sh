@@ -45,8 +45,8 @@ if [ "$(cat /proc/self/attr/current)" != "$LABEL" ]; then
 fi
 echo "RELABEL=ok ($LABEL)"
 
-# the app must be running for its label to be meaningful, and so that the
-# stop+start in deploy.sh has something to restart
+# the app must be running for its label to be meaningful, and so that
+# deploy.sh can find the payload pid to kill (AUL then relaunches it)
 aulctl is-active "$APPID" 2>/dev/null
 
 # Prefer the copy root.ps1 already rewrote.  The plain deploy.sh as served still

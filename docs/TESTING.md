@@ -17,6 +17,16 @@ An in-memory `physmap.RPC` (`MemRPC`) planted with the cred layout measured on t
 TV and matched against the DWARF dump of a same-family kernel. It exercises
 `kernel_root.patch_full`, `_sane_cred`, the cred-content scanner
 (`iter_owner_creds`) and the page-straddle case that a per-page `find()` misses.
+It also twins the payload hunt (`hunt_new_phyrfork` + pre-set), the v18
+MapPage-vs-kernel alias (`AliasedMemRPC`), the one-RDWR `/dev/video40` opener
+(v20 reopen-after-fork), LPAE pointers above `0xE0000000`, and a hole that
+must break the scanner's carry.
+
+The fifth-pass attempt-1 case (`ReadStaleRPC` + `direct_parent_patch`) is
+modelled at the block level: a stale parent task/cred page, the v28 early break
+(two pr-0 probes, not four through pr 7), `publish()` rooting, the foreign /
+unreadable / stale-0 gate cases, and the v30 process-wide `cred_scan_near`
+budget with its offset-0 page case.
 
 This is the layer that catches offset regressions — if `cred.uid` moves, the
 self-test fails before anything touches hardware.

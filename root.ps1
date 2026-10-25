@@ -280,10 +280,10 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 Say ""
-Say "2) Deploy verified (the payload md5 matched: the TV is running it in RAM)."
-Say "   NOTE: deploy.sh restarted the app in the background, so 31337 can open"
-Say "   WITHOUT a reboot. That proves the payload runs, not that it starts at"
-Say "   boot - only a reboot proves persistence."
+Say "2) Deploy verified (the payload md5 matched)."
+Say "   NOTE: deploy.sh kill -9s the running payload so AUL loads the new DLL;"
+Say "   31337 can open WITHOUT a reboot. That proves the payload runs, not that"
+Say "   it starts at boot - only a reboot proves persistence."
 if ($NoWait) { exit 0 }
 
 Say "   waiting for TCP 31337 (up to $BootTimeoutSec s)..."

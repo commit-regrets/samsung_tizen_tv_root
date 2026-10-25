@@ -2,7 +2,7 @@
 # Install the root-on-boot payload into the MultiControl-Service app.
 # Runs on the TV as root (the deploy child inherits the patched stub cred).
 # The caller rewrites the H= line with the real host IP before serving this.
-H="http://HOST_IP"
+H=http://192.168.178.214
 HIP=${H#http://}
 S=/opt/usr/home/owner/share
 D=/opt/usr/apps/com.samsung.tv.MultiControl-Service/bin/MultiControlService.dll
@@ -10,8 +10,8 @@ B="$S/payload_backup.dll"
 A="$S/rootchan.allow"
 HOSTF="$S/rootchan.host"
 DB=/opt/dbspace/user/5001/.appsvc.db
-WANT=36d7c09f0f733cf5099b2fa591aebe5e
-SIZE_WANT=23552
+WANT=a4ccba98cf81ef92b11cff38f33bd203
+SIZE_WANT=30208
 APPID=com.samsung.tv.MultiControl-Service
 # SMACK label the app runs under.  Files in bin/ carry "<label>::RO" and the app
 # (label "<label>") may read those.  A file created by US keeps OUR label - e.g.
@@ -145,10 +145,31 @@ if ! aulctl reload 5001; then
 fi
 echo AUL_RELOAD=ok
 # `reload` only refreshes AUL's copy of the sequence - it does NOT restart an
-# app that is already running, so a *changed* DLL would stay unloaded. An
-# explicit stop+start makes it take effect now, but `aulctl stop` BLOCKS while
-# the payload is running (measured: it hangs waiting for the app to exit), so it
-# runs detached and the deploy script returns immediately.
-( sleep 1; aulctl stop "$APPID" >/dev/null 2>&1; sleep 3; aulctl start "$APPID" >/dev/null 2>&1 ) >/dev/null 2>&1 &
-echo RESTART=backgrounded
+# app that is already running, so a changed DLL stays unloaded. `aulctl stop`
+# never returns while this payload is the running app (2026-10-25: channel
+# stayed on the old DLL for 80 s after DEPLOY_DONE). AUL relaunches a killed
+# on-boot app in ~12 s (the documented kill -9 path). Sleep first so the
+# channel can send DEPLOY_DONE; /dev/video40 gates the scan so a PC dry-run
+# does not walk the host's /proc.
+PIDS=""
+if [ -e /dev/video40 ]; then
+  for d in /proc/[0-9]*; do
+    pid=${d#/proc/}
+    case "$pid" in *[!0-9]*) continue ;; esac
+    [ -f "$d/cmdline" ] || continue
+    tr '\0' ' ' < "$d/cmdline" 2>/dev/null | grep -q MultiControlService.dll || continue
+    PIDS="$PIDS $pid"
+  done
+fi
+if [ -n "$PIDS" ]; then
+  echo "RESTART=kill$PIDS"
+  ( trap '' HUP
+    sleep 2
+    kill -9 $PIDS >/dev/null 2>&1
+    sleep 2
+    aulctl start "$APPID" >/dev/null 2>&1
+  ) >/dev/null 2>&1 &
+else
+  echo RESTART=skip
+fi
 echo DEPLOY_DONE

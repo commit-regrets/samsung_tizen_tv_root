@@ -12,6 +12,435 @@ entry is an incomplete change. `AGENTS.md` repeats this rule for agents.
 
 ## 2026-10-25
 
+### Payload v32 — attempt-1 root cause: high-half reads are unreliable; revert the 10 s wait
+
+The v31 cold boot (wall unplug) was worse than v30: attempt 1 failed (round 3's
+hunt saw no new `PHYRFORK` at all), attempts 2 and 3 ran 30+ s each and failed, and
+attempt 4 rooted at **t=132 s**. A full-log analysis (every beacon, not just the two
+cold boots) found the failure is **address-dependent, not time-dependent**:
+
+- Every coherent task/cred read in the log is **below 0xE0000000**.
+- 78/78 child creds that read `5001` were below it; 21/21 at/above it read
+  0 / junk / `0xFF`, never 5001.
+- 15/15 `direct-parent+` successes and 19/19 `self-patch uid=0` successes used a
+  cred **below 0xE0000000**; 0/81 recorded task pointers were high.
+- The control: v30 attempt 2 was 1-2 s old and read coherently at low addresses;
+  v31 attempt 2 was also 1-2 s old and failed with a high cred. So "fresh
+  process" is not the variable — the allocation address is.
+
+Attempt 1 is therefore an **allocation lottery**: every observed cold-boot first
+process landed high, and in-process retries, `DropPages` and the scan cannot change
+where its task/cred live. Only a fresh process re-rolls the allocation. The v31
+10 s wait delayed that re-roll and cost 80 s of boot time.
+
+v32 reverts the fast rounds to `{0,0,5000,5000}` (v30 profile) and fixes the
+`direct-probe` `pmap=` field to look up the page that actually holds the cred field
+(`V2P(parent)+O_CRED`) instead of the task base page — the `pmap=plain` lines in the
+v31 boot were that diagnostic artifact, not a window fallback (there was no
+`physmap fixed map failed` beacon). No high-address fast-exit is added; it is a
+valid latency follow-up, not the acceptance.
+
+**The fifth pass closes as "attempt 2 is the floor":** cold-boot acceptance is
+attempt 2 `self-patch uid=0` / `SUCCESS` / `ROOTCHAN` at ≤ ~55 s. Attempt-1
+`SUCCESS` would be a bonus, not a goal.
+
+Cold boot on v32 (2026-10-25 18:25, wall unplug): **attempt 1 failed exactly as
+predicted** — `parent=e37fb980` high, `cred=ffffffff` junk, round 3's child cred
+went high too (`cuid=4294967165`), so the scan skipped; fast-exit at t=55.
+**Attempt 2 rooted at t=59** (`self=d9356780`, `cred=c5b78080`, both low) and the
+channel came up; on-TV md5 `a4ccba98…`. The 132 s v31 regression is gone; 59 s is
+within the v30-profile class (v30 measured 51 s). Attempt 1 remains a bonus.
+
+Build: `a4ccba98cf81ef92b11cff38f33bd203`, 30,208 B, reproducible (two clean
+builds). Deployed 2026-10-25 (`COPY=ok`, `RESTART=kill 5536`, `DEPLOY_DONE`; on-TV
+md5 verified); the deploy relaunch rooted at attempt 1 in ~1 s.
+
+### Payload v31 — attempt-1 tuning: last wait 5 s → 10 s
+
+The v30 cold boot (wall unplug) still failed attempt 1. The parent task page read
+stale in every round (`cred=00000000`, `pplain=0`) while the child's cred page was
+coherent in rounds 0–2 (`cuid=5001`): round 2's scan ran at t=38 but missed ours
+(`cred-scan miss patched=1 total=1`), and round 3's child cred page was stale too
+(`cuid=unread` → `cred-scan skip`). Fast-exit at t=47; attempt 2 self-patched at
+t=51. So this boot's window ended between t=45 and t=51, after v30's last round.
+
+v31 changes one constant: the fast-mode rounds are `{0,0,5000,10000}`. Round 3
+now starts at ~t=49, exactly where attempt 2 was already reading coherent memory;
+round 2 keeps its 5 s wait so the scan still samples the middle of the window. The
+scan gate/budget, the window fixes and the fast-exit fallback are untouched.
+
+Build: `cb9c19c0de7dc0608357ceeb16cb4609`, 30,208 B, reproducible (two clean
+builds). Deployed 2026-10-25 (`COPY=ok`, `RESTART=kill 4138`, `DEPLOY_DONE`; on-TV
+md5 verified), and the deploy relaunch rooted at attempt 1 in ~1 s. The next wall
+unplug decides the fifth pass: attempt-1 `SUCCESS` closes it; attempt 2 makes the
+fast-exit design final.
+
+### Payload v30 — review fixes: window-hole restore, process-wide scan budget, sim fidelity
+
+An independent review of the v24–v29 work found one latent window-fallback hole and two
+places where the Python twin did not model the C# it is supposed to lock. v30 fixes
+those, plus the smaller items a second review pass turned up:
+
+- **A failed `MAP_FIXED` is a hole, not a fallback (`MapPage` / `RestoreWindowHole`).**
+  Linux 5.4's `mmap_region()` does `do_munmap()` before `call_mmap()`, so when
+  `/dev/video40` refuses a fixed mapping the slot has already been unmapped. The old
+  code fell back to the plain mmap and left the 4 KiB gap in the reservation;
+  `_slotNext` did not advance, so the next page with the same in-slot offset
+  `MAP_FIXED`ed over whatever had taken the gap (only eight in-slot offsets exist, and
+  `DropPages()` resets the slot index). v30 restores the hole with
+  `MAP_FIXED_NOREPLACE` — `EEXIST` instead of clobbering if a runtime thread won the
+  race — beacons once, and turns the window off if the restore fails. `ReleasePage`
+  now checks its `PROT_NONE` re-protect and does the same; the old code ignored the
+  return and left the same class of hole.
+- **The scan's 8-cred cap is process-wide, and early rounds no longer spend it.**
+  `MaxPatched` was per call, so v29's four fast rounds could patch up to 32 foreign
+  creds (six long rounds: 48) while the docs said 8. `_scanPatched` now accumulates
+  across the process. The scan also runs only in rounds that follow a wait: the v28
+  evidence has an in-window scan patching 4 neighbours and missing ours, which would
+  have spent half the budget before the post-window round that can see it. The beacon
+  now carries `total=`.
+- **A page-offset-0 pattern hit no longer closes the page.** `while (idx >= 4)`
+  aborted the whole page when the first hit belonged to a cred starting in the previous
+  page; a later cred on the same page was never seen. The pre-page hit is still
+  refused, but the search continues. The scan's 0x60000000 stop is deliberately
+  unchanged: the 0x46000000 hang is the video30 browser stub, and the v28 probe read
+  phys 0x60000000 through the video40 payload successfully.
+- **Comment/version corrections:** the sim docstring said 8 KiB and "8 in-process
+  retries"; `AGENTS.md` §9 and trap 15 still told the reader to skip a live foreign uid
+  (the v23 latch deliberately does not); the window header still said "16 KiB slots
+  since v25", and the attempt comment still described the pre-v29 "exit immediately".
+- **Python twin:** `direct_parent_patch` models the v28 early break (the replica now
+  emits the two pr-0 probes the C# emits, not four through pr 7); `cred_scan_near`
+  models the process-wide budget, the direct-map range and the offset-0 hit, with a
+  shared `budget` list for the cross-call cap; the no-kptr probe line carries
+  `pplain=`/`phead=`. New self-tests lock all three (10 foreign creds stop at 8, a
+  second scan with the same budget is a no-op, a later cred behind an offset-0 hit is
+  still patched).
+
+Build: `1e9b37dfa3c347128999ba5b13a7e049`, 30,208 B, reproducible (two clean builds
+matched). Deployed 2026-10-25 (`COPY=ok`, `RESTART=kill 10310`, `DEPLOY_DONE`; on-TV
+md5 verified). The deploy relaunch's attempt 1 failed after all four rounds with the
+content stale through both the parent task page and the child's cred page — the scan
+gate correctly skipped (`cred-scan skip`, no collateral, budget unspent), it
+fast-exited, and attempt 2 rooted in ~1 s.
+
+**Cold boot on v30 (2026-10-25, wall unplug): attempt 1 still failed.** Attempt 1
+(t=22–47) read the parent task page stale in every round (`cred=00000000`,
+`pplain=0`) while the child's cred page was coherent in rounds 0–2 (`cuid=5001`).
+Round 2's scan ran at t=38 but missed ours (`cred-scan miss patched=1 total=1`); by
+round 3 the child's cred page had gone stale too (`cuid=unread` → `cred-scan skip`).
+It fast-exited at t=47 and **attempt 2 rooted at t=51** via `self`-patch. The
+fifth-pass acceptance is therefore **not met**: this boot's window ended between t=45
+and t=51, i.e. after v30's last round. The scan gate/budget did its job (one foreign
+cred patched, no repeat). Next knob: a longer last wait (e.g. `{0,0,5000,10000}`)
+puts round 3 at ~t=50, inside the observed convergence; otherwise the fast-exit design
+is final and the fifth pass closes as "attempt 2 is the floor".
+
+### Payload v28→v29 — cred-scan fallback, discriminator closed, wait-out-the-window rounds
+
+v28 (cred-content scan near the child's cred + probe gap fix) was answered by
+the very next mid-session relaunch, and the answer closed the fifth-pass
+discriminator:
+
+- `direct-probe … uid=251683069 plain=251683069 map=a82a7000 pva=b48d6000` —
+  the same garbage through two completely different VA geometries: the page's
+  **RAM content itself reads stale**. Not VIPT aliasing. The staleness is
+  content visibility with a ~15-20 s convergence window.
+- `cred-scan miss patched=4` — the scan works (found and patched four sane
+  uid-5001 creds near the child's) but our cred page was among the stale ones.
+  The documented collateral happened once; `MaxPatched = 8` now bounds it.
+- Attempt 3, started ~14 s later: everything coherent, instant SUCCESS. v9's
+  "a fresh process fixes it" was really "the *next* attempt, seconds later,
+  reads fine" — the restart was incidental, the delay was not.
+
+v29 therefore keeps attempt 1 alive across the convergence window instead of
+fast-exiting past it: fast-mode rounds are now `{0, 0, 5000, 5000}` (the
+`retry in 5s` beacons mark the waits), the fast-mode PHYSRPT scan is trimmed to
+2 tries (it never fired on a stale attempt 1 — comms are stale on exactly those
+attempts), and the scan patch cap bounds collateral. If the window converges
+in-process, attempt 1 roots at the same wall clock attempt 2 used to; if not,
+the fast-exit and AUL relaunch still follow unchanged.
+
+On the TV: v28 (`ce10f6dd…`) and v29 (`b8923d2f…`, 29,184 B) both deployed and
+verified; v29's deploy relaunch rooted at attempt=1 in ~1 s (`pu=5001` →
+`direct-parent+2f0` → `direct-patch uid=0`). **The next wall-unplug cold boot
+decides the fifth pass**: attempt-1 `SUCCESS` closes it; an attempt-1 that
+still fails after the 5 s waits proves the first-process effect is structural
+(not time) and the fast-exit design is final — with the probe lines naming it.
+
+### Cold boot on v27 — decoded: cred-pointer line stale, aliasing ruled out
+
+First wall-unplug cold boot on v27: attempt 1 ran its full fast budget
+(t=17s→37s) and fast-exited; attempt 2 rooted at t=41s via `self`-patch. The
+`direct-probe` line fired for the first time on a cold boot and pinned the
+failure: the child's `real_parent` read coherently (`parent=e3891cc0`, stable),
+but the **cred pointer in our own task read `00000000`** for all 8 retries and
+both rounds — impossible for a live task — and our own comm read stale too
+(`self=00000000`), while the child task page and the child's cred
+(`cuid=5001`) read coherently. `head=`/`plain=` did not fire (probe gap: they
+require a kptr cred). The failing page (PA `0x23891000`, bits 13–15 = 0) is
+alias-correct under 32 KiB slots regardless of slot parity, so **pure VIPT
+aliasing is ruled out** for the cold-boot case; leading suspect is non-snooping
+reads of hot dirty L1 lines (running task's page continuously re-dirtied;
+sleeping child's page writes back instantly). Decode, conclusions and the two
+next steps (probe-gap fix; cred-content scan near the child's cred as the
+likely fix, with its trade-off) are in `docs/OPEN-ISSUES.md`. Attempts remain
+strictly sequential by design: attempt 2 starts only after attempt 1's process
+exits.
+
+### Payload v27 — 32 KiB slots; the v25 attempt-4 "inti" anomaly explained
+
+v25's relaunch showed one attempt reading pre-alloc garbage (ASCII `"inti"`)
+at a cred page whose pointer read fine, while the very same process read the
+task pages coherently. Re-deriving the slot math from the beacons explains it:
+with 16 KiB slots, `VA = win + slot·0x4000 + (page & 0x3FFF)` fixes PA bits
+12–13 but leaves **PA bit 14 to slot parity** (`VA[14] = win[14] XOR slot&1`),
+and both observed window bases (`a8280000`/`a8480000`) are ≡ 0 mod 32 KiB — so
+geometry per page was identical across processes and cannot explain the
+difference, while slot-allocation order can. The failing cred page (PA
+`0x2033d000`) has bit 14 = 1 and needs an odd slot; the task page (bit 14 = 0)
+matched by luck. Conclusion: the **alias period is 32 KiB** (L1 way size), not
+16 KiB, and v25 left a 50/50 hole exactly at bit 14.
+
+v27 therefore moves SlotStride to **0x8000** (2048 slots, same 64 MiB
+PROT_NONE window) so VA ≡ PA mod 32 KiB, covering every way size up to
+32 KiB. The direct-probe line gains `map=` (the window VA the cred page is
+currently mapped at) and `pva=` (the VA the plain mmap picked) so any residual
+stale read can be checked against the PA bits offline, bit by bit.
+
+On the TV: deployed (`COPY=ok`, md5 `98874484…` on disk verified) and two
+counter-cleared `kill -9` relaunches both rooted at **attempt=1** — one via
+`self` (`pu=5001`, ~1 s) and one via `direct-parent+2f0` (`pu=5001`, first
+retry). No `direct-probe` lines fired. **Cold-boot attempt-1 proof still
+pending a wall unplug**; the expected chain is `child=… pu=5001` →
+`direct-parent+2f0=…` → `direct-patch uid=0` → `SUCCESS` → `ROOTCHAN` at
+t≈25–35 s. If a `direct-probe` line appears instead, `uid=` vs `plain=` and
+`map=`/`pva=` vs the cred PA bits decide between VA geometry (still aliased)
+and unreachable kernel dirty lines.
+
+v27 = 28,160 B, md5 `98874484572ecdd5b1fb99457bf45907`.
+
+### Payload v24→v26 — physmap window + direct-probe diagnostics (deployed, cold boot pending)
+
+Fifth pass (`docs/OPEN-ISSUES.md`): cold-boot attempt 1 found the landmark but
+never read the parent cred uid as 5001, so `PatchCred` never ran and the boot
+needed attempt 2 (~44 s). The live marker plus new probes pinned the mechanism:
+the first process reads **stale bytes** through the physmap for pages the kernel
+keeps touching (a running task's struct, the app's own cred) while fork-fresh
+pages (the child's comm, its cred) read coherently — the kernel's dirty cache
+lines for hot pages never write back, and a physmap mapping that does not share
+the kernel's VIPT cache set (L1 way size, alias period 16 KiB here) fetches
+stale RAM. `DropPages` cannot fix the read direction (remapping never touches
+the kernel's line); only a fresh mmap layout — what AUL's relaunch provides —
+or an alias-correct mapping can.
+
+- **v24** — every physmap page is now mapped from a reserved `PROT_NONE` window
+  at **VA ≡ PA (mod SlotStride)** (`MapPage`/`ReserveWindow`/`ReleasePage`), so
+  our cache line is the kernel's line and both directions are coherent; slots
+  are re-protected instead of munmapped (a hole could be grabbed by another
+  mmap and later clobbered by a `MAP_FIXED`); plain-mmap fallback stays. Also:
+  the `child=` beacon now carries `pu=` and the direct-parent retries beacon
+  `direct-probe` lines (uid read, parent/cred pointers) when the patch gate
+  stays closed — the diagnostic the fifth pass asked for.
+- **v25** — v24's 8 KiB alignment still showed per-line staleness on a
+  mid-session relaunch (comm coherent, `real_parent`/cred pointer stale), i.e.
+  the alias period is 16 KiB (64 KiB 4-way L1). SlotStride 0x2000 → **0x4000**,
+  plus one-time `physmap window at …` beacons. Relaunch evidence: pointer reads
+  became coherent (`parent` == `self`, `pu=5001`), but one attempt still read
+  garbage at the cred **content** (ASCII `"inti"` at `cred+4`).
+- **v26** — probe enriched: `plain=` (same cred uid through a plain mmap,
+  different VA geometry) and `head=` (first 18 bytes at the cred) to split a
+  stale cred *pointer* from stale cred *content* on the next failure.
+
+**Result on the TV:** v26 (`f6d7e33a…`, 27,648 B) deployed over 31337
+(`COPY=ok`, `RESTART=kill`, relaunch verified, md5 on TV matches). A
+counter-cleared `kill -9` relaunch then rooted at **attempt=1 in ~1 s**
+(`pu=5001` → `direct-parent+2f0` → `direct-patch uid=0` → `SUCCESS`) — the path
+v23 never achieved on a first process. **Cold-boot attempt-1 proof is still
+pending a wall unplug**; until then a stale-cred observation on a cold boot
+would be named by the `direct-probe … plain=/head=` fields.
+
+### sim_rpc: ReadStaleRPC + direct_parent_patch twin
+
+`tools/sim_rpc.py` now models the attempt-1 failure (`ReadStaleRPC`: kernel
+writes land in a dirty view the physmap read path cannot see until
+`publish()` — DropPages-independent) and twins the payload's direct-parent
+block (`direct_parent_patch`, incl. the v24 gate semantics: a uid-0 read
+refuses, unlike `patch_ours`'s "already done"). Self-test cases: the full
+attempt-1 replica (hunt finds the child, gate stays closed, nothing written,
+probe names the stale pages while the fork-fresh child cred reads 5001),
+`publish()` rooting on the first retry, and the probe separating foreign /
+unreadable-cred-page / stale-0. `plain=`/`head=` mirror the v26 beacon format.
+
+### Attempt-1 patch handoff
+
+`docs/OPEN-ISSUES.md` fifth pass is the next-agent brief: v23 hunt latch is
+proven, `SUCCESS` is still attempt 2 because the first process never reads
+parent cred uid as 5001 (no `direct-parent` beacon). Suggested first code
+change is a diagnostic uid/`pu` beacon on that path, not another latch tweak.
+
+### Payload v23 — cold boot (latch proven, patch still attempt 2)
+
+Cold boot: `t=25s attempt=1`, round 0 `child=cc335640` (no skip-orphan drop), then
+`fail round 0` / `fail round 1` with no `direct-parent` beacon — cred uid never
+read as 5001 on that first process. Fast-exit. Attempt 2 at `t=43s` latched
+immediately, `direct-parent+2f0` → `SUCCESS` at `t=44s`, `ROOTCHAN`
+bind=192.168.178.175, md5 `cad2e704…`, `uid=0`. Hunt latch is what v22 missed.
+Attempt-1 SUCCESS still depends on a fresh mmap (the fast-exit path).
+
+### Payload v23 — latch every new PHYRFORK (deployed, cold boot pending)
+
+v22 cold boot (2026-10-25) still missed attempt 1: `t=32s fail no new PHYRFORK
+seen=1 skip-orphan=1`, then fast-exit, attempt 2 rooted at `t=43s`. The landmark
+was visible; parent cred uid was neither 5001, 0, nor unreadable, so v22 left
+`child=0`. `pre` already excludes leftovers from the last round, so v23 latches
+any new `PHYRFORK`; `PatchCred` is unchanged (uid 5001 only). Fail beacons now
+include `pu=`. `sim_rpc` hunt/latch cases match.
+
+v23 = 25,600 B, md5 `cad2e7042c5f4c6e1411c719c6f2fe24`. Deployed over 31337:
+`COPY=ok`, `RESTART=kill 3274`, AUL relaunch `SUCCESS` pid=7294 at uptime 235 s.
+
+### Payload v22 — cold boot (attempt 2, latch missed)
+
+Cold boot after v22 deploy: `t=17s start`, attempt 1 round 0 `seen=0`, round 1
+`seen=1 skip-orphan=1` then fast-exit; attempt 2 `direct-patch uid=0` at `t=43s`,
+`ROOTCHAN` bind=192.168.178.175, md5 `17b8bcdb…`, `uid=0`. Same shape as v21 —
+the 0/unreadable latch was too narrow.
+
+### sim_rpc: hunt walk, cache alias, exclusive video40
+
+`tools/sim_rpc.py` now twins more of the payload than the latch helper:
+`hunt_new_phyrfork` walks a planted `tasks.prev` list (pre-set exclusion,
+last-match, foreign uid skipped), `AliasedMemRPC` models MapPage vs kernel RAM
+(v17 write-visible-in-mapping / getuid still 5001, and the v22 DropPages
+re-read), `Video40` is the one-RDWR-opener rule that made v20's post-fork
+reopen return -1, plus LPAE pointers above `0xE0000000`, an unreadable cred
+page, a `2F4`/`2F0` mismatch, `iter_owner_creds` carry-reset on a hole, and
+`write32` refusing a page-straddling store. Still `python tools/sim_rpc.py`,
+no TV.
+
+### Payload v22 — deployed (cold boot not yet proven)
+
+Deployed over 31337 from v21: `SIZE=25088`, `MD5=17b8bcdb…`, `COPY=ok`,
+`DLL_LABEL=…::RO`, `BOOT_ROW_COUNT=1`, `RESTART=kill 3226`, `DEPLOY_DONE`.
+AUL relaunch at kernel uptime 34232 s loaded the new IL (`reopen video40 fd=67`,
+`SUCCESS` pid=11150, `ROOTCHAN` bind=192.168.178.175). Attempt 1 of that
+relaunch was `seen=0` (unreadable comms), round 1 rooted via `direct-parent`.
+That is not a cold boot — the attempt-1 `skip-orphan=1` latch is still unproven.
+
+### Payload v22 — latch stale uid-0 PHYRFORK
+
+v21 cold boot attempt 1 saw the landmark (`seen=1 skip-orphan=1`) and discarded
+it because `ChildParentIsOurs` required uid 5001. A parent cred of 0 in the
+physmap is stale zeros, not init. v22 latches 5001, 0, and unreadable; skips
+only a live foreign uid. `PatchCred` is unchanged (uid 5001 only). Direct-parent
+re-reads up to 8 times. `tools/sim_rpc.py` has the Python twin
+(`child_parent_uid` / `latch_new_phyrfork`) and would have failed the v21 rule.
+
+v22 = 25,088 B, md5 `17b8bcdb3889ed48bd9cd0086a77f8bf`.
+
+### Payload v21 — do not close video40 while a child holds it
+
+v20 reopened `/dev/video40` **after** `fork()`. The landmark child still had the
+inherited fd (one RDWR opener), so `open()` returned -1, `_fd` stayed -1, and
+every hunt was skipped (`fail reopen video40`). 31337 never came back. v21
+reopens once after `TaskOffsets`, before any `fork()`, and retries the open for
+5 s. The post-fork `seen=` / `skip-orphan=` beacons stay.
+
+v21 = 25,088 B, md5 `a87f91ee282ff6c9770513f4e42d2fcd`. Recovered via the
+browser stub (`root_via_fork` + `deploy_local.sh`): `COPY=ok`,
+`RESTART=kill 7992 …`, channel back in 15 s. Live: `uid=0`, md5 match,
+`reopen video40 fd=67` before the hunt, then `direct-patch uid=0`.
+
+Cold boot: channel at kernel **t=40 s** (same as v19). Attempt 1 reopened
+`fd=67`, round 0 `seen=0`, round 1 `seen=1 skip-orphan=1` (ChildParentIsOurs
+rejected our own landmark — parent cred not uid 5001 in the physmap yet),
+fast-exit. Attempt 2 round 0 `direct-patch uid=0`. Pre-fork reopen is not
+what made attempt 2 work.
+
+### Payload v20 — reopen `/dev/video40` after fork
+
+v19's write-side cacheflush is real (`self-patch uid=0` on the cold boot). The
+remaining miss was the **first open** of the boot: attempt 1 walked `per/0` for
+3 s, never saw a new `PHYRFORK`, fast-exited; attempt 2 (new process, new open)
+rooted in 1 s. `DropPages()` unmaps pages; it does not replace the V4L2 file
+description. v20 closes and reopens `/dev/video40` after the landmark `fork()`
+so the hunt uses a fresh open without `Environment.Exit`. Fail beacon now
+reports `seen=` / `skip-orphan=` so a miss is not silent. Fast-exit stays as
+fallback.
+
+v20 = 25,088 B, md5 `9f5d209438a688f56bbd0b0c8a5310ec`.
+
+### Payload v19 + deploy restart
+
+The v18 deploy copied the new DLL and printed `DEPLOY_DONE`, but `aulctl stop`
+never returned (it blocks while the payload is the running app), so 31337 stayed
+on v17 until a manual `kill -9`. Landmark children from a successful root were
+also left sleeping 120 s; a later `kill -9` reparented them to init and the
+warm reload spent fast attempts 1–3 on them.
+
+- `deploy.sh` / `deploy_local.sh`: after `DEPLOY_DONE` is printed, a detached
+  job `kill -9`s every process whose cmdline contains `MultiControlService.dll`
+  (gated on `/dev/video40` so a PC dry-run does not walk the host `/proc`), then
+  `aulctl start`. Sleeps 2 s first so the channel can send `DEPLOY_DONE`.
+- Payload v19 (24,576 B, md5 `a1de129f26cf86d2e2137e9caead3194`): `KillChildren()`
+  also runs after a successful root, before `RootChannel()` / self-update exit.
+  Fail-round and fast-exit kills are unchanged.
+
+Deployed over 31337: `COPY=ok`, `RESTART=kill 6637`, `DEPLOY_DONE`. AUL
+respawned as pid 7022 on attempt 1 round 0 (`direct-patch uid=0`, ~1 s). Live:
+`uid=0`, md5 `a1de129f…`. The `/proc/[0-9]*` glob also matched a non-pid
+(`/proc/4kbtin`); the loop now skips names with a non-digit.
+
+Cold boot (mains): channel at kernel **t=40 s**. Attempt 1 fast-exited (`fail no
+new PHYRFORK` ×2); attempt 2 round 0 **`self-patch uid=0`** (the v17 failure
+mode was the same patch with `getuid()` still 5001). `uid=0`, full caps, md5
+match, `ROOTCHAN … bind=192.168.178.175`.
+
+### Payload v18 — deployed (slow-boot diagnosis)
+
+The 3.5 min cold boot was not "the list is unreadable". `share/root_boot.txt`
+shows two distinct failures, then the designed long fallback:
+
+- Attempt 3 found `self`/`parent` and called `PatchCred` five times (`parent-patch
+  uid=5001`). The physmap readback saw zeros; `getuid()` stayed 5001. The ARM
+  stub never hits this because it munmaps after every op; `MapPage` kept the
+  aliased VA, so the write lived in our D-cache while the kernel still had uid
+  5001.
+- Attempt 4 `pre=0 child=c7804500 self=00000000` with no `direct-parent` beacon:
+  it latched a `PHYRFORK` whose `real_parent` cred was not uid 5001 (orphan
+  reparented to init after the previous `Environment.Exit`). Round 1 then
+  `fail no new PHYRFORK` in the 3 s fast window.
+- Attempt 5 (long) round 1 succeeded the usual way: `direct-parent+2f0` → uid 0.
+  `self=00000000` is normal; `per/0` comms are the init thread names, not a
+  failure. Snapshot race is not the cause — the wait loop already re-reads the
+  list head each pass.
+
+v18 (24,576 B, md5 `bff712ec10f048f8f520cdcf5c9dd285`). Changes, all fail-closed:
+
+- `Beacon()` prefixes `t=<uptime>s` from `/proc/uptime` (PC beacons and the
+  local marker), so the next slow boot shows where the minutes went.
+- `Write32` `cacheflush`es the slot; `ReadPhys` flushes before copy; `PatchCred`
+  `DropPages()` after a successful write so the kernel's next access of that PA
+  is a miss. `DropPages()` also runs before the pre-scan, after `fork()`, and
+  each wait-loop pass.
+- A new `PHYRFORK` is accepted only when `real_parent`/`parent` cred uid is 5001
+  (`ChildParentIsOurs`). The uid-5001 `PatchCred` gate is unchanged.
+- Landmark children are `SIGKILL`ed on a failed round and before fast-exit, so
+  `Environment.Exit` does not leave init-reparented orphans for the next AUL
+  launch.
+
+Fast timeouts and the 4-then-long attempt counter are unchanged.
+
+Deployed over 31337 (`COPY=ok`, `DLL_LABEL=…::RO`, `BOOT_ROW_COUNT=1`,
+`DEPLOY_DONE`). `aulctl stop` did not take the running v17 down (channel stayed
+up — the known hang), so the new IL was loaded with `kill -9` of pid 4289; AUL
+respawned in 37 s. Live: `uid=0`, full caps, md5 `bff712ec…`, beacons prefixed
+`t=453s`, and **`self-patch uid=0`** (the v17 failure mode was `parent-patch
+uid=5001` with `getuid()` still 5001). This was a warm AUL restart, not a cold
+boot — leftover v17 `PHYRFORK` landmarks are why it used fast attempt 4.
+Cold-boot proof is still a mains unplug. Do not `systemctl --force reboot`.
+
 ### Payload v17 — reproducible artifacts
 
 - The v16 source build and the committed `server/payload.dll` could never agree
