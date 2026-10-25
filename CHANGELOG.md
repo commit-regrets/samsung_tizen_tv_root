@@ -12,6 +12,12 @@ entry is an incomplete change. `AGENTS.md` repeats this rule for agents.
 
 ## 2026-10-25
 
+### Docs — stock-cycle status
+
+`docs/OPEN-ISSUES.md` still listed the auto-root stock retest as pending and
+numbered the next item 3 as well. The v36 entry still said the TV was stock and
+that the retest would deploy v36. Both now match the v37 cycle that passed.
+
 ### Payload v37 — high-alloc summary: parent always set, first junk latched
 
 Two diagnostic holes from the v36 review:
@@ -46,9 +52,9 @@ hardware (the sim covers it, but the log cannot prove it happened).
 - `tools/sim_rpc.py` gains `junk_low_word()` with six cases (low-kptr cred, low-kptr
   real, non-kptr, high cred, low parent, zero words).
 - Build `28a9f2fdbfcc0b2b15998cbc88e6f009`, 29,184 B, reproducible (two builds).
-  **Not deployed yet:** the TV is stock on disk awaiting the final `root.ps1`
-  retest; that run will deploy v36. A later cold boot can then show `real=` and
-  `junk=` in the log.
+  Not deployed on its own: the stock retest deployed v37, which includes this
+  beacon. `real=` / `junk=` are still waiting on a boot that reaches the
+  high-alloc gate.
 
 ### Payload v35 — high-alloc gate must not be vetoed by junk on a high parent page
 

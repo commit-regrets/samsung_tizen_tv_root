@@ -23,11 +23,6 @@ reopen attempt 1 without a new read path.
 2. **Portability** — no second model/firmware has been tested. Follow
    `docs/PORTABILITY.md`; the real risks are the browser gate (Chromium 120) and
    the physmap. Record each unit's results in that file.
-3. **`root.ps1` auto-root retry is implemented, stock retest pending.**
-   `auto_root.py` now asks for a fresh page, `RSET`s the gateway, and retries up
-   to 3 (`tools/test_auto_root.py` covers the loop). The 2026-10-25 stock cycle
-   failed in the old single-attempt path but proved a fresh page works; run the
-   full cycle once with the retry loop to close this.
 3. **31337 is an unauthenticated LAN root shell.** The allowlist is the only
    filter; keep it off untrusted networks. See `SECURITY.md`.
 4. **Public-release hygiene** — `LICENSE` (MIT for original work), `NOTICE.md`
