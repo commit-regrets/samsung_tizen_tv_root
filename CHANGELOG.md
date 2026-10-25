@@ -33,6 +33,10 @@ instead of re-rolling. The existing boots happened not to hit it
   attempt 1 parent `e2df7300` high, raw cred `b09aa3b5` logged, gate at t=26 and
   fast-exit; attempt 2 rooted at t=37. A v35 boot now exercises the raw-word
   beacon and the high-parent path.
+- Sim boundary coverage for the exact junk window: `0xC0000000`,
+  `0xDFFFFFFF`, a junk `real_cred` with `cred=0`, and `0xE0000000` all fire on a
+  high parent; a low parent with a low cred still suppresses. A real boot only
+  hits these probabilistically.
 
 ### auto_root — retry root on a fresh stub (root.ps1 reliability)
 
