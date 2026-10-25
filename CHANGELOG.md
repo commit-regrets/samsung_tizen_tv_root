@@ -26,8 +26,12 @@ Two diagnostic holes from the v36 review:
 - `tools/sim_rpc.py` gains `high_alloc_summary()` tests: first-junk-before-zero,
   low parent + high cred, low parent + high real, low-cred suppression.
 - Build `968e1154f3fc5ba9b14b0d67e59306d2`, 29,184 B, reproducible (two builds).
-  **Not deployed yet:** TV is stock on disk; the final `root.ps1` retest will
-  deploy v37.
+  **Deployed 2026-10-25:** the final stock→root cycle's first stub died
+  (`probe 0x40008000 timed out`), `auto_root` requested a reload, attempt 2
+  rooted and deployed v37 (`COPY=ok`, `DEPLOY_DONE`); the following cold boot
+  rooted at t=37 (attempt 1 `seen=0`, attempt 2 `direct-parent+2f0`). This boot
+  did not hit the high-alloc gate, so `real=`/`junk=` remain diagnostic fields
+  for a future high-allocation boot.
 
 ### Payload v36 — high-alloc beacon exposes `real_cred` and the junk flag
 
@@ -87,8 +91,11 @@ lifetime, not addressing.
   shows the option.
 - New `tools/test_auto_root.py` fakes the RPC/kernel layers and asserts the loop
   resets and retries; `tools/test_all.py` runs it. All offline layers pass.
-- A full stock cycle with the retry loop is the remaining acceptance; the loop
-  is the automation of the manual recovery that already worked.
+- The stock→root acceptance passed on 2026-10-25: attempt 1's stub died
+  (`probe timed out`), `auto_root` asked for a reload, reset the gateway, took
+  the fresh stub, and attempt 2 rooted and deployed v37 (`COPY=ok`). The next
+  cold boot rooted at t=37. The loop is the manual fresh-page recovery,
+  automated.
 
 ### Payload v34 — remove the unauthenticated `next.dll` self-update; drop remote/OTA scope
 

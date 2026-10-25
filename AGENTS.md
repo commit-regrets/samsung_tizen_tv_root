@@ -34,8 +34,8 @@ channel on TCP 31337 (line protocol, replies end with `__END__`).
 
 | | |
 |---|---|
-| Payload | **v37 in the repo** (`968e1154…`, 29,184 B), built 2026-10-25; TV is stock on disk awaiting the final `root.ps1` retest. v35 was the last deployed. |
-| Boot-to-root | **Fifth pass closed: attempt 2 is the floor; v35 cold boot 37 s.** v35 cold boot (2026-10-25 21:54): attempt 1 parent `e2df7300` high, raw cred `b09aa3b5`, gate at t=26, fast-exit; attempt 2 rooted at t=37. v36 is v35 plus the `real=`/`junk=` beacon and is not booted yet. v34 cold boots: 34 s (19:40) and 68 s on the stock→root cycle (19:59, attempt 3). v33: attempt 2 t=38–39; v32: t=59; v31: attempt 4 t=132 s. Evidence: every coherent task/cred read < `0xE0000000` (78/78 `cuid=5001` creds low; 21/21 high creds junk; 15/15 `direct-parent+` and 19/19 `self-patch` successes low; 0/81 task pointers high). Marker: `share/root_boot.txt` |
+| Payload | **v37 on the TV and in the repo** (`968e1154…`, 29,184 B), deployed 2026-10-25 |
+| Boot-to-root | **Fifth pass closed: attempt 2 is the floor; v37 cold boot 37 s.** The final stock→root cycle passed with the retry loop: attempt 1's stub died (`probe timed out`), `auto_root` requested a reload, attempt 2 on the fresh page rooted and deployed v37 (`COPY=ok`), then the cold boot rooted at t=37 (attempt 1 `seen=0`, attempt 2 `direct-parent+2f0`). v37 adds `real=`/`junk=` and the parent/latch summary fixes; this boot did not hit the high-alloc gate. v35: 37 s; v34: 34 s and 68 s (stock cycle); v33: 38–39 s; v32: 59 s; v31: 132 s. Evidence: every coherent task/cred read < `0xE0000000` (78/78 `cuid=5001` creds low; 21/21 high creds junk; 15/15 `direct-parent+` and 19/19 `self-patch` successes low; 0/81 task pointers high). Marker: `share/root_boot.txt` |
 | Root identity | `uid=0`, `CapEff=0x3fffffffff`, running under the app's own SMACK label |
 | Boot hook | a `boot_sequence` row in `/opt/dbspace/user/5001/.appsvc.db` |
 | Device | `/dev/video40`, one RDWR opener; the app runs as uid 5001, gid 44 |
@@ -254,7 +254,7 @@ TV boot: com.samsung.tv.MultiControl-Service (dotnet-inhouse, app_onboot)
 | `tools/test_shell.py` | deploy/uninstall dry tests under `sh` (no TV): backups, label, boot row |
 | `tools/test_stub.py` | live-stub protocol + clamp checks (fresh page load) |
 | `tools/test_all.py` | runs every layer above; `--tv` adds the live stub |
-| `payload/Program.cs` | boot payload source (v37; TV stock, deploy pending) |
+| `payload/Program.cs` | boot payload source (v37; TV on v37) |
 | `payload/BootPayload.csproj` | net6.0 project, assembly `MultiControlService` |
 | `root.ps1` | one-command runner (server + root + deploy + verify) |
 | `uninstall.ps1` | one-command uninstall (restore stock + verify) |
@@ -394,7 +394,7 @@ gateway, deploy/uninstall control flow, source↔blob↔page consistency). Then:
 - [ ] `root_shell.py "id" <TV_IP>` returns `uid=0(root)`.
 - [ ] `root_shell.py "cat /proc/self/status | grep CapEff" <TV_IP>` → `0000003fffffffff`.
 - [ ] `root_shell.py "md5sum /opt/usr/apps/com.samsung.tv.MultiControl-Service/bin/MultiControlService.dll" <TV_IP>` → `968e1154…`
-- [ ] Cold boot with the browser closed → attempt 1 high exits in ~2 s (`high-alloc … fast-exit`), attempt 2 roots; v35 cold boot observed **37 s** (attempt 2); v34 saw 34 s and 68 s (the latter attempt 3 on the stock cycle). Attempt-1 `SUCCESS` is a bonus; attempt 2 is the floor, but a slow hunt can push to attempt 3.
+- [ ] Cold boot with the browser closed → attempt 1 high exits in ~2 s (`high-alloc … fast-exit`), attempt 2 roots; v37 cold boot observed **37 s** (attempt 2; attempt 1 `seen=0`); v35: 37 s; v34: 34 s and 68 s. Attempt-1 `SUCCESS` is a bonus; attempt 2 is the floor, but a slow hunt can push to attempt 3.
 - [ ] `kill -9 <app pid>` → channel back in ~5–45 s (v33's high-alloc gate skips a high attempt quickly; otherwise attempt 2 roots), still uid 0.
 - [ ] `python tools/test_all.py --tv` against a fresh page load (stub protocol
       + clamps). Details per layer: `docs/TESTING.md`.
@@ -560,12 +560,11 @@ that downloads it) and reboot. Things to preserve when editing `Program.cs`:
 - **Pending: portability.** No second model/firmware has been tested. Use the
   four gates and the file-by-file checklist in `docs/PORTABILITY.md`; record each
   unit there.
-- **Pending: validate the `root.ps1` auto-root retry from stock.** `auto_root.py`
-  now treats a failed root as a dead single-use stub: it asks for a page reload,
-  `RSET`s the gateway, waits for a fresh stub, and retries up to 3
-  (`--root-retries`, passed by `root.ps1`). `tools/test_auto_root.py` covers the
-  loop offline; the 2026-10-25 manual recovery proved the fresh page works. A
-  full stock→root cycle with the retry loop is the remaining acceptance.
+- ~~Validate the `root.ps1` auto-root retry from stock~~ — **done 2026-10-25.**
+  The stock cycle failed on attempt 1 with `probe 0x40008000 timed out`;
+  `auto_root` requested a reload, `RSET` the gateway, waited for the fresh stub,
+  and attempt 2 rooted and deployed v37 (`COPY=ok`). The following cold boot
+  rooted at t=37. The retry prompt is the manual fresh-page recovery, automated.
 - **Pending: 31337 is an unauthenticated LAN root shell.** The allowlist is the
   only filter. Keep it off untrusted networks; see `SECURITY.md`.
 - **Pending: public-release maintenance.** `LICENSE` covers original work only;
@@ -629,4 +628,4 @@ rooted set risks the root; the warning to keep auto-update off remains).
   (`curl -s http://<pc>/recover.sh | sh`) to reinstall the payload end-to-end: it
   takes the app's SMACK label via `/proc/self/attr/current`, runs `deploy.sh`, and
   `deploy.sh` restarts the app so the new DLL loads. Verified on
-  a cold boot (v35: 37 s; v34: 34 s, and 68 s on the stock cycle).
+  a cold boot (v37: 37 s; v34: 34 s, and 68 s on the stock cycle).
