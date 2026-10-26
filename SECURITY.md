@@ -21,10 +21,15 @@ persistent boot payload. It is not a consumer tool and it is not hardened.
   it answers non-served HTTP methods with 405 (they used to fall through to the
   reverse-shell slot), accepts the shell slot only from a peer that announced
   itself as the TV (`PGDB`/`DSHROOT`), caps the stub queue and refuses
-  cross-origin `/save`. **Still open:** `PGDB` pairing has no token, so another
-  host on the LAN can race the TV for the stub and feed the tools forged reads —
-  keep the PC off untrusted networks too. The design for the fix (a per-run token
-  injected into the page and required in the hello) is in `docs/OPEN-ISSUES.md`.
+  cross-origin `/save`. As of v40 the stub pairing carries a **per-run token**:
+  the page generates one per load, announces it (`POST /pair`) and patches it
+  into the stub, which sends it as the 4 bytes after `PGDB` — a LAN peer can no
+  longer pre-empt the stub pairing or join `TV_PEERS` with a forged `PGDB`
+  hello. **Still open:** a forged `DSHROOT` beacon still admits a peer to
+  `TV_PEERS` (the payload cannot know the page token until it is deployed with
+  one — see `docs/OPEN-ISSUES.md`), and a page older than the server accepts
+  pairings unauthenticated (logged loudly) so the toolkit keeps working across
+  an upgrade. Keep the PC off untrusted networks.
 - `/deploy.sh` is rendered per request and refuses a non-IPv4 `Host`; a static
   file server would leave its `@HOST@`/`@WANT@` markers and the script refuses to
   run (`NEED_RENDER`), so there is no stale generated copy to tamper with.
@@ -32,10 +37,9 @@ persistent boot payload. It is not a consumer tool and it is not hardened.
 - **The PC server is part of the boundary too.** In v39.2 the shell slot can no
   longer be evicted by a different peer, `tv_sock` is only aimed at a stub after
   op5/op7, every post-peek read is bounded, `RSET` is recognised across split TCP
-  segments, and `beacons.log` rotates at 16 MiB. **Still open:** `PGDB` pairing
-  has no token, so a LAN peer can race the TV for the stub and feed the tools
-  forged reads; keep the PC off untrusted networks. The design for the fix is in
-  `docs/OPEN-ISSUES.md`.
+  segments, and `beacons.log` rotates at 16 MiB. In v40 the `PGDB` half of the
+  token gap closed (above); the `DSHROOT` half and `beacons.log` forgery remain
+  open pending a payload-side token.
 ## Supported scope
 
 - The test unit described in `README.md` and the constants in

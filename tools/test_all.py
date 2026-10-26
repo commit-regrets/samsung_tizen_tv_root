@@ -60,6 +60,7 @@ def main() -> int:
                                      [py, "tools/test_auto_root.py"])))
     results.append(("logs-and-errors", run("beacon analyzer + tool error paths + ps1 parse",
                                            [py, "tools/test_logs.py"])))
+    results.append(("sanitize", run("public-release sanitizer", [py, "tools/test_sanitize.py"])))
 
     # requires keystone+capstone; report the skip instead of failing a fresh clone
     try:

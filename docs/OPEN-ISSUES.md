@@ -535,10 +535,18 @@ items first so a reboot validates several changes at once.
 These were reviewed, deliberately **not** done in the v39.2 batch, and are listed
 so the next session does not rediscover them:
 
-- **Per-run token in the 12-byte hello**, covering `TV_PEERS` admission (not just
-  the stub): page-injected and patched into the stub like the callback address.
-  Until then `PGDB`/`DSHROOT` are unauthenticated announcements; see
-  `SECURITY.md` and the 31337 pending item above.
+- ~~**Per-run token in the 12-byte hello**, covering `TV_PEERS` admission (not
+  just the stub)~~ — **done 2026-10-26 (PGDB half)**: the page generates a
+  per-load token, announces it (`POST /pair`) and patches it into the stub
+  (`TOK1` placeholder, `tools/physrpc.S`), which sends it as the 4 bytes after
+  `PGDB` **before the device open** (a slow open no longer looks like a silent
+  raw peer). The server refuses an unannounced/mismatched token and only then
+  admits the peer to `TV_PEERS`; the gateway reconstitutes the 12-byte
+  client-facing hello, so no RPC client changed. Covered by
+  `tools/test_gateway.py` (announce/mismatch/match). **Still open:** a forged
+  `DSHROOT` beacon still joins `TV_PEERS` — closing that (and `beacons.log`
+  forgery) needs the payload to know a token, i.e. a `rootchan.token` rendered
+  by `deploy.sh` and read by `Beacon()` (payload v41); see `SECURITY.md`.
 - **A `tools/` constants module.** The offsets/limits are duplicated across
   `Program.cs`, `sim_rpc.py`, `kernel_root.py`, `physmap.py`, `physrpc.S`, the
   page and `deploy.sh`; `test_constants.py` catches drift, but a shared Python
@@ -549,7 +557,10 @@ so the next session does not rediscover them:
   thread up to 10 s), and a split of `sim_rpc.py` / `payload/Program.cs` into
   partials. Offline tests exist, but the refactors are riskier than their value
   until the hardware lane is available.
-- **Research-tree ports:** the public-release sanitizer pipeline, a DWARF type
+- **Research-tree ports:** ~~the public-release sanitizer pipeline~~ (**done
+  2026-10-26**: `tools/sanitize_for_public.py`, copy + `--check` modes, covered
+  by `tools/test_sanitize.py`; the live `--check` run is the pre-publication
+  gate and currently reports 13 real hits), plus a DWARF type
   reader to replace hard-coded `task_struct` offsets, `taskwalk.py` orphan
   detection, a QEMU/softmmu physmap harness, and a C `cred_scan` utility. They
   are the right next investment for porting, not for this firmware.
@@ -560,5 +571,6 @@ so the next session does not rediscover them:
   pin `encoding="utf-8"` when touching them (Python 3.15 will default to UTF-8,
   this runtime does not).
 - **`beacons.log` forgery:** rotation bounds the disk-fill half, but a LAN peer
-  can still append a forged `DSHROOT` line. The hello token above is also the
-  fix for this.
+  can still append a forged `DSHROOT` line. The PGDB pairing token (above) does
+  not cover beacons; the payload-side `rootchan.token` (v41 sketch there) is
+  the fix for this.

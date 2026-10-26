@@ -13,7 +13,10 @@ then proves the behaviours the gateway promises:
   * a fake "PGDB" stub is paired to the waiting client, the 12-byte hello is
     forwarded verbatim, and bytes flow both ways;
   * a second client is told BUSY while the first is attached;
-  * POST /save refuses a body above the cap with 413 (and writes nothing).
+  * POST /save refuses a body above the cap with 413 (and writes nothing);
+  * the v40 pairing token: POST /pair records it, a stub presenting a
+    different word is refused, a matching one pairs and the client still
+    sees the 12-byte hello.
 
 The test only needs Python and a free loopback port.  It writes its server log
 to server/logs/gateway-test.log (git-ignored through server/logs/).
@@ -36,6 +39,11 @@ ROOT = TOOLS.parent
 SERVER_DIR = ROOT / "server"
 LOG = SERVER_DIR / "logs" / "gateway-test.log"
 HELLO = b"PGDB" + struct.pack("<ii", 0, 3)
+# v40 stub wire: "PGDB" + pairing token (the server consumes these 8 bytes and
+# token-checks them), then the 8 hello status bytes the gateway forwards to the
+# client as a 12-byte hello.  STUB_GREET is what a fake stub puts on the wire.
+STUB_TOK = b"\x7f\x1c\x3a\x99"
+STUB_GREET = b"PGDB" + STUB_TOK + HELLO[4:]
 
 
 def free_port() -> int:
@@ -91,6 +99,15 @@ def http_exchange(port: int, raw: bytes, timeout: float = 5.0):
     head, _, body = data.partition(b"\r\n\r\n")
     lines = head.split(b"\r\n")
     return (lines[0] if lines else b""), head, body
+
+
+def announce(port: int, hexstr: str) -> bool:
+    """POST /pair like the page does; returns True on a 200."""
+    status, _, _ = http_exchange(
+        port, (f"POST /pair HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\n"
+               f"Content-Length: {len(hexstr)}\r\nConnection: close\r\n\r\n"
+               + hexstr).encode())
+    return b"200" in status
 
 
 def get(port: int, path: str, host: str | None = None):
@@ -223,10 +240,28 @@ def main() -> int:
             f"reply={reply!r} in {time.time() - t0:.2f}s",
         )
 
+        # 2e) v40 pairing token: the page announces a token (POST /pair) and the
+        #     stub must present the same word as the 4 bytes after "PGDB".
+        failed += not check("POST /pair announces a token",
+                            announce(http_port, "aa55aa55"))
+        wrong = connect(http_port)
+        clients.append(wrong)
+        wrong.sendall(b"PGDB" + b"\x11\x22\x33\x44" + HELLO[4:])
+        t0 = time.time()
+        try:
+            closed = wrong.recv(1) == b""
+        except OSError:
+            closed = True
+        failed += not check("stub with the wrong token is refused", closed,
+                            f"closed={closed} in {time.time() - t0:.1f}s")
+        failed += not check("token mismatch logged",
+                            wait_for_log("stub token mismatch", timeout=3.0))
+
         # 3) the next stub pairs with that waiting client, hello intact.
+        failed += not check("announce the matching token", announce(http_port, "7f1c3a99"))
         stub = connect(http_port)
         clients.append(stub)
-        stub.sendall(HELLO)
+        stub.sendall(STUB_GREET)
         got = recv_exact(waiting, len(HELLO))
         failed += not check("hello forwarded to the waiting client", got == HELLO,
                             got.hex())

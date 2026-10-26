@@ -6,7 +6,8 @@
                    the TV shell, and everything the TV prints comes back + goes to
                    shell.log
 * 127.0.0.1:9998 : RPC gateway.  A local client connects here and is bridged
-                   byte-for-byte to a TV connection that sent "PGDB".
+                   byte-for-byte to a TV connection that sent "PGDB" plus the
+                   pairing token the page announced (POST /pair).
 
 The TV shell (from the browser exploit) runs as uid=5001(owner) and persists as
 long as this server keeps the socket open.
@@ -64,11 +65,21 @@ REQ_LINE = re.compile(r"^([A-Z]{3,8})[ \t]+(\S+)[ \t]+HTTP/\d(?:\.\d)?$")
 HTTP_METHODS = {"GET", "HEAD", "POST", "OPTIONS"}
 IPV4 = re.compile(r"^(?:\d{1,3}\.){3}\d{1,3}$")
 
-# Peers that have announced themselves as the TV (PGDB hello or a DSHROOT
-# beacon).  The interactive reverse shell is only accepted from these: on a LAN
-# port 80 anybody can open a TCP connection, and the old fallback gave the first
-# stranger the operator's root-shell slot (found by review, 2026-10-26).
+# Peers that have announced themselves as the TV (token-checked PGDB hello or a
+# DSHROOT beacon).  The interactive reverse shell is only accepted from these: on
+# a LAN port 80 anybody can open a TCP connection, and the old fallback gave the
+# first stranger the operator's root-shell slot (found by review, 2026-10-26).
 TV_PEERS = set()
+
+# Per-run stub pairing token (v40).  The page generates one per load, announces
+# it here (POST /pair) and patches the same word into the stub, which sends it
+# as the 4 bytes after "PGDB" (before the device open).  Without a matching
+# announcement a stub is refused, so a LAN peer can no longer pre-empt the
+# pairing or join TV_PEERS via a forged PGDB.  None (nothing announced: tests,
+# or a page loaded before this server started) accepts - loudly - because a
+# working channel beats a closed one on this box.  One slot: a fresh page load
+# replaces the token and stale stubs from the older page are refused.
+STUB_TOKEN = {"hex": None, "ts": 0.0}
 
 state_lock = threading.Lock()
 tv_sock = None
@@ -297,6 +308,30 @@ def serve_http(conn, req):
             print(f"[save] {out.name} {len(body)}B", flush=True)
             return
 
+        # --- stub pairing token: the page announces it before arming the stub ---
+        if method == "POST" and path == "/pair":
+            origin = _header(head, "origin")
+            if origin:
+                host = _header(head, "host")
+                if origin.rsplit("/", 1)[-1] != host:
+                    conn.sendall(b"HTTP/1.1 403 Forbidden\r\n"
+                                 b"Content-Length: 0\r\nConnection: close\r\n\r\n")
+                    print(f"[pair] refused cross-origin {origin!r}", flush=True)
+                    return
+            tok = body.decode("latin-1").strip().lower()
+            if not re.fullmatch(r"[0-9a-f]{8}", tok):
+                conn.sendall(b"HTTP/1.1 400 Bad Request\r\n"
+                             b"Content-Length: 0\r\nConnection: close\r\n\r\n")
+                print(f"[pair] refused body {body[:32]!r}", flush=True)
+                return
+            with state_lock:
+                STUB_TOKEN["hex"] = tok
+                STUB_TOKEN["ts"] = time.time()
+            conn.sendall(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n"
+                         b"Connection: close\r\n\r\nok")
+            print(f"[pair] token announced ({tok})", flush=True)
+            return
+
         # --- deploy script: rendered per request, never a stale generated copy ---
         if path in ("/deploy.sh", "/deploy_local.sh"):
             body_out = deploy_script(_header(head, "host"))
@@ -492,13 +527,16 @@ def rpc_gateway_client(client):
         # The queued stub may be fake, or a page that died between PGDB and its
         # hello.  The accept loop set a 10 s timeout on this socket; honour it
         # here so a stalled peer cannot park this thread with the client slot
-        # claimed forever.
+        # claimed forever.  v40: the accept loop already consumed the 8-byte
+        # "PGDB" + pairing-token prefix, so the client-facing hello is
+        # reconstituted from the 8 status bytes that follow (prctl_ret +
+        # open_ret) - the 12-byte client wire format is unchanged.
         try:
             conn.settimeout(10)
-            hello = _recv_exact(conn, 12)
+            tail = _recv_exact(conn, 8)
         except OSError:
-            hello = None
-        if hello is None:
+            tail = None
+        if tail is None:
             print("[rpc] TV closed (or stalled) before hello", flush=True)
             with rpc_lock:
                 if rpc_tv is conn:
@@ -514,9 +552,10 @@ def rpc_gateway_client(client):
             except OSError:
                 pass
             return
-        rpc_hello = hello
-        m, pr, op = hello[:4], int.from_bytes(hello[4:8], "little", signed=True), \
-            int.from_bytes(hello[8:12], "little", signed=True)
+        rpc_hello = b"PGDB" + tail
+        hello = rpc_hello
+        m, pr, op = b"PGDB", int.from_bytes(tail[0:4], "little", signed=True), \
+            int.from_bytes(tail[4:8], "little", signed=True)
         print(f"[rpc] hello {m!r} prctl_ret={pr} open_ret={op}", flush=True)
         # From here reads are blocking: a stub idles between commands and must
         # not be dropped for being quiet.
@@ -744,6 +783,38 @@ def http_server():
             peer = addr[0] if addr else ""
             if first[:4] == b"PGDB":
                 print("[rpc] TV physmap stub connected", flush=True)
+                # v40 wire: "PGDB" + pairing token (8 bytes, sent right after
+                # connect, before the device open), then prctl_ret + open_ret
+                # (8 bytes, after it).  Consume the token here: it gates
+                # TV_PEERS admission (and with it the shell slot), and the
+                # gateway keeps forwarding the client-facing 12-byte hello by
+                # reading the 8 status bytes itself.
+                head = b""
+                try:
+                    while len(head) < 8:
+                        chunk = conn.recv(8 - len(head))
+                        if not chunk:
+                            break
+                        head += chunk
+                except OSError:
+                    head = b""
+                tok = head[4:8].hex() if len(head) >= 8 else None
+                with state_lock:
+                    announced = STUB_TOKEN["hex"]
+                if tok is None:
+                    print("[rpc] stub sent no pairing token; refused", flush=True)
+                    conn.close()
+                    continue
+                if announced is not None and tok != announced:
+                    print(f"[rpc] stub token mismatch ({tok} != {announced}) - "
+                          f"reload the page so the stub carries the announced "
+                          f"token; refused", flush=True)
+                    conn.close()
+                    continue
+                if announced is None:
+                    print("[rpc] no pairing token announced - accepted "
+                          "unauthenticated (pre-upgrade page or a test)",
+                          flush=True)
                 with state_lock:
                     TV_PEERS.add(peer)
                 _queue_stub(conn)

@@ -98,7 +98,7 @@ Assembles `tools/physrpc.S` and compares it byte-for-byte with the `SHELLCODE`
 array the page actually runs (`server/payloads/browser_payload.js`), and
 `tools/embed_physrpc.py --check` compares that array with
 `tools/physrpc_shellcode.bin`. Run both after touching either side
-(blob is 7,696 B since the v39.2 stub write-check):
+(blob is 7,720 B since the v40 stub pairing token):
 
 ```sh
 python tools/build_physrpc.py                 # physrpc.S -> physrpc_shellcode.bin

@@ -24,3 +24,8 @@
 *.gz            binary
 *.tpk           binary
 *.wgt           binary
+
+# the assembled ARM stub blob: byte-exact, page==blob==source is checked by
+# tools/embed_physrpc.py --check and build_physrpc.py --check-embedded
+*.bin          binary
+*.txt          text eol=lf

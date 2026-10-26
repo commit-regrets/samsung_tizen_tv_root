@@ -264,7 +264,9 @@ TV boot: com.samsung.tv.MultiControl-Service (dotnet-inhouse, app_onboot)
 | `tools/embed_physrpc.py` | writes the blob into `browser_payload.js`'s `SHELLCODE` (`--check`) |
 | `tools/taskwalk.py` | task-list chain diagnostic (`next`/`prev`; not a validated pair) |
 | `tools/sim_rpc.py` | in-memory physmap RPC (no TV); `python tools/sim_rpc.py` self-test |
-| `tools/test_gateway.py` | gateway integration test (no TV): RSET, pairing, forwarding, BUSY, /save cap |
+| `tools/test_gateway.py` | gateway integration test (no TV): RSET, token pairing, forwarding, BUSY, /save cap |
+| `tools/sanitize_for_public.py` | public-release redaction: copy mode + `--check` gate (exits 1 on any private token) |
+| `tools/test_sanitize.py` | offline selftest for the sanitizer |
 | `tools/test_shell.py` | deploy/uninstall dry tests under `sh` (no TV): backups, label, boot row |
 | `tools/test_stub.py` | live-stub protocol + clamp checks (fresh page load) |
 | `tools/test_logs.py` | offline: beacon-analyzer fixtures (log **and** the on-TV marker), tool error paths, ps1 parse guard |
@@ -664,21 +666,28 @@ that downloads it) and reboot. Things to preserve when editing `Program.cs`:
   only filter on the channel. The PC-side server now also: answers non-served HTTP
   methods with 405 instead of treating them as the shell, accepts the interactive
   shell slot only from a peer that has announced itself (`PGDB`/`DSHROOT`), caps
-  the stub queue, and refuses cross-origin `/save`. **Still open:** the `PGDB`
-  handshake has no token, so a LAN peer can pre-empt the stub pairing; the next
-  step is a per-run token in the hello (page-injected, patched into the stub like
-  the callback address). Keep the set off untrusted networks; see `SECURITY.md`.
+  the stub queue, and refuses cross-origin `/save`. **v40:** the `PGDB` handshake
+  now carries a per-run token (page-generated, announced via `POST /pair`,
+  patched into the stub's `TOK1` placeholder and sent as the 4 bytes after
+  `PGDB`, before the device open); an unannounced or mismatched stub is refused
+  and never joins `TV_PEERS`. **Still open:** a forged `DSHROOT` beacon still
+  joins `TV_PEERS` (and `beacons.log` forgery) - that needs a payload-side
+  token, not a server change. Keep the set off untrusted networks; see
+  `SECURITY.md`.
 - **Pending: public-release maintenance.** `LICENSE` covers original work only;
   the browser-chain files are third-party (`NOTICE.md`). The baked addresses are
-  now TEST-NET placeholders (`192.0.2.1`), so the remaining work is a token/tool
-  pass over docs and examples plus a `recon/sanitize_for_public.py`-style
-  checker; keep `server/deploy.sh`'s markers intact.
+  now TEST-NET placeholders (`192.0.2.1`); `tools/sanitize_for_public.py`
+  (ported 2026-10-26) is the checker - run `python tools/sanitize_for_public.py
+  --check` before publishing (it exits 1 on any private token). Remaining: the
+  token/tool pass over docs and examples it reports; keep `server/deploy.sh`'s
+  markers intact.
 - ~~Clamp the stub's client-controlled lengths~~ — **done**: `physrpc.S` bounds
   READ/WRITE32/READMANY/RUN/FILE, refuses with -EINVAL, and ends the stub for the
   two ops whose payload would desync the stream; v39 added NUL termination and
-  moved the RUN/FILE caps to 511/255, so the blob is now 7,696 B (rebuilt and
+  moved the RUN/FILE caps to 511/255, so the blob is now 7,720 B (v40 added the
+  pairing token word and the early 8-byte `PGDB`+token send; rebuilt and
   re-embedded; both `--check` modes green, live-verified earlier by
-  `tools/test_stub.py` — re-run `--tv` after deploying v39.2).
+  `tools/test_stub.py` — re-run `--tv` after one fresh page load).
 - ~~Retry `open("/dev/video40")` instead of sleeping 120 s~~ — **done in v7**
   (120 s retry), so a browser stub holding the device no longer costs a cycle.
 - ~~Replace the task-list walk with a list-independent locator~~ — **done**: `tools/scan_cred.py` finds creds by content

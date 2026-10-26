@@ -10,6 +10,51 @@ entry is an incomplete change. `AGENTS.md` repeats this rule for agents.
 
 ---
 
+## 2026-10-26 (deferred-work session) — pairing token, sanitizer, EOL pin
+
+Working the deferred list in `docs/OPEN-ISSUES.md` (token, research ports, EOL
+pin). The splits and the payload-side token stay deferred (rationale updated
+there); `high_memory` was already measured from the root shell in the hardware
+session below.
+
+- **Per-run stub pairing token (v40, PGDB half of the review P1).** The page
+  generates a random token per load, announces it to the server (`POST /pair`,
+  same-origin checked) and patches it into the stub (`TOK1` placeholder in
+  `tools/physrpc.S`, pattern-unique, page aborts on drift). The stub now sends
+  `PGDB` + token (8 B) **immediately after connect, before the device open**,
+  and `prctl_ret`/`open_ret` (8 B) after it — a slow open no longer looks like
+  a silent raw peer to the classifier. The accept loop token-checks and only
+  then queues the stub and admits the peer to `TV_PEERS`; the gateway
+  reconstitutes the client-facing 12-byte hello, so `physmap.py` and every
+  other RPC client is unchanged. A mismatch is refused with a "reload the
+  page" log line; with nothing announced (tests, pre-upgrade page) the pairing
+  is accepted and logged loudly (a working channel beats a closed one). Blob
+  7,696 → 7,720 B, rebuilt and re-embedded, both `--check` modes green.
+  **Still open (documented, not fixed):** a forged `DSHROOT` beacon still
+  joins `TV_PEERS` and `beacons.log` forgery — both need a payload-side
+  token (`rootchan.token` rendered by `deploy.sh`, read by `Beacon()`), i.e. a
+  payload change, not a server change.
+- **`tools/sanitize_for_public.py` (research-tree port).** Copy mode redacts
+  the device/host tokens into a fresh directory (binaries pass through
+  byte-exact); `--check` walks the tree (including git-ignored hand-written
+  notes) and exits 1 on any private token — it is the pre-publication gate
+  OPEN-ISSUES asked for, and currently reports 13 real hits. Seed list from
+  this repo (TV/PC IPs, LAN/Wi-Fi/VPN prefixes, firmware/platform/DUID);
+  `10.0.30.` keeps its trailing dot so the pinned SDK `10.0.301` never
+  matches. Covered offline by `tools/test_sanitize.py` (registered in
+  `test_all.py`).
+- **`.gitattributes` EOL pin.** `*.bin` is now `binary` — the shellcode blob
+  was only protected by git's binary *detection* under `* text=auto`, and a
+  normalization would have silently broken page == blob == source;
+  `*.txt` is pinned LF. Both `--check` modes re-verified after the pin.
+- **The gateway test grew the token cases** (announce ok / wrong token
+  refused / matching token pairs with the 12-byte hello intact) and the fake
+  stubs speak the new 16-byte wire. Server log lines: `[pair] token announced`,
+  `[rpc] stub token mismatch …`, `[rpc] no pairing token announced …`.
+- **No payload change.** The TV stays on v39.2 (`010946ff…`, 33,280 B); the
+  next session needs one fresh page load (new stub) and
+  `python tools/test_all.py --tv` to validate the live token path.
+
 ## 2026-10-26 (hardware session) — v39.2 deployed and rooted
 
 The TV came back on the network, so v39.2 got its first hardware run.

