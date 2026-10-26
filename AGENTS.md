@@ -35,8 +35,8 @@ channel on TCP 31337 (line protocol, replies end with `__END__`).
 
 | | |
 |---|---|
-| Payload | repo **v39.2** (`010946ff…`, 33,280 B) built 2026-10-26. **TV is on v39.2 since 2026-10-26 22:48** (deployed over 31337; `payload_backup.dll` keeps v37 `968e1154…`, stock IL `mcs_orig.dll` is intact). No cold boot on v39.2 yet - that is the remaining boot gate. |
-| Boot-to-root | **Attempt 2 is the floor; v37 cold boot 37 s; v39.2 restart 6 s.** v39.2 deploy (2026-10-26 22:48) killed the app and AUL relaunched it: attempt 1 `fast-exit` at t=86013, attempt 2 `self-patch` at t=86021 - root 6 s after relaunch, no cold boot. Earlier v37: stock cycle passed with the retry loop, then a cold boot rooted at t=37. v35: 37 s; v34: 34 s and 68 s; v33: 38-39 s; v32: 59 s; v31: 132 s. Marker: `share/root_boot.txt` |
+| Payload | repo **v39.2** (`010946ff…`, 33,280 B) built 2026-10-26. **TV is on v39.2** (deployed 22:48 over 31337; `payload_backup.dll` keeps v37 `968e1154…`, stock IL `mcs_orig.dll` intact). **Cold boot verified 22:55**: attempt 1 `fast-exit` t=29, attempt 2 `self-patch` t=38, `SUCCESS-R00T` t=39, `ROOTCHAN` t=40. |
+| Boot-to-root | **Attempt 2 is the floor; v37 cold boot 37 s; v39.2 cold boot 39 s.** v39.2: deploy 22:48 reload-rooted in 6 s; a real cold boot at 22:54:46 rooted at t=39 (attempt 1 `fast-exit` t=29, attempt 2 `self-patch` t=38, `ROOTCHAN` t=40). Earlier v37: stock cycle passed with the retry loop, cold boot at t=37. v35: 37 s; v34: 34 s and 68 s; v33: 38-39 s; v32: 59 s; v31: 132 s. Marker: `share/root_boot.txt` |
 | Root identity | `uid=0`, `CapEff=0x3fffffffff`, running under the app's own SMACK label |
 | Boot hook | a `boot_sequence` row in `/opt/dbspace/user/5001/.appsvc.db` |
 | Device | physmap nodes `/dev/video40` (jpeg), `/dev/video30` (hen, the browser stub) and `/dev/video60` (dvde). Exclusivity is **per instance**, but the payload may only **retry video40** on `EBUSY`: video30 hangs at phys `0x46000000` and the payload's scans reach `0x60000000`, so switching nodes on a busy video40 would break the boot (review 2026-10-26). video30/video60 are tried only when a node reports `ENOENT`/`ENODEV`. The app runs as uid 5001, gid 44 |
@@ -416,13 +416,13 @@ python root_shell.py "cat /proc/self/status | grep -E '^Uid|^CapEff'" <TV_IP>
 Run `python tools/test_all.py` first — it covers the offline layers (cred layout,
 gateway, deploy/uninstall control flow, source↔blob↔page consistency). Then:
 
-- [ ] `root_shell.py "id" <TV_IP>` returns `uid=0(root)`.
-- [ ] `root_shell.py "cat /proc/self/status | grep CapEff" <TV_IP>` → `0000003fffffffff`.
-- [ ] `root_shell.py "md5sum /opt/usr/apps/com.samsung.tv.MultiControl-Service/bin/MultiControlService.dll" <TV_IP>` → `010946ff…` (verified 2026-10-26 22:48; `payload_backup.dll` is v37 `968e1154…`)
-- [ ] Cold boot with the browser closed → attempt 1 high exits in ~2 s (`high-alloc … fast-exit`), attempt 2 roots; v37 cold boot observed **37 s** (attempt 2; attempt 1 `seen=0`); v35: 37 s; v34: 34 s and 68 s. Attempt-1 `SUCCESS` is a bonus; attempt 2 is the floor, but a slow hunt can push to attempt 3.
+- [x] `root_shell.py "id" <TV_IP>` returns `uid=0(root)` - **verified 2026-10-26**.
+- [x] `root_shell.py "cat /proc/self/status | grep CapEff" <TV_IP>` → `0000003fffffffff` - **verified 2026-10-26**.
+- [x] `root_shell.py "md5sum /opt/usr/apps/com.samsung.tv.MultiControl-Service/bin/MultiControlService.dll" <TV_IP>` → `010946ff…` (verified 2026-10-26 22:48; `payload_backup.dll` is v37 `968e1154…`)
+- [x] Cold boot with the browser closed → attempt 1 high exits in ~2 s (v39.2, 2026-10-26: **39 s**, attempt 1 `fast-exit` t=29, attempt 2 `self-patch` t=39, `ROOTCHAN` t=40) (`high-alloc … fast-exit`), attempt 2 roots; v37 cold boot observed **37 s** (attempt 2; attempt 1 `seen=0`); v35: 37 s; v34: 34 s and 68 s. Attempt-1 `SUCCESS` is a bonus; attempt 2 is the floor, but a slow hunt can push to attempt 3.
 - [ ] `kill -9 <app pid>` → channel back in ~5–45 s (v33's high-alloc gate skips a high attempt quickly; otherwise attempt 2 roots), still uid 0.
-- [ ] `python tools/test_all.py --tv` against a fresh page load (stub protocol
-      + clamps). Details per layer: `docs/TESTING.md`.
+- [x] `python tools/test_all.py --tv` against a fresh page load (stub protocol
+      + clamps) - **9/9 layers passed 2026-10-26** (hello, kernel read, oversize READ/WRITE refused, stub alive). Details per layer: `docs/TESTING.md`.
 
 ## 8. Traps (each cost hours — read `docs/FAILED.md`)
 
@@ -505,9 +505,9 @@ gateway, deploy/uninstall control flow, source↔blob↔page consistency). Then:
     into a readable high allocation" — it re-rolls into lowmem. Do **not** "fix"
     attempt 1 with more rounds/waits (v31's 10 s last wait booted in 132 s vs
     v30's 51 s); v33's `high-alloc` gate fast-exits in ~2 s and the fifth pass is
-    closed with attempt 2 as the floor. v39.2 deploy/restart (2026-10-26):
-    attempt 1 fast-exit, attempt 2 self-patch, root 6 s; the v39.2 **cold boot**
-    is still the pending hardware check.
+    closed with attempt 2 as the floor. v39.2 deploy/restart (2026-10-26): attempt 1 fast-exit, attempt 2 self-patch,
+    root 6 s; cold boot rooted at t=39 the same evening (attempt 1 t=29, attempt 2
+    t=38-39).
 17. **Ping is not evidence on this PC — probe TCP instead.** Windows `ping`
     counts ICMP *error* replies as replies: with the PC off the TV's LAN
     (Wi-Fi instead of Ethernet, or the NordVPN tunnel up), the tunnel gateway

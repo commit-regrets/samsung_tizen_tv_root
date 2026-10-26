@@ -9,8 +9,9 @@ rendered and reached `COPY=ok`/`DEPLOY_DONE`; the app restart rooted in ~6 s
 `CapEff=0x3fffffffff`; installed md5 `010946ff…`; the 120 s `Run()` timeout and
 the 2 MiB `ulimit -f` redirect guard both verified. Backups intact in
 `/opt/usr/home/owner/share`: `mcs_orig.dll` (stock, md5 `f61f60dd…`),
-`mcs_ni_orig.dll`, `payload_backup.dll` = v37 `968e1154…`. **No cold boot on
-v39.2 yet**, and `test_all.py --tv` plus one uninstall/`recover.sh` cycle remain.
+`mcs_ni_orig.dll`, `payload_backup.dll` = v37 `968e1154…`. **Cold boot on v39.2 verified 2026-10-26 22:55** (attempt 1 high-exit t=29,
+attempt 2 `self-patch` t=38, root t=39); `test_all.py --tv` passed 9/9 the same
+session. Only the uninstall/`recover.sh` cycle remains.
 
 The repo is green offline (`python tools/test_all.py`, 8/8). The first deploy
 attempt failed with `NEED_RENDER` because `server.py` replaced the template's
@@ -21,11 +22,9 @@ corrects the old `0xE0000000` read-limit claim: see item 2 below.
 **Pending / next, in order:**
 
 1. **~~Deploy v39.2~~ — done 2026-10-26.** Rendered + `COPY=ok`/`DEPLOY_DONE`;
-   restart-root in ~6 s; `id -u`=0; installed md5 `010946ff…`. Remaining
-   acceptance: (a) one **cold boot** on v39.2 (the boot row is in place, but only
-   a real power cycle exercises AUL), (b) `tools/test_all.py --tv` on a fresh
-   page load, (c) one uninstall/`recover.sh` cycle to prove the undo path against
-   the now-confirmed stock backups.
+   restart-root in ~6 s; `id -u`=0; installed md5 `010946ff…`. Remaining: one uninstall/`recover.sh` cycle to prove the undo path against the
+   now-confirmed stock backups. Cold boot (39 s, attempt 2) and `--tv` (9/9) are
+   both done.
 2. **High-half read mechanism — zone sizes measured; exact variable pending.**
    Reads at/above `0xE0000000` were unreliable (0/21 high creds, 0/81 high task
    pointers), but that line was a *prediction*: live `meminfo` (2026-10-26) is

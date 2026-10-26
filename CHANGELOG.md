@@ -45,8 +45,14 @@ The TV came back on the network, so v39.2 got its first hardware run.
 - The stale `pysrv.exe` from the previous day (pre-render server, `H=@HOST@`)
   was replaced with the v39.2 server before deploying.
 
-Still pending: one cold boot on v39.2, `tools/test_all.py --tv` on a fresh page
-load, and one uninstall/`recover.sh` cycle.
+- **Cold boot verified the same evening** (22:54:46): attempt 1 high-exit at
+  t=29, attempt 2 `self-patch` at t=38, `SUCCESS-R00T` t=39, `ROOTCHAN` t=40 -
+  the boot hook and AUL relaunch both work on v39.2.
+- **`tools/test_all.py --tv` passed 9/9** against a fresh page load (hello,
+  kernel image read, normal read, oversized READ refused, cross-page WRITE
+  refused, stub alive after each).
+
+Still pending: one uninstall/`recover.sh` cycle (the undo path).
 
 ## 2026-10-26 (third pass) — second code review
 
