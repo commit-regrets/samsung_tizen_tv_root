@@ -537,3 +537,37 @@ The attempt-1 marker to look for: `attempt=1` → (optionally `retry in 5s`)
 
 Payload work is the only part that needs a TV round-trip and a reboot; do the PC-side
 items first so a reboot validates several changes at once.
+
+
+## Deferred from the 2026-10-26 second review
+
+These were reviewed, deliberately **not** done in the v39.2 batch, and are listed
+so the next session does not rediscover them:
+
+- **Per-run token in the 12-byte hello**, covering `TV_PEERS` admission (not just
+  the stub): page-injected and patched into the stub like the callback address.
+  Until then `PGDB`/`DSHROOT` are unauthenticated announcements; see
+  `SECURITY.md` and the 31337 pending item above.
+- **A `tools/` constants module.** The offsets/limits are duplicated across
+  `Program.cs`, `sim_rpc.py`, `kernel_root.py`, `physmap.py`, `physrpc.S`, the
+  page and `deploy.sh`; `test_constants.py` catches drift, but a shared Python
+  module (generated or imported) would remove it. Deferred because it touches
+  every tool for no behavioural gain on this unit.
+- **Split `server.py` into client/gateway/http modules**, a class-based gateway,
+  a threaded accept loop (a slow HTTP client still costs the single accept
+  thread up to 10 s), and a split of `sim_rpc.py` / `payload/Program.cs` into
+  partials. Offline tests exist, but the refactors are riskier than their value
+  until the hardware lane is available.
+- **Research-tree ports:** the public-release sanitizer pipeline, a DWARF type
+  reader to replace hard-coded `task_struct` offsets, `taskwalk.py` orphan
+  detection, a QEMU/softmmu physmap harness, and a C `cred_scan` utility. They
+  are the right next investment for porting, not for this firmware.
+- **High-PA read test** and the `high_memory`/`max_low_pfn` read: the two
+  falsifiable checks in `AGENTS.md` §11.
+- **Encoding hardening beyond stdout:** the three CLIs now use
+  `errors="replace"`, but a few tool file reads/writes still rely on the locale;
+  pin `encoding="utf-8"` when touching them (Python 3.15 will default to UTF-8,
+  this runtime does not).
+- **`beacons.log` forgery:** rotation bounds the disk-fill half, but a LAN peer
+  can still append a forged `DSHROOT` line. The hello token above is also the
+  fix for this.
