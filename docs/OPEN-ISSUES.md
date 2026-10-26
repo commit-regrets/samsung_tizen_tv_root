@@ -1,25 +1,63 @@
 # Open issues — current state, pending work, and closed history
 
-## Current state — 2026-10-25 (payload v37)
+## Current state — 2026-10-26 (repo v38 staged; TV on v37, disconnected)
 
-TV: **v37** (`968e1154…`, 29,184 B), rooted, channel 31337 up. The final stock→root
-cycle passed with the retry loop: attempt 1's stub died (`probe timed out`),
-`auto_root` requested a reload, attempt 2 rooted and deployed v37 (`COPY=ok`),
-then the cold boot rooted at **t=37** (attempt 1 `seen=0`, attempt 2
-`direct-parent+2f0`). v37 adds `real=`/`junk=` and the parent/latch summary
-fixes; that boot did not hit the high-alloc gate. v35: 37 s; v34: **34 s** and
-**68 s** on the earlier stock cycle. The fifth pass is **closed**: attempt 1 is
-an allocation lottery on this unit; attempt 2 is the floor, but a slow hunt can
-push to attempt 3. Read everything below the "History" line as history; do not
-reopen attempt 1 without a new read path.
+TV: **v37** (`968e1154…`, 29,184 B), rooted; last beacon `ROOTCHAN` at
+2026-10-25 22:55 and 31337 has timed out since — the set is powered off / off
+the network. The repo stages **v38** (`adc2b27c…`, 31,744 B): a read-only
+`high-scan` diagnostic for Pending item 1, with the `server/deploy.sh` gate
+updated and `server/payload.dll` byte-identical. When the TV is back: deploy
+v38, then one wall-unplug cold boot collects the verdict. The final stock→root
+cycle on v37 passed with the retry loop (attempt 1's stub died, `auto_root`
+requested a reload, attempt 2 rooted and deployed, cold boot rooted at
+**t=37**); v35: 37 s; v34: **34 s** and **68 s** on the earlier stock cycle.
+The fifth pass is **closed**: attempt 1 is an allocation lottery on this unit;
+attempt 2 is the floor, but a slow hunt can push to attempt 3. Read everything
+below the "History" line as history; do not reopen attempt 1 without a new
+read path.
 
 **Pending / next, in order:**
 
-1. **High-half read mechanism (open question, not blocking).** Reads at/above
-   `0xE0000000` are unreliable (`0/21` high creds coherent, `0/81` high task
-   pointers; every successful patch used a cred below it). Whether this is a
-   video40 pfn-mapping limit or a cache-visibility effect is unproven. It only
-   matters if a future unit must root on its first process.
+1. **High-half read mechanism (open question, not blocking — now one
+   measurement, payload v38).** Reads at/above `0xE0000000` are unreliable
+   (`0/21` high creds coherent, `0/81` high task pointers; every successful
+   patch used a cred below it). **Cache visibility is not a candidate**: the
+   v28 probe measured `uid == plain` garbage through two VA geometries, and a
+   fork-fresh, sleeping child's *low* cred reads `cuid=5001` on every boot
+   while a *high* one never does — waiting cannot help (v31 measured that
+   too). Exactly two causes remain open:
+   (a) **wrong translation** — if a high VA is not a linear-map address,
+   `va - 0xA0000000` reads the wrong frame (junk = other RAM, `0xFF` =
+   unbacked); the `smack_known` miss in `docs/FAILED.md` behaved this way;
+   (b) **video40 returns wrong bytes** even for the frame it is given.
+   Which one holds is undecided — and an earlier version of this entry that
+   called (a) true "by construction" was **retracted 2026-10-26**: the
+   `0xE0000000`/`0xE0800000` split traced to a recon-tree comment
+   (`samsungtv/publish/recon/tvphys.py`) that a later revision
+   (`samsungtv/recon/tvphys.py`) contradicted, and nobody ever read
+   `high_memory` on this TV. The linear map's end here is unmeasured; do not
+   treat it as evidence for either cause.
+   The v38 `high-scan` beacon decides, read-only, in the fast-mode gate branch
+   right before the v33 fast-exit (2.5 s cap; twin `high_alloc_probe` in
+   `tools/sim_rpc.py`, self-tested — tasks are NOT page-aligned, so the probe
+   works on task addresses: `pc=` reads the comm at the translated parent
+   address itself; the sweep finds the comm at any offset, verifies the NUL
+   follow-byte across the page edge, and accepts a candidate only when its
+   children list links `&child->sibling` (task+0x2F8 ↔ child+0x300,
+   DWARF-confirmed)):
+   - `verdict=linear` — the translated parent address holds the parent task;
+     video40 returned wrong bytes for a frame it can address. Only then is a
+     field-level/cache question worth reopening.
+   - `verdict=elsewhere` — the true parent task was found inside the sweep
+     (`at=` is its address), the subtraction was the bug; `cuid=5001` there
+     would additionally prove a locate-and-patch read path could root attempt
+     1 without touching the gate.
+   - `verdict=comm-only` / `miss` — inconclusive; `cov=` states the covered
+     page range, and coverage ending below `0x40000000` cannot rule out a
+     frame the sweep must not touch (the sweep deliberately never leaves
+     proven RAM).
+   It fires on the next cold boot whose attempt 1 draws a high allocation;
+   nothing else in the boot path changed.
 2. **Portability** — no second model/firmware has been tested. Follow
    `docs/PORTABILITY.md`; the real risks are the browser gate (Chromium 120) and
    the physmap. Record each unit's results in that file.

@@ -2,6 +2,7 @@
 
 You are continuing a **Samsung Tizen 9 TV root** project. Read this file first,
 then `docs/EXPLOIT.md` (how it works), `docs/USAGE.md` (running it),
+`docs/LOGGUIDE.md` (every beacon and tool error decoded, with next steps),
 `docs/ROOT-METHODS.md` (what was found), `docs/FAILED.md` (do not repeat these)
 and `docs/SERVER-HOSTING.md` (the PC-side server). History lives in `CHANGELOG.md`,
 and the current work list — triaged from an independent code review — is
@@ -34,7 +35,7 @@ channel on TCP 31337 (line protocol, replies end with `__END__`).
 
 | | |
 |---|---|
-| Payload | **v37 on the TV and in the repo** (`968e1154…`, 29,184 B), deployed 2026-10-25 |
+| Payload | repo **v38** (`adc2b27c…`, 31,744 B) staged 2026-10-26 — read-only `high-scan` diagnostic (v38.1: task addresses, children-list validation), deploy gate updated, `server/payload.dll` byte-identical; **TV still on v37** (`968e1154…`, 29,184 B, deployed 2026-10-25, set disconnected since). Deploy v38 on the next connected session; one cold boot then answers the high-half question |
 | Boot-to-root | **Fifth pass closed: attempt 2 is the floor; v37 cold boot 37 s.** The final stock→root cycle passed with the retry loop: attempt 1's stub died (`probe timed out`), `auto_root` requested a reload, attempt 2 on the fresh page rooted and deployed v37 (`COPY=ok`), then the cold boot rooted at t=37 (attempt 1 `seen=0`, attempt 2 `direct-parent+2f0`). v37 adds `real=`/`junk=` and the parent/latch summary fixes; this boot did not hit the high-alloc gate. v35: 37 s; v34: 34 s and 68 s (stock cycle); v33: 38–39 s; v32: 59 s; v31: 132 s. Evidence: every coherent task/cred read < `0xE0000000` (78/78 `cuid=5001` creds low; 21/21 high creds junk; 15/15 `direct-parent+` and 19/19 `self-patch` successes low; 0/81 task pointers high). Marker: `share/root_boot.txt` |
 | Root identity | `uid=0`, `CapEff=0x3fffffffff`, running under the app's own SMACK label |
 | Boot hook | a `boot_sequence` row in `/opt/dbspace/user/5001/.appsvc.db` |
@@ -241,9 +242,10 @@ TV boot: com.samsung.tv.MultiControl-Service (dotnet-inhouse, app_onboot)
 | `tools/physmap.py` | RPC client (hello, read/write, ops) |
 | `tools/kernel_root.py` | finds the kernel/`init_task`/task and patches the cred |
 | `tools/auto_root.py` | waits for a stub, roots it, runs the deploy script |
-| `tools/root_shell.py` | root-channel client (TCP 31337) |
+| `tools/root_shell.py` | root-channel client (TCP 31337); connect failures self-diagnose |
 | `tools/run_root.py` | run a shell command as root via op 7 (manual) |
 | `tools/write_root.py` | write a file as root via op 8 (manual) |
+| `tools/beacons.py` | beacon-log analyzer: per-boot verdicts + hints (`--json`); dictionary in `docs/LOGGUIDE.md` |
 | `tools/physrpc.S` | ARM32 RPC stub source (clamps every client length) |
 | `tools/build_physrpc.py` | assembles the stub (keystone/capstone); `--check-embedded` diffs it against the page |
 | `tools/physrpc_shellcode.bin` | the assembled stub (committed; `embed_physrpc.py` needs it) |
@@ -253,6 +255,7 @@ TV boot: com.samsung.tv.MultiControl-Service (dotnet-inhouse, app_onboot)
 | `tools/test_gateway.py` | gateway integration test (no TV): RSET, pairing, forwarding, BUSY, /save cap |
 | `tools/test_shell.py` | deploy/uninstall dry tests under `sh` (no TV): backups, label, boot row |
 | `tools/test_stub.py` | live-stub protocol + clamp checks (fresh page load) |
+| `tools/test_logs.py` | offline: beacon-analyzer fixtures, tool error paths, ps1 parse guard |
 | `tools/test_all.py` | runs every layer above; `--tv` adds the live stub |
 | `payload/Program.cs` | boot payload source (v37; TV on v37) |
 | `payload/BootPayload.csproj` | net6.0 project, assembly `MultiControlService` |
@@ -276,6 +279,10 @@ toolkit directory itself stays clean:
 to the LAN even though it sits inside the docroot. If you run `server.py`
 yourself, it creates `logs/` next to itself; only the two redirect files are the
 launcher's responsibility.
+
+Line-by-line beacon decoding (every message, field, verdict and next step):
+`docs/LOGGUIDE.md`. `python tools/beacons.py` turns `beacons.log` into per-boot
+verdicts with the same hints; `--json` for machines.
 
 ### Root without the app payload (host watchdog)
 
@@ -460,6 +467,19 @@ gateway, deploy/uninstall control flow, source↔blob↔page consistency). Then:
     10 s last wait booted in 132 s vs v30's 51 s. v33 fast-exits a high
     allocation in ~2 s (`high-alloc … fast-exit`); the fifth pass is closed with
     attempt 2 as the floor.
+17. **Ping is not evidence on this PC — probe TCP instead.** Windows `ping`
+    counts ICMP *error* replies as replies: with the PC off the TV's LAN
+    (Wi-Fi instead of Ethernet, or the NordVPN tunnel up), the tunnel gateway
+    (`10.128.128.128`) answers "Destination net unreachable" and `ping` still
+    prints **0% loss and exits 0**; a proxy-ARP router can likewise answer for
+    an offline set. This cost a wrong "TV looks half-alive" conclusion on
+    2026-10-26. The toolkit's liveness checks are therefore TCP-only:
+    `Test-TvPort` (both `.ps1`) is a raw `TcpClient` connect with a 1.5 s cap,
+    `uninstall.ps1` decides "TV came back" via stock ports 8001/8002/7676/9197
+    (`Test-StockTv`), and the other honest signal is a fresh `DSHROOT` line in
+    `server/logs/beacons.log`. "PC off the TV's LAN" itself looks like this: no
+    IPv4 on the Ethernet adapter, Wi-Fi/VPN adapters present, and no `arp -a`
+    entry for the TV.
 
 ## 9. Rebuilding the payload
 
@@ -509,6 +529,19 @@ that downloads it) and reboot. Things to preserve when editing `Program.cs`:
   `high-alloc` gate (fast mode only) fast-exits instead of spending the waits.
   Only a fresh process re-rolls the address. The fast PHYSRPT scan is 2 tries;
   keep the fast-exit as the final fallback.
+- **HighAllocProbe (v38, read-only):** the `high-scan` diagnostic runs ONLY in
+  the fast-mode high-alloc gate branch, right before the fast-exit, under its
+  own 2.5 s stopwatch, and never writes (`Write32`/`PatchCred` untouched).
+  Tasks are NOT page-aligned (0xe2df7300 = page offset 0x300): it reads the
+  comm at the translated parent ADDRESS itself (`verdict=linear`), and the
+  sweep finds the comm at any offset (NUL follow-byte checked across the page
+  edge), accepting a candidate only when its children list (task+0x2F8) links
+  `&child->sibling` (child+0x300, DWARF-confirmed). The sweep stays inside
+  `0x20000000..0x40000000`; the translated page (`0x40000000..0x5FFFFFFF`) is
+  point-read only — the access class the direct-probe `phead=`/`pplain=` lines
+  have used since v28. Do not wire it into the success path, widen the sweep
+  past proven RAM, or let it grow past the budget. Verdicts and how to read
+  them: `docs/OPEN-ISSUES.md` → Pending.
 - `ReopenVideo()` after `FindBase` / `TaskOffsets` and **before** `fork()` (sole
   opener). Never close `/dev/video40` while a landmark child still holds it.
 - Latch **every** new `PHYRFORK` not in `pre` (v23): parent-cred uid 5001, 0,
@@ -552,11 +585,20 @@ that downloads it) and reboot. Things to preserve when editing `Program.cs`:
 ## 11. Open work
 
 - ~~Bind 31337 to a single address~~ — **done in v16**: the listener binds the TV address derived from the route to the recorded PC (re-derived every 30 s, `Any` fallback with a beacon if there is no route), so it is off Wi-Fi Direct/tethering while staying portable. `/proc/net/tcp` shows the TV's own address on 31337, not `00000000:7A69`.
-- **Pending: high-half read mechanism.** Reads at/above `0xE0000000` are
-  unreliable (0/21 high creds, 0/81 high task pointers); whether the cause is a
-  video40 pfn-mapping limit or a cache effect is unproven. It no longer blocks
-  this unit (v37 accepts attempt 2) but matters for porting and for any future
-  attempt-1 work. See `docs/OPEN-ISSUES.md` → Pending.
+- **Pending: high-half read mechanism — now one measurement (v38 `high-scan`).**
+  Reads at/above `0xE0000000` are unreliable (0/21 high creds, 0/81 high task
+  pointers). The cache-visibility story is closed (v28 measured `uid == plain`
+  garbage through two VA geometries). Two causes remain open, and an earlier
+  "not in the linear map by construction" claim was **retracted 2026-10-26**:
+  the `0xE0000000`/`0xE0800000` split came from a recon-tree comment that a
+  later revision retracted, `high_memory` was never read here, so the linear
+  map's end on this unit is unmeasured — (a) wrong translation vs (b) video40
+  returning wrong bytes at the pointed frame are both live. The read-only v38
+  beacon decides on the next high-allocation boot (`verdict=` linear/
+  elsewhere/comm-only/miss, `cov=` coverage; tasks are not page-aligned, so it
+  works on task addresses and validates the children list). It no longer
+  blocks this unit (attempt 2 is the floor) but matters for porting and for any
+  future attempt-1 work. See `docs/OPEN-ISSUES.md` → Pending.
 - **Pending: portability.** No second model/firmware has been tested. Use the
   four gates and the file-by-file checklist in `docs/PORTABILITY.md`; record each
   unit there.

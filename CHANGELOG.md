@@ -10,6 +10,189 @@ entry is an incomplete change. `AGENTS.md` repeats this rule for agents.
 
 ---
 
+## 2026-10-26
+
+### Agent-facing logging: beacons.py, LOGGUIDE.md, self-diagnosing tool errors
+
+The log knowledge (what each `DSHROOT` line means, what normal looks like,
+what to do next) lived scattered across history docs. Consolidated so the next
+agent can decode a boot in one command:
+
+- **`tools/beacons.py`** (new) — beacon-log analyzer: groups `beacons.log`
+  into boots on the kernel-uptime reset, splits each boot into AUL launches,
+  and prints a verdict per boot (`ROOTED at t=…s` / `NOT rooted - last line: …`)
+  plus findings with hints for the known signatures (`HIGH-ALLOC` lottery
+  normal-since-v33, `HIGH-SCAN` verdict decoding, `VID40-HELD`, `WIN-OFF`,
+  `BIND-FALLBACK`, `STALE-SELFCRED`, `CRASH`, `CHAN-DENY`, auto-update, …).
+  `--json` for machines, `--last N` for the recent boots, exit 2 with a
+  pysrv/boot-row hint when there is no log at all. Verified against the real
+  log: the three 2026-10-25 boots decode to exactly the recorded history
+  (fast-exit attempt 1, rooted at t≈35–37).
+- **`docs/LOGGUIDE.md`** (new) — the dictionary `beacons.py` points to: every
+  beacon line (lifecycle / hunt / patch paths / channel / housekeeping), the
+  healthy boot shape, the sick shapes, a tool-error table and the TV-side
+  proof files.
+- **`root_shell.py` connection failures now diagnose themselves** (exit codes
+  unchanged): refused vs. nobody-answered each print a cause-ordered
+  checklist pointing at `beacons.log`, the LAN/VPN preconditions and the
+  video40 holder case — plus the trap-17 reminder that ping proves nothing.
+  A missing `__END__` now says a foreign service or a mid-reply death is the
+  likely cause instead of exiting silently.
+- **`run_root.py`**: the 509 B refusal now carries the curl-script hint; the
+  "no status" path explains op 7's single-use nature and the
+  RSET → reload → re-root recovery.
+- **`tools/test_logs.py`** (new) + a `logs-and-errors` layer in
+  `test_all.py`: fixture logs for the analyzer (boot splitting, verdicts,
+  findings, JSON, missing-log hint), offline tests for the new root_shell
+  error branches (refused on loopback, black-hole timeout, no-address) and
+  the run_root refusal, and a PowerShell parse guard for `root.ps1` /
+  `uninstall.ps1` (skipped where PowerShell is absent). Writing the tests
+  caught three real bugs before they shipped: the analyzer matched nothing
+  on real lines (every line carries the `t=<n>s ` prefix the regexes
+  anchored away from), the fast-exit attempt classifier missed the
+  `high-alloc … fast-exit` spelling, and the timeout branch was dead on
+  Windows (`socket.timeout` arrives with `errno=None` — the winerror
+  spellings are handled now).
+
+`docs/TESTING.md` and the `AGENTS.md` files/logs tables updated. Context7 was
+not needed: the work is stdlib parsing/sockets.
+
+### Payload v38 — high-scan: the high-half open question is now one measurement
+
+An external review of the pending "high-half read mechanism" item argued the
+framing ("video40 pfn-mapping limit vs cache-visibility effect") was the wrong
+pair of causes. Checking it against the repo's own evidence confirmed the
+review and sharpened it:
+
+- Cache visibility is closed for good: the v28 probe already measured `uid ==
+  plain` garbage through two different VA geometries, and a fork-fresh,
+  sleeping child's *low* cred reads `cuid=5001` on every boot while a *high*
+  one never does — waiting cannot help (v31 measured that too).
+- ~~By construction on this kernel …~~ **[retracted same day — see v38.1
+  below]** this bullet derived the `0xE0000000`/`0xE0800000` split from a
+  stale recon-tree comment; the split was never measured on this TV.
+- The review's read of the logs was verbatim-accurate: `parent=e2df7300` stable
+  across retries while `cred=b09aa3b5`/`phead=` junk, with the child's own cred
+  coherent (`cuid=5001`), is in `server/logs/beacons.log`; and video40
+  point-read safety at high phys is established (v28/v35: the 0x46000000 hang
+  is the video30 stub; video40 read phys 0x60000000).
+
+`HighAllocProbe` in `payload/Program.cs` (read-only; twin `high_alloc_probe`
+in `tools/sim_rpc.py`, self-tested) runs once in the fast-mode gate branch,
+right before the unchanged v33 fast-exit:
+
+- Point-reads the translated parent page for `PHYSRPT1` + the child pointer
+  (the task itself or `&task->tasks`, the member address children/sibling
+  lists store): `verdict=linear` means the page held the parent task — the
+  read path returned wrong bytes for a frame it can address.
+- Otherwise sweeps proven RAM `0x20000000..0x40000000` (±16 MiB around the
+  child's task page, 2.5 s stopwatch): `verdict=elsewhere` (wrong translation;
+  `at=` names the true frame and `cuid=` says whether it reads 5001 — which
+  would enable a locate-and-patch read path without touching the gate),
+  `comm-only` or `miss` (inconclusive; `cov=` states coverage, and coverage
+  below `0x40000000` cannot rule out a highmem true frame).
+- When the parent is low but the cred is the high object (the 19:00 v32 boot
+  shape), the same sweep locates the ids pattern: `cred-elsewhere` /
+  `cred-miss`.
+
+Safety bounds: no writes (`Write32`/`PatchCred` untouched); the sweep never
+leaves `0x20000000..0x40000000`, the band `LocateInit`/`CredScanNear`/the tail
+walks already cover; the translated page (`0x40000000..0x5FFFFFFF`) is only
+ever point-read — the exact access the direct-probe `phead=`/`pplain=` lines
+have done on every high-allocation boot since v28. Gate, `Kptr` and timings
+untouched (trap 16). The twin caught a real bug before deploy: when the
+child's cred is itself the high object (`ccred=e2c35300`), the cred-scan
+anchor translated above the sweep ceiling and could never sweep — both sides
+now fall back to the child's task page.
+
+New artifact: `81b5f5a5…` (31,744 B); `server/deploy.sh` gate updated.
+
+### Payload v38.1 — probe fixed (code review) and the memory-split retracted
+
+A code review of the staged probe found it could never return `linear` or
+`elsewhere` on a real boot, and that the docs treated a stale comment as a
+measurement. All confirmed and fixed; **do not deploy any earlier v38 build**:
+
+- **Tasks are not page-aligned.** `0xe2df7300` sits at page offset 0x300, so
+  the first cut's page+0x400/page+0x3F8 probes and its 0..0x480 page search
+  missed every real task — the beacon would always have been
+  `verdict=miss`. The probe now works on task addresses: `pc=` reads the comm
+  at the translated parent address itself; the sweep finds the comm at any
+  offset and derives the task as hit-0x400.
+- **The back-pointer member was wrong.** fork() links `&child->sibling`
+  into `&parent->children`, not `&child->tasks`. The pontusml DWARF confirms
+  children=0x2F8 / sibling=0x300 right beside the TV-measured
+  0x2F0/0x2F4/0x3F8/0x400 (and tasks=0x23C matching the walk). A candidate
+  parent is accepted only when its children list (next OR prev) contains
+  child+0x300, so freed look-alikes fail.
+- **A page-edge straddle is covered order-independently.** The first fix used
+  an 8-byte carry, but the outward ±step sweep does not visit physically
+  adjacent pages consecutively, so the carry lost straddling comms — caught
+  by a dedicated fixture (task at page+0xBF8). The search now checks the NUL
+  follow-byte at hit+8 with one cross-page byte read on candidate hits only.
+- **`cred-elsewhere` beaconed `cuid=unread` forever**: CredUid wants a kernel
+  VA and got a physical address. The physical cred is now converted
+  (`+PHYS_OFF`) before CredUid, matching the twin. An offset-0..3 ids hit no
+  longer abandons the rest of the page (as CredScanNear does).
+- **The sim fixtures hid all of it** (page-aligned tasks, an invented 0x2C0
+  pointer). The new scenes place tasks at page offset 0x300 with real
+  sibling linkage and add the straddle and offset-0 cases; the review
+  demanded the old tests fail on that layout, and against the fixed probe
+  they do.
+- **`0xE0000000`/`0xE0800000` retracted as a measurement.** The split traces
+  to a comment in `samsungtv/publish/recon/tvphys.py` that a later revision
+  (`samsungtv/recon/tvphys.py`) contradicts; `high_memory` (`c0a2f490` in the
+  sim map) was never read on this TV. The pending item is back to the two
+  open causes — wrong translation vs video40 wrong bytes — with cache
+  visibility still closed. `docs/EXPLOIT.md`, `docs/OPEN-ISSUES.md`,
+  `AGENTS.md` §11 and the probe comments now mark the linear map's end as
+  unmeasured.
+- Unchanged on review's advice: `Kptr`, the v33 fast-exit, every round
+  timing; the 2.5 s stopwatch; read-only (no `Write32`/`PatchCred`).
+
+New artifact: `adc2b27c…` (31,744 B); `server/deploy.sh` gate updated
+(supersedes `81b5f5a5…`, which never left the repo). `beacons.py`'s
+`HIGH-SCAN` hint and the `LOGGUIDE` row updated for the new beacon shape
+(`pC=` dropped, `at=` = task address).
+
+### Docs — the v31 "read-reliability" note and the pending item rewritten
+
+`docs/EXPLOIT.md`'s high-half note claimed the failures are "a property of the
+read path, not of pointer validity" — unproven, and now phrased as the two
+remaining causes with the beacon that decides. `docs/OPEN-ISSUES.md` pending
+item 1 is rewritten as that measurement (what fires it, how to read each
+verdict, what each verdict would and would not justify).
+
+### root.ps1 / uninstall.ps1 — ICMP is no longer a liveness signal
+
+Deploying v38 was correctly skipped (the TV is off), but the check that
+informed it was wrong for an interesting reason: `ping 192.168.178.175`
+reported **0% loss** while the PC was not even on the TV's LAN any more
+(Ethernet without IPv4, Wi-Fi on 10.0.30.x, NordVPN tunnel up) — the tunnel
+gateway (10.128.128.128) answers "Destination net unreachable" and Windows
+`ping` counts that as a reply (0% loss, exit 0). A proxy-ARP router can
+likewise answer for an offline set. Both failure worlds make ICMP useless
+here, and `root.ps1`/`uninstall.ps1` still trusted it:
+
+- `Test-TvPort` (both scripts) is now a raw `TcpClient` connect with a 1.5 s
+  cap, replacing `Test-NetConnection` (slow on failure, walks its own ICMP
+  path). Verified offline: open → true, closed → fast false, off-LAN → false
+  in ~1.5 s.
+- `root.ps1`'s "TV does not answer ping" warning is replaced by a stock-port
+  probe (8001/8002/7676/9197) whose failure message names the actual
+  preconditions (PC on the TV's LAN, VPN off) instead of implying ping means
+  anything.
+- `uninstall.ps1`'s post-reboot "TV came back" wait no longer gates on
+  `Test-Connection`: it waits for `Test-StockTv` (a stock Samsung service
+  answering TCP) and its timeout message says the decision was made by those
+  probes and why ping is not evidence. A negative is honestly inconclusive —
+  same exit-2 semantics as before, no false success.
+
+Docs: new trap 17 in `AGENTS.md` §8 and a "do not use ping" note in
+`docs/USAGE.md` → Talking to the TV, both recording the 10.128.128.128
+signature (0% loss + exit 0 while off-LAN) and the honest alternatives
+(TCP probes, fresh `DSHROOT` beacons, `arp -a` having no TV entry).
+
 ## 2026-10-25
 
 ### Docs — stock-cycle status
