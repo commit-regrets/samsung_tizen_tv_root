@@ -20,9 +20,9 @@ The stub (RPC thread) is relabelled, so a following op 7 shell inherits it - and
 `op 7` is one-shot, so this must be the last thing before the deploy.
 
 Usage:
-  python recon/smack_relabel.py --dry-run            # locate + validate only
-  python recon/smack_relabel.py --apply              # write the pointers
-  python recon/smack_relabel.py --apply --target User::Pkg::com.samsung.tv.MultiControl-Service
+  python tools/smack_relabel.py --dry-run            # locate + validate only
+  python tools/smack_relabel.py --apply              # write the pointers
+  python tools/smack_relabel.py --apply --target User::Pkg::com.samsung.tv.MultiControl-Service
 """
 import argparse
 import struct
@@ -452,7 +452,7 @@ def main():
         print(f"[{'*' if ok else '!'}] readback {[T.hexs(g) for g in got]} -> "
               f"{'RELABELLED' if ok else 'MISMATCH'}", flush=True)
         print("NEXT: op7 'cat /proc/self/attr/current' should print the target "
-              "label; then run deploy_local.sh from that shell", flush=True)
+              "label; then run deploy.sh from that shell (server.py renders it)", flush=True)
         return 0 if ok else 8
     finally:
         rpc.close()

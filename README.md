@@ -11,7 +11,7 @@ browser, and the root is made persistent through a stock on-boot service app.
 | Kernel | Linux 5.4.249, ARM32 LPAE, `PHYS_OFFSET 0x20000000` |
 | Browser | Chromium 120.0.6099.5 (`SamsungBrowser/7.0`) |
 | Root | `uid=0`, `CapEff=0x3fffffffff` |
-| Persistent payload | 29,184 B, md5 `968e1154f3fc5ba9b14b0d67e59306d2` (v37; deployed 2026-10-25) |
+| Persistent payload | repo v39.1: 33,280 B, md5 `bc05cf51…` (test unit still runs v37: 29,184 B, `968e1154…`) |
 | Root channel | TCP **31337** on the TV, line protocol, replies end with `__END__` |
 
 ## Quick start
@@ -41,14 +41,15 @@ manual fallback: [`docs/USAGE.md`](docs/USAGE.md).
 
 1. **Browser RCE** — CVE-2024-2887 (WasmGC type confusion) in Chromium 120 gives
    arbitrary read/write and ARM shellcode execution inside the renderer.
-2. **Physmap** — `/dev/video40` accepts an attacker-chosen `vm_pgoff` in `mmap()`
-   and passes it to `remap_pfn_range()` unvalidated: arbitrary physical memory
-   read/write from an unprivileged process (uid 5001, group `video`).
+2. **Physmap** — the V4L2 codec nodes (`/dev/video40`/`30`/`60`) accept an
+   attacker-chosen `vm_pgoff` in `mmap()` and pass it to `remap_pfn_range()`
+   unvalidated: arbitrary physical memory read/write from an unprivileged
+   process (uid 5001, group `video`).
 3. **Root** — find the kernel Image and `init_task` in physical memory, locate our
    own task through a forked child's `real_parent`, and zero the credentials.
 4. **Persistence** — replace the IL assembly of a stock `app_onboot` service with
-   a .NET payload that repeats the physmap/cred patch at every boot, closes
-   `/dev/video40` and serves a root command channel on TCP 31337.
+   a .NET payload that repeats the physmap/cred patch at every boot, closes its
+   node and serves a root command channel on TCP 31337.
 
 No GPU CVE, no kernel exploit, no signed module. The physmap is the interesting
 part; the stage-by-stage writeup with the measured constants is
@@ -96,11 +97,11 @@ per-host generated deploy script are git-ignored and never served over HTTP.
 - The same TV family and firmware generation — see
   [`docs/PORTABILITY.md`](docs/PORTABILITY.md) before trying another model.
 - A PC on the same LAN, able to receive TCP/80 from the TV and reach TCP/31337
-  on it. No address is committed for the normal flow: `server/deploy.sh` ships a
-  placeholder `H=`, `root.ps1` rewrites it into the ignored `server/deploy_local.sh`,
-  the page rewrites the shellcode's callback, and the payload reads
-  `share/rootchan.host`. The compiled-in `Host` in `payload/Program.cs` is only a
-  fallback when that file is missing.
+  on it. No address is committed for the normal flow: `server/deploy.sh` is a
+  template whose `H=`/`WANT=`/`SIZE_WANT=` markers `server.py` renders per request
+  from the address the TV used and the payload actually served, the page rewrites
+  the shellcode's callback (IP **and** port), and the payload reads
+  `share/rootchan.host`. The compiled-in `Host` is a TEST-NET placeholder.
 - Python 3 on the PC. On Windows the server must run under an interpreter path the
   firewall allows (see [`docs/SERVER-HOSTING.md`](docs/SERVER-HOSTING.md)).
 - .NET SDK 6+ only if you rebuild the boot payload.
@@ -123,9 +124,10 @@ is specific to Chromium 120. The short version:
 4. **Carrier** — find a `dotnet-inhouse`, `app_onboot` app on writable `/opt`
    whose files you can rewrite under its own SMACK label. Set its app id/paths
    in `server/deploy.sh`, `server/uninstall.sh`, and `server/recover.sh`.
-5. **Build, deploy, verify** — `dotnet build -c Release -o out`, update
-   `server/payload.dll` + the `WANT=`/`SIZE_WANT=` gate, deploy via
-   `root.ps1`, then cold boot. Attempt 2 is the expected floor.
+5. **Build, deploy, verify** — `dotnet build -c Release -o out`, copy the artifact
+   over `server/payload.dll` (the deploy gate is rendered from it, so there is no
+   `WANT=` to edit), deploy via `root.ps1`, then cold boot. Attempt 2 is the
+   expected floor.
 
 **Read-reliability limit found on the test unit:** the video40 physmap returns
 garbage for reads at/above `0xE0000000` even when the VA/PA alias is correct.
@@ -144,8 +146,9 @@ Full gates, measurement recipes, and a file-by-file porting checklist:
 - **The root channel on 31337 is an unauthenticated LAN root shell** (the allowlist
   is the only filter). Never expose it to the internet or a network you do not
   control. See [`SECURITY.md`](SECURITY.md).
-- The boot payload takes an exclusive resource (`/dev/video40` allows one RDWR
-  opener). It closes it after rooting so the browser path keeps working.
+- The boot payload takes a physmap node (`/dev/video40`; exclusivity is per
+  instance, and it cycles `video30`/`video60` if the node is busy). It closes the
+  node after rooting so the browser path keeps working.
 - Keep the stock `mcs_orig.dll` / `mcs_ni_orig.dll` backups and leave TV
   auto-update **off** — an OTA can replace the app and undo persistence.
 - No Samsung firmware, proprietary images or dumps are distributed here.

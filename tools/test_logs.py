@@ -8,7 +8,7 @@ Covers:
                         signature findings, hints, --json shape
   2. root_shell.py      the new self-diagnosing connection errors (offline:
                         refused on loopback, usage exit 2)
-  3. run_root.py        the 509 B command refusal (no stub needed)
+  3. run_root.py        the 508 B command refusal (no stub needed)
   4. PowerShell         root.ps1 / uninstall.ps1 parse cleanly (skipped when
                         pwsh/powershell is absent) - guards the ICMP-trap
                         TCP-probe edits from 2026-10-26
@@ -130,6 +130,41 @@ def test_beacons():
     check("two boots split on uptime reset", len(boots3) == 2,
           f"boots={len(boots3)}")
 
+    # the on-TV marker file is `t=<n>s <line>` with no timestamp and no DSHROOT
+    # prefix; beacons.py --file reported "no DSHROOT lines" for it before v39.
+    marker = write_log([
+        "t=22s start uid=5001 pid=100",
+        "t=30s SUCCESS-R00T DSHROOT uid=0 pid=100 self=00000000",
+        "t=34s ROOTCHAN 31337 uid=0 bind=192.0.2.10",
+    ])
+    boots4 = beacons.group_boots(list(beacons.parse_lines(marker.read_text())))
+    ok = len(boots4) == 1 and beacons.analyse_boot(boots4[0], 0)["rooted"]
+    check("marker file (no DSHROOT prefix) parses", ok, f"boots={len(boots4)}")
+    out = subprocess.run([sys.executable, str(HERE / "beacons.py"),
+                          "--file", str(marker)],
+                         capture_output=True, text=True)
+    check("marker file: CLI exit 0 + ROOTED", out.returncode == 0
+          and "ROOTED" in out.stdout, out.stderr.strip()[-80:])
+    marker.unlink()
+
+    # v39 payload lines: per-node open fallback and the cred-miss verdict
+    v39 = write_log([
+        line(12, 0, 0, 12, "start uid=5001 pid=300"),
+        line(12, 0, 0, 12, "open /dev/video40 failed errno=16, trying /dev/video30"),
+        line(12, 0, 1, 13, "device /dev/video30 fd=67"),
+        line(12, 0, 2, 20, "high-scan C=cc335640 P=21000000 pp=21000000 cp=- "
+                          "pc=0 hits=0 at=- cred=- cuid=unread cov=21000000-21100000 "
+                          "ms=2500 verdict=cred-miss"),
+    ])
+    boots5 = beacons.group_boots(list(beacons.parse_lines(v39.read_text())))
+    r5 = beacons.analyse_boot(boots5[0], 0)
+    codes5 = {f["code"] for f in r5["findings"]}
+    check("v39: OPEN-NODE + HIGH-SCAN seen", {"OPEN-NODE", "HIGH-SCAN"} <= codes5,
+          str(codes5))
+    hs5 = next(f for f in r5["findings"] if f["code"] == "HIGH-SCAN")
+    check("v39: cred-miss named in the hint", "cred-miss" in hs5["hint"])
+    v39.unlink()
+
     # --json runs end to end and parses
     out = subprocess.run([sys.executable, str(HERE / "beacons.py"),
                           "--file", str(p), "--json"],
@@ -178,8 +213,8 @@ def test_run_root_refusal():
     big = "x" * 600
     out = subprocess.run([py, str(HERE / "run_root.py"), big],
                          capture_output=True, text=True, timeout=30)
-    check("run_root: >509 B refused with the curl hint",
-          out.returncode != 0 and "509" in (out.stdout + out.stderr)
+    check("run_root: >508 B refused with the curl hint",
+          out.returncode != 0 and "508" in (out.stdout + out.stderr)
           and "curl" in (out.stdout + out.stderr))
 
 

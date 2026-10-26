@@ -66,8 +66,18 @@ function Find-Layout {
 
 function Find-Python {
     param([string]$Explicit)
-    if ($Explicit) { return (Resolve-Path -LiteralPath $Explicit).Path }
-    if ($env:ROOT_PYTHON) { return $env:ROOT_PYTHON }
+    if ($Explicit) {
+        if (Test-Path -LiteralPath $Explicit) { return (Resolve-Path -LiteralPath $Explicit).Path }
+        $c = Get-Command $Explicit -ErrorAction SilentlyContinue
+        if ($c) { return $c.Source }
+        throw "-Python '$Explicit' is neither a path nor a command on PATH."
+    }
+    if ($env:ROOT_PYTHON) {
+        if (Test-Path -LiteralPath $env:ROOT_PYTHON) { return $env:ROOT_PYTHON }
+        $c = Get-Command $env:ROOT_PYTHON -ErrorAction SilentlyContinue
+        if ($c) { return $c.Source }
+        throw "ROOT_PYTHON='$($env:ROOT_PYTHON)' does not resolve."
+    }
     $cmd = Get-Command pysrv.exe -ErrorAction SilentlyContinue
     if ($cmd) { return $cmd.Source }
     $base = Join-Path $env:LOCALAPPDATA "Python"
@@ -82,15 +92,22 @@ function Find-Python {
 }
 
 function Get-LocalAddressFor {
+    # Route-first, like root.ps1: the "first non-loopback" fallback can hand the
+    # TV a VPN address (review finding M5, 2026-10-26).
     param([string]$Tv)
-    $prefix = (($Tv -split '\.')[0..2]) -join '.'
+    try {
+        $route = Find-NetRoute -RemoteIPAddress $Tv -ErrorAction Stop |
+                 Where-Object { $_.IPAddress } | Select-Object -First 1
+        if ($route -and $route.IPAddress -and $route.IPAddress -notlike '127.*') {
+            return $route.IPAddress
+        }
+    } catch { }
     $ip = Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue |
-          Where-Object { $_.IPAddress -like "$prefix.*" -and $_.IPAddress -ne $Tv } |
+          Where-Object { $_.AddressState -eq 'Preferred' -and $_.IPAddress -notlike '127.*' -and
+                         $_.IPAddress -notlike '169.254.*' } |
           Select-Object -First 1 -ExpandProperty IPAddress
     if ($ip) { return $ip }
-    return (Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue |
-            Where-Object { $_.IPAddress -notlike '127.*' } |
-            Select-Object -First 1 -ExpandProperty IPAddress)
+    throw "Could not determine this PC's address on the TV's network; pass -HostIp <ipv4>."
 }
 
 function Test-TvPort {
@@ -104,10 +121,7 @@ function Test-TvPort {
     try {
         $r = $c.BeginConnect($Tv, $Port, $null, $null)
         if (-not $r.AsyncWaitHandle.WaitOne(1500)) {
-            # cancel the pending connect so it cannot complete against a
-            # disposed client on a threadpool thread
-            try { [Net.Sockets.Socket]::CancelConnectAsync($r) } catch { }
-            return $false
+            return $false   # Close() in finally cancels the pending connect
         }
         $c.EndConnect($r)
         return $true
@@ -130,7 +144,10 @@ function Test-StockTv {
 
 function Test-LocalListen {
     param([int]$Port)
-    return [bool](Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue)
+    $conns = Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue
+    if (-not $conns) { return $false }
+    # A loopback-only listener cannot serve the TV; do not count it as "up".
+    return ($conns | Where-Object { $_.LocalAddress -notlike '127.*' }).Count -gt 0
 }
 
 function Test-Page {
@@ -144,10 +161,10 @@ function Test-Page {
 function Test-OwnServer {
     param([string]$ServerDir)
     $nonce = [guid]::NewGuid().ToString("N")
-    $probe = Join-Path $ServerDir ".root_probe"
+    $probe = Join-Path $ServerDir (".root_probe_" + $nonce)
     try {
         Set-Content -LiteralPath $probe -Value $nonce -Encoding ascii -NoNewline
-        $r = Invoke-WebRequest -Uri "http://127.0.0.1/.root_probe" -UseBasicParsing -TimeoutSec 3
+        $r = Invoke-WebRequest -Uri "http://127.0.0.1/$([IO.Path]::GetFileName($probe))" -UseBasicParsing -TimeoutSec 3
         $body = if ($r.Content -is [byte[]]) { [Text.Encoding]::UTF8.GetString($r.Content) } else { [string]$r.Content }
         return ($body.Trim() -eq $nonce)
     } catch { return $false }
@@ -178,23 +195,40 @@ function Start-ToolkitServer {
         -RedirectStandardOutput $out -RedirectStandardError $err -PassThru -WindowStyle Hidden
     $deadline = (Get-Date).AddSeconds(10)
     while (-not (Test-LocalListen -Port 80)) {
-        if ((Get-Date) -gt $deadline) { throw "server did not bind :80 (see $err)" }
+        if ((Get-Date) -gt $deadline) {
+            Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue
+            throw "server did not bind :80 (see $err)"
+        }
         Start-Sleep -Milliseconds 250
     }
     Say "server  : pid $($p.Id) listening on :80"
 }
 
 if (-not $TvIp) { throw "Pass -TvIp <tv-ip> (or set ROOT_TV)." }
+$TvParsed = $null
+if (-not [Net.IPAddress]::TryParse($TvIp, [ref]$TvParsed)) {
+    throw "-TvIp '$TvIp' is not an IPv4 address (the payload's allowlist compares IPs)."
+}
 
 $layout = Find-Layout -Hint $ToolkitDir
 $py = Find-Python -Explicit $Python
-if (-not $HostIp) { $HostIp = Get-LocalAddressFor -Tv $TvIp }
+if ($HostIp) {
+    $HostParsed = $null
+    if (-not [Net.IPAddress]::TryParse($HostIp, [ref]$HostParsed)) {
+        throw "-HostIp '$HostIp' is not an IPv4 address."
+    }
+} else {
+    $HostIp = Get-LocalAddressFor -Tv $TvIp
+}
 
 $url = "http://$HostIp/uninstall.sh"
 $serverUp = Test-LocalListen -Port 80
-$serverOurs = if ($serverUp) { Test-OwnServer -ServerDir $layout.ServerDir } else { $false }
+$serverOurs = if ($serverUp -and -not $DryRun) { Test-OwnServer -ServerDir $layout.ServerDir } else { $false }
 $scriptOk = if ($serverOurs) { Test-Page -Name "uninstall.sh" } else { $false }
 $tvUp = Test-TvPort -Tv $TvIp -Port 31337
+$cmdPreview = "curl -s http://$HostIp/uninstall.sh | sh"
+if ($KeepBoot) { $cmdPreview = "touch /tmp/keep_boot; " + $cmdPreview }
+else { $cmdPreview = "rm -f /tmp/keep_boot; " + $cmdPreview }
 
 Say "=== TV uninstall =========================================="
 Say "toolkit : $($layout.Root)"
@@ -216,20 +250,9 @@ if ($DryRun) {
         Say "server on :80 : a DIFFERENT server / no uninstall.sh (would need -RestartServer)"
     }
     Say "31337 on TV   : $(if ($tvUp) { 'open (can uninstall)' } else { 'closed (TV off, or already unrooted)' })"
-    Say "would run     : $py $($layout.Tools)\root_shell.py `"curl -s http://$HostIp/uninstall.sh | sh`" $TvIp"
+    Say "would run     : $py $($layout.Tools)\root_shell.py `"$cmdPreview`" $TvIp"
     Say "then          : reboot the TV; verify 31337 stays closed"
     exit 0
-}
-
-if (-not $tvUp) {
-    throw @"
-No root channel on TCP 31337 - the TV is off, already unrooted, or the payload failed.
-If the TV is rooted only through the browser path, do it manually:
-  1. load http://$HostIp/index.html on the TV and leave it
-  2. python $($layout.Tools)\kernel_root.py --fork
-  3. python $($layout.Tools)\run_root.py "curl -s http://$HostIp/uninstall.sh | sh" 30
-  4. reboot the TV
-"@
 }
 
 if ($NoServer) {
@@ -247,12 +270,26 @@ if ($NoServer) {
 }
 if (-not (Test-Page -Name "uninstall.sh")) { throw "server is not serving /uninstall.sh after start" }
 
-$cmd = "curl -s http://$HostIp/uninstall.sh | sh"
-if ($KeepBoot) { $cmd = "touch /tmp/keep_boot; " + $cmd }
-else { $cmd = "rm -f /tmp/keep_boot; " + $cmd }
+# Reaching here means the server is genuinely serving the script, so the manual
+# recovery instructions below can be followed as printed (the old code threw
+# before starting it and told the operator to load a page nothing served).
+if (-not $tvUp) {
+    throw @"
+No root channel on TCP 31337 - the TV is off, already unrooted, or the payload failed.
+The server IS running and serving http://$HostIp/index.html.
+If the TV is rooted only through the browser path, do it manually:
+  1. load http://$HostIp/index.html on the TV and leave it
+  2. python $($layout.Tools)\kernel_root.py --fork
+  3. python $($layout.Tools)\run_root.py "curl -s http://$HostIp/uninstall.sh | sh" 30
+  4. reboot the TV
+"@
+}
+
+$cmd = $cmdPreview
 
 Say ""
 Say "1) Running the uninstall script on the TV as root..."
+$env:ROOT_SHELL_TIMEOUT = "180"   # uninstall.sh is several steps; reply at __END__
 $out = & $py (Join-Path $layout.Tools "root_shell.py") $cmd $TvIp | Out-String
 Write-Host $out
 if ($LASTEXITCODE -ne 0) {

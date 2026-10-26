@@ -51,7 +51,9 @@ writable.
 
 **Constraints.**
 
-- One RDWR opener per device; hold it only as long as needed.
+- Exclusivity is per device **instance**: a second `O_RDWR` on the same node is
+  `-EBUSY`, but `video40`/`video30`/`video60` are separate instances (and
+  `O_RDONLY` skips the check). Hold one only as long as needed.
 - Each `mmap` covers one page (4 KB); a scan is many small mappings.
 - Reading an invalid pfn can fault and kill the process: treat the stub as
   short-lived.
@@ -101,7 +103,9 @@ usable from any LAN machine.
 - Listens on the TV's LAN address (v16; one address, not `0.0.0.0`).
 - Line protocol: send one command + `\n`; output is returned, terminated by
   `__END__`.
-- Commands run through `/bin/sh -c` with a 15 s timeout.
+- Commands run through `/bin/sh -c`; since v39 the budget is 120 s and the reply
+  is capped at 1 MiB (a timed-out command is killed as a whole process tree and
+  the channel keeps serving).
 - AUL restarts the app after a crash; measured recovery: **~12 s**, and the new
   instance is root again.
 

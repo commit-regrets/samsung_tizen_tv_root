@@ -68,6 +68,18 @@ firewall rule; the TV only ever talks to port 80 and to `31337` on its own side.
 - `RSET` evicts the **paired** stub and its client. A client that is still *waiting*
   for a stub is deliberately left alone — evicting it destroyed stubs that connected
   between two attempts.
+- **A request line is always answered as HTTP.** Anything that is not
+  GET/POST/HEAD/OPTIONS gets 405. Before v39 every other method fell through to
+  the reverse-shell handler, so any LAN client could take the operator's shell
+  slot with one `PATCH /` (found live during the 2026-10-26 review).
+- **The shell slot is TV-only**: a silent raw connection is accepted only from a
+  peer that has sent `PGDB` or a `DSHROOT` beacon since server start.
+- **`/deploy.sh` is rendered per request** (`H=` from the IPv4 `Host` header,
+  `WANT=`/`SIZE_WANT=` from the md5/size of `payload.dll`); a non-IPv4 `Host`
+  gets 409, and a static file server's unrendered copy is refused by the script
+  itself (`NEED_RENDER`).
+- **`PGDB` queue is capped** at 8 (oldest closed) and `/save` refuses a
+  cross-origin POST; beacon lines are capped at 4 KB.
 - A crash leaves a traceback in `logs/server.task.err`.
 
 ## Reading the task status correctly

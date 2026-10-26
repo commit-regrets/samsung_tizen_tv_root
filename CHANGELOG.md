@@ -10,6 +10,239 @@ entry is an incomplete change. `AGENTS.md` repeats this rule for agents.
 
 ---
 
+## 2026-10-26 (later) — independent review, v39 hardening
+
+A full-repo review (payload, stub, server, tools, scripts, page/WASM, tests, docs)
+produced ~60 findings; this batch is the code half, and includes the follow-up
+fixes from the review pass itself (§ "Review follow-up (v39.1)" below). **TV was
+disconnected**, so nothing here is hardware-verified: the offline suite is green
+(sim, gateway, shell, constants, logs, blob↔source↔page) and the on-TV checks are
+listed in `docs/OPEN-ISSUES.md` → Pending. Payload v39.1 = `bc05cf51…`, 33,280 B,
+reproducible; the shellcode blob is 7,600 B.
+
+### Structural: deploy.sh is a template, rendered per request
+
+The stale `server/deploy_local.sh` (a v37 gate against a v38 payload) broke both
+manual deploy and `recover.sh`; the copy existed only because `root.ps1` had to
+rewrite `H=`. Replaced the mechanism: `server/deploy.sh` now ships
+`H=@HOST@`, `WANT=@WANT@`, `SIZE_WANT=@SIZE@` and `server.py` renders them at
+request time from (a) the IPv4 `Host` the TV used and (b) the md5/size of the
+`payload.dll` actually served. A static file server leaves the markers in place
+and the script refuses with `NEED_RENDER`. Consequences: no generated copy to go
+stale, the payload hash can never disagree with the artifact, a non-IPv4 `Host`
+is refused with 409 instead of installing a channel that locks the PC out, and
+`root.ps1` no longer writes or injects anything (the app-label relabel moved into
+`deploy.sh`, where it is a no-op on the 31337 lane).
+
+### Structural: deploy is transactional with rollback
+
+`deploy.sh` used to replace the IL, disable the AOT, and only then write the boot
+row — so a failure (or the channel's command timeout) after the swap left the
+payload installed, the AOT disabled and **no boot row**: no payload at boot, no
+channel, no stock app. Now a `trap` handles EXIT/INT/TERM and the irreversible
+steps come last.
+
+- boot row → readback → `aulctl reload` first (harmless while the stock app is
+  still in place); the AOT move and the DLL swap after, each rolled back on
+  failure (restore the previous DLL from `payload_backup.dll`, re-enable the AOT,
+  delete the row) with `ROLLBACK=…` tokens.
+- `payload_backup.dll` now really is the DLL that was live before the deploy (it
+  used to be a second copy of the new payload, contradicting AGENTS §10).
+- AOT-disable failure, a failed `mv`, or a bad installed md5 now aborts —
+  `mv … && echo AOT=disabled` was silent, and `COPY=ok` printed before three
+  fatal checks.
+- the stock-IL snapshot is taken for **any** readable non-payload build, not only
+  the retail hash; the old non-retail branch printed `BACKUP_IL=skip` and
+  replaced the only stock copy (uninstall then impossible forever).
+- `umask 077` + `mktemp -d` for the download, and `cp -p` for snapshots, keep the
+  predictable `/tmp` names and the file mode out of play; the DLL is explicitly
+  `chmod 0644` before the label check.
+
+`uninstall.sh` mirrors it: relabel **before** `mv` (a relabel failure used to
+leave an unreadable stock DLL in `bin/`), refuse a missing DB instead of letting
+`sqlite3` create one, `.timeout` on every query, and delete `rootchan.allow`
+**last** (it fails closed, so removing it before a step that can fail locked the
+channel while the payload was still running).
+
+### Payload v39
+
+- **`Run()`**: 120 s budget (15 s was shorter than the documented deploy waits)
+  with output capped at 1 MiB (a `yes`/`cat /dev/zero` filled tmpfs and was then
+  read into RAM), a unique temp file per call (auto-update-off now runs on a
+  background thread and would have collided on `/tmp/.dsh_cmd.out`), and the
+  command passed as an **argument** to `sh -c` instead of spliced into it (a `}`,
+  `;` or quote could break the wrapper).
+- **Device open** cycles `{video40, video30, video60}` with a per-node errno
+  beacon; exclusivity is per instance, so this also removes the payload↔browser
+  deadlock. One node was retried 120 times even for `EACCES`/`ENOENT`.
+- **`Write32`** splits a page-crossing word byte-wise instead of writing past the
+  mapping (the stub already rejected it; the payload did not).
+- **Failure paths close the node** (`no kernel image`, `no init_task`, `no task
+  offsets`, reopen failure, long-mode idle) — a failed long-mode run held the
+  opener for the whole 120 s sleep, blocking the browser lane.
+- **`RootChannel` retries a failed bind** instead of falling out to `Exit(0)` and
+  discarding a successful root.
+- 15 `cand off=` beacons became one `cand n=… offs=…` line (each beacon costs up
+  to 500 ms with the PC off); the dead `FindCommNearTail` was removed; the glued
+  comment at `ChildParentUid` was fixed.
+- Compiled `Host` and the stub's sockaddr are now **TEST-NET placeholders**
+  (`192.0.2.1`), not a private LAN IP.
+
+### Stub (physrpc.S) → blob 7,600 B
+
+`op 7` wrote `-c\0<cmd>` with **no terminator**, so a second, shorter command on
+the same stub executed the tail of the previous one; `op 8` had the same bug at a
+256-byte path. Both buffers are now NUL-terminated with the length clamped to
+leave room (511/255), `op 7` rejects a body shorter than `-c\0`, and the stale
+`/dev/video40` comment in the `open` block is corrected. Rebuilt, re-embedded and
+both `--check` modes are green.
+
+### PC server (server.py)
+
+- **HTTP method gate**: a request line that is not a served method now gets 405.
+  Any LAN client sending `PATCH /` used to be treated as the reverse shell and
+  took the operator's root-shell slot (proven live with a scratch server).
+- **Shell slot is TV-only**: the raw stream is accepted only from a peer that has
+  sent `PGDB` or a `DSHROOT` beacon since server start.
+- **`PGDB` queue is capped** (8, oldest dropped) — every page load used to leave
+  a dead stub socket queued forever.
+- **`/save`** refuses a cross-origin POST (Origin vs Host) and still caps at 1 MB;
+  beacon lines are capped at 4 KB.
+- `deploy.sh`/`deploy_local.sh` are served **rendered** (above).
+
+### Tools
+
+- `physmap.patch_cred` now honours the uid-5001 gate and writes capabilities
+  (`root2` used to yield uid 0 **without** CAP_DAC_OVERRIDE); `OFF_INIT_TASK`
+  includes `DATA_SHIFT` (it pointed 0x12000 low, so `root2` could never find
+  `swapper`); `RAM_HI` defaults to the proven 0x40000000 band (`TVPHYS_HI`
+  overrides); a `BUSY`/short hello raises a clear `TimeoutError`; the docstring
+  lists ops 6/7/8 and the real page/node; dump output goes to `server/logs/`.
+- `kernel_root`: forks **once** and retries the walk (the loop used to fork up to
+  12 children, against trap 8); `_sane_cred`'s gid bound matches the payload's
+  `SaneCred`; the legacy `root()` no longer prints "uid patch applied" when it
+  found only an already-uid-0 cred; the unused `_find_tag_near_tail` is gone.
+- `beacons.py` parses the **on-TV marker file** (`--file share/root_boot.txt`
+  used to report "no DSHROOT lines"), knows `cred-miss` and the new `open … node`
+  / `chan fail … retrying` lines, and says "end of marker file" instead of an
+  empty timestamp.
+- `tv_rootwatch`: liveness is "the stub served a read", not "init_task is at the
+  hardcoded offset" (that RSET a good stub on any other firmware); the server's
+  log handles are closed; the cred scan is capped at 8 like the payload's.
+- `auto_root`/`run_root`/`write_root`: 508-byte command limit (the stub now needs
+  the NUL), `deploy.sh` as the default script (it renders), stale usage/docstrings
+  fixed; `root_shell` honours `ROOT_SHELL_TIMEOUT` (the .ps1 wrappers set 180).
+- `test_constants.py` (new layer): the same offsets/limits/node names are checked
+  across `Program.cs`, `sim_rpc.py`, `kernel_root.py`, `physmap.py`, `physrpc.S`,
+  the page and `deploy.sh` — payload/sim drift can no longer pass silently.
+- `sim_rpc`: `patch_gate` includes `SaneCred` (the sim rooted memory the payload
+  refuses), `high_alloc_probe` emits `cred-miss` and models the 2.5 s sweep
+  budget, `high_alloc_gate` mirrors the payload's highCred back-fill; new
+  self-tests for each.
+
+### Browser page
+
+- the callback patcher rewrites **the port as well as the IP** (serving on :8080
+  dialled :80 and died silently) and **aborts** when served by hostname (the old
+  fallback sent the TV to a foreign LAN).
+- payload output is bridged into the `#log` textarea, so `/save` finally carries
+  `elf_base`/`backing`/`chk`/abort reasons instead of the loader preamble.
+- aborts `throw` (the page reports `THREW`, not `RETURNED`); `reserve()` aborts on
+  an unexpected exception instead of continuing with a shifted type-id counter;
+  the vtable-first gate requires the RELRO segment and 4-byte alignment; the
+  shellcode copy is bounds-checked; `_spray`/`_big` are documented as heap
+  shaping; the FIRE=false hint no longer names a port nothing listens on.
+- `probe.html`: the GC module bytes were malformed (field-count 0 plus two stray
+  bytes) so it always said "rejected"; fixed, and the impossible
+  `WebAssembly.gc` probe was removed.
+- `index.html` retries a failed script load once with a fresh cache-buster.
+
+### Scripts / PowerShell
+
+- `recover.sh`: IPv4-only host, strips any `*://`, fetches the **rendered**
+  `deploy.sh` (falls back to rewriting `H=` for a static server), `mktemp` dir,
+  and no longer shares one `/tmp/recover.out`.
+- `root.ps1`: `-Force` on an already-rooted TV deploys over 31337 (no page load
+  needed — a hunting payload may hold every node), host address from
+  `Find-NetRoute` with IPv4 validation (the old heuristic could pick the VPN
+  adapter), `TvIp`/`HostIp` validated, server child killed on a bind timeout,
+  `deploy_local.sh` generation removed.
+- `uninstall.ps1`: the server is started **before** the "no channel" message it
+  tells you to use; DryRun prints the real command (with the `keep_boot` prefix);
+  `Test-TvPort`'s dead `CancelConnectAsync` call removed (the only overload takes
+  `SocketAsyncEventArgs`; `Close()` is the real cancel); loopback-only listeners
+  no longer count as "server up".
+- `run_server.cmd`: `-u`, interpreter/port pre-checks.
+
+### Tests
+
+`tools/test_all.py` gained the constants layer and reports SKIP distinctly
+(exit 77) instead of counting a missing `sh` as PASS. Shell tests now cover the
+rollback, AOT failure, non-retail snapshot, unrendered template, DB failure,
+missing DB and every leftover `uninstall.sh` removes (the old "leftovers removed"
+check never created the files). Gateway tests cover the rendered script, the 409,
+the 405, the refused stranger and the accepted known peer.
+
+### Docs
+
+`AGENTS.md`, `README.md`, and `docs/{OPEN-ISSUES,LOGGUIDE,TESTING,USAGE,EXPLOIT,PORTABILITY,FAILED,SERVER-HOSTING,SECURITY}.md`
+updated for v39, the rendered deploy, `/dev/video30` (stub) vs `/dev/video40`
+(payload), the 120 s command budget, `cred-miss`, the new beacons, and the
+`PHYS_OFF` (VA−PA delta) vs `PHYS_OFFSET` distinction. Deferred items (per-run
+`PGDB` token, per-run task tags, `high_memory`/`max_low_pfn` measurement, OTA
+masks, DWARF reader) are listed in `docs/OPEN-ISSUES.md`.
+
+---
+
+### Review follow-up (v39.1) — the reviewer's seven
+
+An independent pass over the v39 batch found three deploy-blockers and four smaller
+defects. All are fixed; the payload/stub were rebuilt (v39.1 = `bc05cf51…`,
+33,280 B) and the sim/tests extended to cover each.
+
+- **The payload must not leave video40 just because it is busy.** v39 cycled
+  `{video40, video30, video60}` one second after any failed open, so a browser
+  stub holding video40 pushed the boot payload onto **video30**, whose reads hang
+  at phys `0x46000000` while the payload's scans reach `0x60000000`. `OpenDevice`
+  now retries the **same** node on EBUSY (the whole budget) and advances only on
+  `ENOENT`/`ENODEV`. The v39 beacon also fired once per attempt (the index
+  cycles); it now fires on a state change plus one "still waiting" line per 30 s.
+- **No capability writes without a uid-5001 ids write.** `physmap.patch_cred`
+  returns True for a cred that already reads uid 0, and both `physmap.patch_full`
+  and `kernel_root.patch_full` took that as permission to write
+  `cap_permitted`/`cap_effective` — which a stale task pointer can aim at init's
+  cred. `patch_ids` now reports whether *it* wrote, and caps are written only
+  after a write that started from 5001 (`kernel_root.patch_full` uses it; the
+  sim has a test that a uid-0 cred's caps stay untouched).
+- **`cred-elsewhere` is not a high-half answer.** The low-parent branch scanned
+  for the ids pattern and reported the *first* match — the child's own fork-copy
+  cred when it was low. The probe and its sim twin now skip the whole child-cred
+  object (the pattern repeats every 8 bytes), and the docs/heuristics state the
+  real semantics: `at=`/`cred=` are physical, `C=`/`P=` virtual, `verdict=linear`
+  means the translated frame was readable, and `cred-elsewhere` says nothing
+  about the high half.
+- **`root_via_fork` no longer claims success (or sends EXEC) on "already uid 0".**
+  That was the stale-task case: a freed `PHYSRPC1` pointing at init's cred hid a
+  live stub outside the walked range. It now warns and returns False so the
+  caller reloads the page. The legacy non-`--fork` `root()` path had the same
+  bug and got the same treatment (it is the path a human runs by hand; `auto_root`
+  uses `root_via_fork`).
+- **No second landmark.** The loop used to fork again after two misses, and also
+  when a fork succeeded but the walk could not find the new `PHYRFORK` - leaving
+  the first one paused (trap 8). It now forks exactly once whenever a pid comes
+  back: a failed fork (no pid) may be retried, a created-but-unfound landmark ends
+  the attempt with "reload the page".
+- **`recover.sh`'s static-server fallback rewrites all three markers.** It used
+  to rewrite `H=` only, leaving `@WANT@`/`@SIZE@` to exit `NEED_RENDER`; it now
+  fetches `payload.dll`, computes md5/size, rewrites all three, refuses if any
+  marker survives, and its message no longer overclaims.
+- **The `Main` exception path and the channel retry release what they held.** The
+  catch slept 20 s holding the physmap node; `RootChannel`'s retry left the
+  listener that threw un-`Stop()`ped, so the next bind could fail until the
+  socket was collected. Both now clean up first.
+
+---
+
 ## 2026-10-26
 
 ### Agent-facing logging: beacons.py, LOGGUIDE.md, self-diagnosing tool errors

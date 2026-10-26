@@ -93,9 +93,19 @@ case "$sql" in
   *"insert or replace into boot_sequence"*)
     [ -n "$TEST_SQLITE_NOOP" ] || printf '1' > "$TEST_ROOT/db.count" ;;
   *"delete from boot_sequence"*)
+    [ -n "$TEST_SQLITE_DELETE_FAIL" ] && exit 1
     [ -n "$TEST_SQLITE_NOOP" ] || printf '0' > "$TEST_ROOT/db.count" ;;
 esac
 exit 0
+""",
+    "mv": r"""#!/bin/sh
+# Fail only for the path the current case wants to fail (TEST_MV_FAIL).
+if [ -n "$TEST_MV_FAIL" ]; then
+  for a in "$@"; do
+    case "$a" in *"$TEST_MV_FAIL"*) exit 1 ;; esac
+  done
+fi
+exec /usr/bin/mv "$@"
 """,
     "aulctl": r"""#!/bin/sh
 case "$1" in
@@ -143,22 +153,35 @@ def write_stubs(bin_dir: Path):
 
 
 def rewrite(script: Path, dest: Path, *, stock_il_md5: str, stock_ni_md5: str,
-            host: str):
+            host: str, render: bool = True):
     text = script.read_text(encoding="ascii", errors="replace")
     text = text.replace("/opt/usr", "@ROOT@/opt/usr")
     text = text.replace("/opt/dbspace", "@ROOT@/opt/dbspace")
     text = text.replace("/tmp/", "@ROOT@/tmp/")
-    text = re.sub(r"(?m)^IL_STOCK=.*$", f"IL_STOCK={stock_il_md5}", text)
-    text = re.sub(r"(?m)^NI_STOCK=.*$", f"NI_STOCK={stock_ni_md5}", text)
-    text = re.sub(r"(?m)^IL_MD5=.*$", f"IL_MD5={stock_il_md5}", text)
-    text = re.sub(r"(?m)^NI_MD5=.*$", f"NI_MD5={stock_ni_md5}", text)
+    if script.name == "uninstall.sh":
+        # Only uninstall.sh carries fixed stock-hash constants.  deploy.sh now
+        # *computes* the current IL md5 at runtime (`IL_MD5=$(md5sum ...)`) and
+        # must not be rewritten - doing so silently disabled the new non-retail
+        # snapshot branch (caught by the non-retail test).
+        text = re.sub(r"(?m)^IL_STOCK=.*$", f"IL_STOCK={stock_il_md5}", text)
+        text = re.sub(r"(?m)^NI_STOCK=.*$", f"NI_STOCK={stock_ni_md5}", text)
+        text = re.sub(r"(?m)^IL_MD5=.*$", f"IL_MD5={stock_il_md5}", text)
+        text = re.sub(r"(?m)^NI_MD5=.*$", f"NI_MD5={stock_ni_md5}", text)
     text = re.sub(r"(?m)^H=.*$", f"H=http://{host}", text)
+    if render:
+        # server.py renders these two from the payload.dll it actually serves;
+        # doing the same here means the harness exercises the real artifact hash
+        # instead of a hand-maintained constant (review finding: a stale gate).
+        payload = PAYLOAD.read_bytes()
+        text = re.sub(r"(?m)^WANT=.*$",
+                      f"WANT={hashlib.md5(payload).hexdigest()}", text)
+        text = re.sub(r"(?m)^SIZE_WANT=.*$", f"SIZE_WANT={len(payload)}", text)
     text = text.replace("@ROOT@", "$TEST_ROOT")
     dest.write_text(text, encoding="ascii", newline="\n")
 
 
 class Fixture:
-    def __init__(self):
+    def __init__(self, render=True):
         self.dir = Path(tempfile.mkdtemp(prefix="shelltest-"))
         self.root = self.dir
         self.bin = self.root / "opt/usr/apps/com.samsung.tv.MultiControl-Service/bin"
@@ -180,7 +203,7 @@ class Fixture:
         self.deploy = self.root / "deploy.sh"
         self.uninstall = self.root / "uninstall.sh"
         rewrite(SERVER / "deploy.sh", self.deploy, stock_il_md5=self.il_md5,
-                stock_ni_md5=self.ni_md5, host="pc.test")
+                stock_ni_md5=self.ni_md5, host="pc.test", render=render)
         rewrite(SERVER / "uninstall.sh", self.uninstall, stock_il_md5=self.il_md5,
                 stock_ni_md5=self.ni_md5, host="pc.test")
         self.runner = self.root / "runner.sh"
@@ -188,6 +211,13 @@ class Fixture:
             'HERE=$(pwd)\nPATH="$HERE/bin:/usr/bin:/bin:/mingw64/bin"\n'
             'export PATH\nexport TEST_ROOT="$HERE"\n. ./"$1"\n',
             encoding="ascii", newline="\n")
+
+    def leftovers(self):
+        """The files a real deploy leaves behind on the share/tmp."""
+        (self.share / "rootchan.allow").write_text("10.0.0.1\n")
+        (self.share / "rootchan.host").write_text("10.0.0.1\n")
+        (self.share / "payload_backup.dll").write_bytes(b"previous-dll\n")
+        (self.tmp / "mcs_payload.dll").write_bytes(b"downloaded\n")
 
     def run(self, script, env_extra=None):
         env = dict(os.environ)
@@ -276,6 +306,71 @@ def deploy_cases(sh):
         out = r.stdout + r.stderr
         ok = r.returncode != 0 and "BOOT_ROW_WARN" in out and "DEPLOY_DONE" not in out
         failed += not check("deploy: bad boot row aborts", ok, f"rc={r.returncode}")
+        # The row is written BEFORE the irreversible steps, so nothing was replaced.
+        ok = (f.bin / "MultiControlService.dll").read_bytes() == STOCK_IL
+        failed += not check("deploy: live DLL untouched on bad boot row", ok)
+        ok = (f.bin / ".native_image").is_dir()
+        failed += not check("deploy: AOT untouched on bad boot row", ok)
+    finally:
+        f.cleanup()
+
+    # --- an unrendered template must refuse, not fail the md5 gate ----------
+    f = Fixture(render=False)
+    try:
+        r = f.run("deploy.sh")
+        out = r.stdout + r.stderr
+        ok = r.returncode != 0 and "NEED_RENDER" in out and "DEPLOY_DONE" not in out
+        failed += not check("deploy: unrendered template refused", ok, f"rc={r.returncode}")
+        ok = (f.bin / "MultiControlService.dll").read_bytes() == STOCK_IL
+        failed += not check("deploy: live DLL untouched on NEED_RENDER", ok)
+    finally:
+        f.cleanup()
+
+    # --- H1: a non-retail stock IL is still snapshotted ---------------------
+    f = fresh()
+    try:
+        vendor = b"vendor-build-of-the-IL\n"
+        (f.bin / "MultiControlService.dll").write_bytes(vendor)
+        r = f.run("deploy.sh")
+        out = r.stdout + r.stderr
+        ok = (r.returncode == 0 and "BACKUP_IL=ok" in out and "DEPLOY_DONE" in out)
+        failed += not check("deploy: non-retail IL snapshotted", ok, f"rc={r.returncode}")
+        ok = ((f.share / "mcs_orig.dll").read_bytes() == vendor
+              and (f.share / "mcs_orig.md5").read_text().strip()
+              == hashlib.md5(vendor).hexdigest())
+        failed += not check("deploy: non-retail snapshot byte-exact + md5 recorded", ok)
+    finally:
+        f.cleanup()
+
+    # --- a failure after the DLL swap rolls back (C1) -----------------------
+    f = fresh()
+    try:
+        r = f.run("deploy.sh", {"TEST_MV_FAIL": "MultiControlService.dll.tmp"})
+        out = r.stdout + r.stderr
+        ok = (r.returncode != 0 and "ROLLBACK=il_restored" in out
+              and "COPY=ok" not in out and "DEPLOY_DONE" not in out)
+        failed += not check("deploy: failed rename rolls back", ok, f"rc={r.returncode}")
+        ok = (f.bin / "MultiControlService.dll").read_bytes() == STOCK_IL
+        failed += not check("deploy: stock IL restored by rollback", ok)
+        ok = (f.bin / ".native_image").is_dir()
+        failed += not check("deploy: AOT re-enabled by rollback", ok)
+        ok = (f.root / "db.count").read_text().strip() == "0"
+        failed += not check("deploy: boot row removed by rollback", ok)
+    finally:
+        f.cleanup()
+
+    # --- AOT-disable failure aborts and leaves the app stock ----------------
+    f = fresh()
+    try:
+        r = f.run("deploy.sh", {"TEST_MV_FAIL": "native_image"})
+        out = r.stdout + r.stderr
+        ok = (r.returncode != 0 and "AOT_FAIL" in out
+              and "COPY=ok" not in out and "DEPLOY_DONE" not in out)
+        failed += not check("deploy: AOT failure aborts", ok, f"rc={r.returncode}")
+        ok = (f.bin / "MultiControlService.dll").read_bytes() == STOCK_IL
+        failed += not check("deploy: live DLL untouched on AOT failure", ok)
+        ok = (f.root / "db.count").read_text().strip() == "0"
+        failed += not check("deploy: boot row removed on AOT failure", ok)
     finally:
         f.cleanup()
 
@@ -313,9 +408,10 @@ def uninstall_cases(sh):
     def prepared(with_backups=True, corrupt=False):
         f = Fixture()
         # bin holds the payload, boot row set, backups on the share as a deploy
-        # would have left them.
+        # would have left them, plus every leftover deploy writes.
         (f.bin / "MultiControlService.dll").write_bytes(PAYLOAD.read_bytes())
         (f.root / "db.count").write_text("1")
+        f.leftovers()
         if with_backups:
             il = b"corrupt\n" if corrupt else STOCK_IL
             (f.share / "mcs_orig.dll").write_bytes(il)
@@ -356,7 +452,38 @@ def uninstall_cases(sh):
         ok = (f.root / "db.count").read_text().strip() == "0"
         failed += not check("uninstall: boot row removed", ok)
         ok = not (f.share / "rootchan.allow").exists()
-        failed += not check("uninstall: our leftovers removed", ok)
+        failed += not check("uninstall: allowlist removed", ok)
+        ok = not (f.share / "rootchan.host").exists()
+        failed += not check("uninstall: recorded host removed", ok)
+        ok = not (f.share / "payload_backup.dll").exists()
+        failed += not check("uninstall: rollback copy removed", ok)
+        ok = not (f.tmp / "mcs_payload.dll").exists()
+        failed += not check("uninstall: downloaded payload removed", ok)
+    finally:
+        f.cleanup()
+
+    # --- the allowlist must survive a step that fails (M1) ------------------
+    f = prepared()
+    try:
+        r = f.run("uninstall.sh", {"TEST_SQLITE_DELETE_FAIL": "1"})
+        out = r.stdout + r.stderr
+        ok = r.returncode != 0 and "DB_FAIL" in out and "UNINSTALL_DONE" not in out
+        failed += not check("uninstall: DB failure aborts", ok, f"rc={r.returncode}")
+        ok = (f.share / "rootchan.allow").exists()
+        failed += not check("uninstall: allowlist kept when a step failed", ok)
+    finally:
+        f.cleanup()
+
+    # --- a missing DB must not be created and reported as "removed" ---------
+    f = prepared()
+    try:
+        (f.db / ".appsvc.db").unlink()
+        r = f.run("uninstall.sh")
+        out = r.stdout + r.stderr
+        ok = r.returncode != 0 and "DB_MISSING" in out and "UNINSTALL_DONE" not in out
+        failed += not check("uninstall: missing DB aborts", ok, f"rc={r.returncode}")
+        ok = not (f.db / ".appsvc.db").exists()
+        failed += not check("uninstall: missing DB not created", ok)
     finally:
         f.cleanup()
 
@@ -374,13 +501,29 @@ def uninstall_cases(sh):
     return failed
 
 
+def meta_cases():
+    """Static guards on the scripts themselves (cheap, catch whole classes)."""
+    failed = 0
+    for name in ("deploy.sh", "uninstall.sh", "recover.sh", "diag.sh"):
+        raw = (SERVER / name).read_bytes()
+        failed += not check(f"meta: {name} is LF-only", b"\r" not in raw,
+                            "a CR makes busybox sh read the token as part of the word")
+    deploy = (SERVER / "deploy.sh").read_text(encoding="utf-8")
+    ok = "WANT=@WANT@" in deploy and "SIZE_WANT=@SIZE@" in deploy
+    failed += not check("meta: deploy.sh gate is rendered by server.py", ok,
+                        "a hardcoded WANT is how the stale deploy_local.sh gated v37")
+    ok = "H=@HOST@" in deploy
+    failed += not check("meta: deploy.sh host is rendered by server.py", ok)
+    return failed
+
+
 def main() -> int:
     sh = find_sh()
     if sh is None:
         print("SKIP: no POSIX sh found (set TEST_SH=/path/to/sh)")
-        return 0
+        return 77   # distinct from PASS: test_all reports SKIP, not success
     print(f"using {sh}", flush=True)
-    failed = deploy_cases(sh) + uninstall_cases(sh)
+    failed = meta_cases() + deploy_cases(sh) + uninstall_cases(sh)
     print(flush=True)
     if failed:
         print(f"{failed} check(s) failed")

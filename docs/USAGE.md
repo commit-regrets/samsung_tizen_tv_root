@@ -37,20 +37,19 @@ a reminder with the URL every 30 seconds until the page connects:
 
 ### Addresses are not baked in
 
-The exploit page **rewrites the shellcode's callback address at load time** from
-`location.hostname`, so the browser stage connects back to whichever PC served the
-page. Open the page by **IP address**, not by hostname — the patch only applies to
-an IPv4 literal, and with a hostname the compiled-in default is used, which is
-almost certainly wrong for your network.
+The exploit page **rewrites the shellcode's callback address and port at load
+time** from `location.hostname`/`location.port`, so the browser stage connects
+back to whichever PC (and port) served the page. Open the page by **IP address**,
+not by hostname — the patcher aborts on a hostname instead of falling back to the
+compiled-in default, because that default is a TEST-NET placeholder and the TV
+would dial a foreign network.
 
-`root.ps1` works out your PC's address on the TV's subnet automatically and writes
-it into the deploy script; `deploy.sh` records it on the TV as
-`share/rootchan.host`, which the payload (v10+) uses for beacons and
-`server/recover.sh` uses to find the PC again. The committed `server/deploy.sh`
-ships a placeholder `H=` (`192.0.2.1`, TEST-NET-1); `root.ps1` rewrites it into
-the ignored `server/deploy_local.sh`. Do not serve the committed copy unrewritten
-— the TV would fetch the DLL from the wrong address. The payload's compiled-in
-`Host` in `payload/Program.cs` is only a fallback when `rootchan.host` is missing.
+`root.ps1` works out your PC's address from the route to the TV and validates it
+as IPv4; `server.py` renders that address into `deploy.sh` when the TV fetches
+it, and `deploy.sh` records it on the TV as `share/rootchan.host`, which the
+payload (v10+) uses for beacons and `server/recover.sh` uses to find the PC
+again. The committed `server/deploy.sh` ships `H=@HOST@` (TEST-NET placeholder
+`192.0.2.1`); serving it from a plain static server is refused (`NEED_RENDER`).
 
 If you ever want to check or change it, that file is the one to edit:
 

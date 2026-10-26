@@ -1,6 +1,6 @@
 """Write a local file onto the TV as root through the stub (op 8, chunked).
 
-Usage: python physfile.py <remote_path> <local_file>
+Usage: python tools/write_root.py <remote_path> <local_file>
 """
 import struct
 import sys

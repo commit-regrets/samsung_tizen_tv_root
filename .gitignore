@@ -2,9 +2,11 @@
 #
 # Rule of thumb: source, docs, scripts and the shipped payload artifact are
 # tracked; anything generated at runtime, rebuilt, or host-specific is not.
-# `server/payload.dll` IS tracked on purpose - it is the 30,208-byte artifact the
-# toolkit serves to the TV, so the repo runs without a .NET SDK (byte-identical
-# to payload/out/MultiControlService.dll).
+# `server/payload.dll` IS tracked on purpose - it is the 32,768-byte v39 artifact
+# the toolkit serves to the TV, so the repo runs without a .NET SDK
+# (byte-identical to payload/out/MultiControlService.dll).  deploy.sh itself is a
+# TEMPLATE (H=@HOST@, WANT=@WANT@) rendered by server.py, so no per-host copy
+# exists any more.
 
 # ---------------------------------------------------------------- runtime logs
 # server.py writes here; root.ps1/uninstall.ps1 redirect the server's stdout and
@@ -23,9 +25,6 @@ server.err
 tv_output_*.txt
 
 # ------------------------------------------------------------- generated files
-# per-host copy of deploy.sh, written by root.ps1 (contains the PC's LAN IP)
-server/deploy_local.sh
-deploy_local.sh
 # liveness probe file used by root.ps1
 .root_probe
 

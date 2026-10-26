@@ -18,9 +18,11 @@ TV and matched against the DWARF dump of a same-family kernel. It exercises
 `kernel_root.patch_full`, `_sane_cred`, the cred-content scanner
 (`iter_owner_creds`) and the page-straddle case that a per-page `find()` misses.
 It also twins the payload hunt (`hunt_new_phyrfork` + pre-set), the v18
-MapPage-vs-kernel alias (`AliasedMemRPC`), the one-RDWR `/dev/video40` opener
-(v20 reopen-after-fork), LPAE pointers above `0xE0000000`, and a hole that
-must break the scanner's carry.
+MapPage-vs-kernel alias (`AliasedMemRPC`), per-instance device contention
+(`Video40`; two nodes can be open at once), LPAE pointers above `0xE0000000`, and
+a hole that must break the scanner's carry. Since v39 `patch_gate` also enforces
+`SaneCred`, `high_alloc_probe` emits `cred-miss` and models the 2.5 s sweep
+budget, and `high_alloc_gate` mirrors the payload's highCred back-fill.
 
 The fifth-pass attempt-1 case (`ReadStaleRPC` + `direct_parent_patch`) is
 modelled at the block level: a stale parent task/cred page, the v28 early break
@@ -78,11 +80,12 @@ Covers the agent-facing diagnostics layer, offline:
 - `tools/beacons.py` against fixture logs: boot splitting on the kernel-uptime
   reset, `ROOTED`/`NOT rooted` verdicts, the attempt outcomes (including the
   `high-alloc … fast-exit` lottery shape), signature findings
-  (`HIGH-ALLOC`/`HIGH-SCAN`/`VID40-HELD`/`WIN-OFF`/`BIND-FALLBACK`/`CRASH`),
+  (`HIGH-ALLOC`/`HIGH-SCAN`/`OPEN-NODE`/`VID40-HELD`/`WIN-OFF`/`BIND-FALLBACK`/`CRASH`),
+  the on-TV **marker file** shape (`--file`, no `DSHROOT` prefix), `cred-miss`,
   the `--json` shape, and the missing-log hint.
 - `root_shell.py` connection failures print the self-diagnosis blocks
   (refused vs. nobody-answered; see trap 17 for why ping is never the check).
-- `run_root.py` refuses over-509 B commands with the curl-script hint.
+- `run_root.py` refuses over-508 B commands with the curl-script hint.
 - `root.ps1` / `uninstall.ps1` parse cleanly (skipped where PowerShell is
   absent).
 
@@ -94,7 +97,8 @@ dictionary behind the fixture signatures is `docs/LOGGUIDE.md`.
 Assembles `tools/physrpc.S` and compares it byte-for-byte with the `SHELLCODE`
 array the page actually runs (`server/payloads/browser_payload.js`), and
 `tools/embed_physrpc.py --check` compares that array with
-`tools/physrpc_shellcode.bin`. Run both after touching either side:
+`tools/physrpc_shellcode.bin`. Run both after touching either side
+(blob is 7,600 B since v39):
 
 ```sh
 python tools/build_physrpc.py                 # physrpc.S -> physrpc_shellcode.bin
@@ -104,6 +108,17 @@ python tools/embed_physrpc.py --check
 ```
 
 Requires keystone + capstone (`pip install -r tools/requirements.txt`).
+
+## 4b. Constant cross-check — `tools/test_constants.py`
+
+Greps the same numbers out of `payload/Program.cs`, `tools/sim_rpc.py`,
+`tools/kernel_root.py`, `tools/physmap.py`, `tools/physrpc.S`, the page and
+`server/deploy.sh` and fails on any disagreement: cred/task offsets, caps,
+`PHYS_OFF`, the sweep band, `SpanPages`, `MaxPatched`, `MaxSteps`, `BudgetMs`,
+the round schedule, the device node list, the callback pattern vs the blob, the
+rendered deploy markers, the rollback trap. This is the layer that catches the
+failure the other tests cannot see: a green simulator modelling a payload that
+has drifted.
 
 ## 5. Live stub protocol — `tools/test_stub.py`
 
@@ -124,7 +139,8 @@ Run these once per payload change (`AGENTS.md` §7 has the canonical list):
 2. `python tools/root_shell.py "grep CapEff /proc/self/status" <tv-ip>` →
    `0000003fffffffff`.
 3. `python tools/root_shell.py "md5sum <bin>/MultiControlService.dll" <tv-ip>` →
-   the `WANT=` md5 in `server/deploy.sh`.
+   the md5 of `server/payload.dll` (v39.1: `bc05cf51…`, 33,280 B). The deploy gate
+   is rendered from that file, so there is no constant in the scripts to compare.
 4. Cold boot (mains unplug, not the remote) with the browser closed → 31337 is
    back within ~60–90 s; `logs/beacons.log` shows `DSHROOT` chain.
 5. `python tools/test_all.py --tv` against a fresh page load.

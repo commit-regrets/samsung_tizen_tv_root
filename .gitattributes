@@ -14,6 +14,8 @@
 *.S             text eol=lf
 
 *.ps1           text eol=crlf
+*.cmd           text eol=crlf
+*.vbs           text eol=crlf
 
 # binaries must never be normalised or diffed as text
 *.dll           binary

@@ -131,10 +131,11 @@ Two hard-won facts from that attempt are worth keeping:
   boot.
 
 A workaround — copy the app's label pointer out of the app's own process
-(`cred->security->smk_task`) — is in `tools/smack_borrow.py`, but it needs the app
-process, and `tools/find_task.py` found **zero** matching tasks in two full sweeps.
-One likely reason is documented below: the scans searched for `MultiControl*`, and
-the app's comm is `DN_trol-Service`.
+(`cred->security->smk_task`) — lives in `tools/smack_relabel.py` (the old
+`tools/smack_borrow.py` named here never existed in this repo), but it needs the
+app process, and `tools/find_task.py` found **zero** matching tasks in two full
+sweeps. One likely reason is documented below: the scans searched for
+`MultiControl*`, and the app's comm is `DN_trol-Service`.
 
 Also learned: long `readmany` scans desync the stub — a batch aborts on an unmappable
 page, stray bytes follow, and every later read returns a garbage status, which looks

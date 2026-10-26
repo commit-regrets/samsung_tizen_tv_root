@@ -1,7 +1,7 @@
 """Decode server/logs/beacons.log into per-boot verdicts and next steps.
 
     python tools/beacons.py                    # analyse the default log
-    python tools/beacons.py --file <log>       # any beacon log / marker file
+    python tools/beacons.py --file <log>       # any beacon log OR the on-TV marker
     python tools/beacons.py --json             # machine-readable report
     python tools/beacons.py --last 3           # only the newest 3 boots
 
@@ -11,6 +11,10 @@ names the step that failed).  This tool groups the stream into boots (kernel
 uptime `t=<n>s` resets on a cold boot), splits each boot into AUL launches
 (`start uid=`), applies the signatures collected in docs/LOGGUIDE.md, and
 prints one verdict per boot plus findings with hints.
+
+Two input shapes are accepted: the PC-side log (`<timestamp> DSHROOT t=…`) and
+the on-TV marker file (`t=…`, no prefix) - so the durable record on the TV can
+be pulled and analysed without the PC log.
 
 Exit codes: 0 = log read and decoded (regardless of what the boots did),
 2 = no log / nothing parseable.
@@ -27,6 +31,10 @@ ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_LOG = ROOT / "server" / "logs" / "beacons.log"
 
 LINE = re.compile(r"^(?P<ts>\S+)\s+DSHROOT\s+(?P<rest>.*)$")
+# The payload's on-TV marker file holds the same lines without the PC-side
+# timestamp or the DSHROOT prefix (`t=<n>s …`).  beacons.py --file <marker>
+# used to report "no DSHROOT lines" for exactly that file.
+MARKER = re.compile(r"^(?P<rest>t=\d+s\s+\S.*)$")
 UPTIME = re.compile(r"(?:^|\s)t=(?P<t>\d+)s(?:\s|$)")
 ATTEMPT = re.compile(r"^attempt=(\d+)")
 START = re.compile(r"^start uid=(\d+) pid=(\d+)")
@@ -43,18 +51,28 @@ SIGNATURES = [
     ("HIGH-SCAN", re.compile(r"^high-scan .*\bverdict=(?P<v>\S+)"), "info",
      "v38 read-only probe answered the high-half question",
      "verdict=linear -> video40 returned wrong bytes for a frame it can "
-     "address; verdict=elsewhere -> va-0xA0000000 is the wrong frame (at= is "
-     "the true task address, children-list validated, and cuid=5001 there "
-     "would mean a locate-and-patch path could work); comm-only/miss -> "
-     "inconclusive, read cov=; see docs/LOGGUIDE.md"),
-    ("VID40-HELD", re.compile(r"^fail open video40 after"), "error",
-     "/dev/video40 was held by another opener for the whole 120 s retry",
-     "a browser stub or a wedged payload owns the device; wait ~2 min or "
+     "address (cuid=5001 there only means the frame was readable); "
+     "verdict=elsewhere -> va-0xA0000000 is the wrong frame (at= is the true "
+     "task address, children-list validated, and cuid=5001 there would mean a "
+     "locate-and-patch path could work); cred-elsewhere -> an owner-ids cred "
+     "was found in the sweep but it is NOT evidence about the high half "
+     "(at=/cred= are physical, C=/P= are virtual); comm-only/miss/cred-miss -> "
+     "inconclusive, read cov=; docs/LOGGUIDE.md"),
+    ("OPEN-NODE", re.compile(r"^open \S+ (?:errno=|failed errno=)"), "info",
+     "a physmap node open failed; v39.1 retries the SAME node on EBUSY and only "
+     "moves on when it is absent",
+     "busy is normal (a browser stub or a dying payload holds it) - the payload "
+     "waits for video40 rather than switching, because video30 hangs at phys "
+     "0x46000000 and the scans reach 0x60000000. 'absent' means this model has "
+     "a different node numbering: docs/PORTABILITY.md"),
+    ("VID40-HELD", re.compile(r"^fail open (?:node|video\d+) after"), "error",
+     "every physmap node was held for the whole 120 s retry",
+     "a browser stub or a wedged payload owns the nodes; wait ~2 min or "
      "power-cycle, then retry (AGENTS.md trap 3)"),
-    ("VID40-RETRY", re.compile(r"^reopen video40 fd=-1"), "warn",
-     "video40 was still held when the hunt needed it",
-     "a landmark child or browser stub held it; the boot usually still roots "
-     "on a later attempt"),
+    ("VID40-RETRY", re.compile(r"^(?:reopen \S+ fd=-1|fail reopen )"), "warn",
+     "the physmap node was still held when the hunt needed it",
+     "the payload now exits early for a fresh process instead of burning the "
+     "rounds; the boot usually still roots on the next attempt"),
     ("WIN-OFF", re.compile(r"^physmap window (unavailable|off:)"), "warn",
      "the alias-correct physmap window is not in play (plain mmap fallback)",
      "stale reads become likelier (the v17/v27 family); if this boot failed, "
@@ -83,9 +101,10 @@ SIGNATURES = [
      "expected for strangers; if this was YOU, the PC's address changed - "
      "update share/rootchan.allow (allowlist fails closed)"),
     ("CHAN-FAIL", re.compile(r"^chan fail "), "warn",
-     "channel error after startup",
-     "read the message; Run() timeouts return '[timeout: killed after 15s]' "
-     "and keep serving by design"),
+     "the 31337 listener failed and is retrying (it no longer gives up)",
+     "read the message; the payload retries every 5 s, so a transient bind "
+     "failure heals without a reboot. Run() timeouts return "
+     "'[timeout: killed after 120s]' and keep serving by design"),
     ("UPDATE-OFF", re.compile(r"^autoupdate .*Int32: 0$"), "info",
      "auto-update re-asserted off", "nothing to do"),
     ("UPDATE-FAIL", re.compile(r"^autoupdate fail"), "warn",
@@ -100,22 +119,31 @@ FAILROUND = re.compile(r"^fail (round \d+|no new PHYRFORK.*)$")
 
 
 def parse_lines(text):
-    """Yield (ts, t_or_None, rest) for every DSHROOT line; skip garbage.
+    """Yield (ts, t_or_None, rest) for every beacon line; skip garbage.
 
-    `rest` has the leading `t=<n>s ` uptime prefix stripped (it is returned
-    separately as `t`), so every signature regex below is anchored on the
-    payload line text itself, exactly as Beacon() built it.
+    Accepts both the PC log (timestamp + DSHROOT) and the on-TV marker file
+    (bare `t=<n>s …`).  For the log, `rest` has the leading `t=<n>s ` uptime
+    prefix stripped (it is returned separately as `t`), so every signature
+    regex below is anchored on the payload line text itself, exactly as
+    Beacon() built it.
     """
     for raw in text.splitlines():
-        m = LINE.match(raw.strip())
-        if not m:
+        raw = raw.strip()
+        if not raw:
             continue
-        rest = m.group("rest")
+        m = LINE.match(raw)
+        if m:
+            ts, rest = m.group("ts"), m.group("rest")
+        else:
+            mm = MARKER.match(raw)
+            if not mm:
+                continue
+            ts, rest = "", mm.group("rest")
         um = UPTIME.search(rest)
         t = int(um.group("t")) if um else None
         if um:
             rest = rest[um.end():].lstrip()
-        yield m.group("ts"), t, rest
+        yield ts, t, rest
 
 
 def group_boots(entries):
@@ -270,10 +298,15 @@ def main(argv=None) -> int:
             print(f"    [{f['sev']}] {f['code']}: {f['msg']}")
             print(f"            -> {f['hint']}")
     last = report[-1]
-    print(f"\nno beacons after {last['last_ts']}. If the TV has booted since "
-          f"then, the app never started or the PC was unreachable "
-          f"(server on :80? page loaded? boot row present?). "
-          f"Line dictionary: docs/LOGGUIDE.md")
+    if last["last_ts"]:
+        print(f"\nno beacons after {last['last_ts']}. If the TV has booted since "
+              f"then, the app never started or the PC was unreachable "
+              f"(server on :80? page loaded? boot row present?). "
+              f"Line dictionary: docs/LOGGUIDE.md")
+    else:
+        print(f"\nend of {p.name} (marker file: no PC timestamps). If the TV has "
+              f"booted since then, the app never started or the PC was "
+              f"unreachable. Line dictionary: docs/LOGGUIDE.md")
     return 0
 
 

@@ -25,7 +25,10 @@ BEACONS = "server/logs/beacons.log"
 
 try:
     s = socket.create_connection((host, 31337), timeout=8)
-    s.settimeout(20)
+    # A command may legitimately run for the payload's Run() budget (120 s), and
+    # the reply only arrives at __END__, so the read timeout must be able to
+    # exceed it (ROOT_SHELL_TIMEOUT; the .ps1 deploy/uninstall set 180).
+    s.settimeout(float(os.environ.get("ROOT_SHELL_TIMEOUT", "30")))
 except OSError as exc:
     # Windows note: a connect timeout raises socket.timeout (errno None);
     # the winerror spellings (10060/10061/...) differ from the errno ones.

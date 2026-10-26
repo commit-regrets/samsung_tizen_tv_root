@@ -39,7 +39,7 @@ document is about the scripts as they are now.
 | Stale RPC waiter consuming the next stub | **Fixed**: waiting clients are no longer evicted, and `physmap.reset_stub()` clears a wedged pairing without a restart. |
 | Slow HTTP client blocking the accept loop | **Mitigated**: 10 s timeout; still single-threaded. |
 | Task list corrupted while walking it | **Open**, but no longer on the critical path: root uses the cred-pattern scan, and the task locator uses `init.tasks.prev` immediately after a fork. |
-| `/dev/video40` opener conflict (browser vs payload) | **Open by design**: one RDWR opener. The payload closes the device after rooting; a page reload while a stale renderer holds it needs that renderer gone (see `docs/USAGE.md`). |
+| Physmap node contention (browser vs payload) | **Resolved in v39**: exclusivity is per instance, so the payload cycles `video40`/`video30`/`video60` and closes its node after rooting; the browser stub uses `video30` (`docs/USAGE.md`). |
 
 ## Known limitations (accepted / documented)
 

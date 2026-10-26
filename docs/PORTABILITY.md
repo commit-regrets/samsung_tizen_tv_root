@@ -101,22 +101,22 @@ values.
 
 | What | Where | Notes |
 |---|---|---|
-| V4L2 device node | `payload/Program.cs` (`open("/dev/video40")`), `tools/physrpc.S` (`/dev/video40`), `server/payloads/browser_payload.js` | The stub's device path is in the assembled blob; rebuild it with `build_physrpc.py`, re-embed with `embed_physrpc.py`, and keep both `--check` modes green |
-| `PHYS_OFFSET`, Image base, `init_task` | `payload/Program.cs` top constants (`PHYS_OFF`, `IMAGE_A/B`) | `init_task` is found at run time by `LocateInit`; the Image signature must match |
+| V4L2 device node | `payload/Program.cs` (`Nodes[]`: `video40`, `video30`, `video60`), `tools/physrpc.S` (`/dev/video30`) | The stub's device path is in the assembled blob; rebuild it with `build_physrpc.py`, re-embed with `embed_physrpc.py`, and keep both `--check` modes green. The payload already cycles three nodes, so a set with a different numbering may need only an edit to `Nodes[]` |
+| `PHYS_OFFSET`, Image base, `init_task` | `payload/Program.cs` top constants (`PHYS_OFF`, `IMAGE_A/B`) | Careful: `PHYS_OFF = 0xA0000000` is the **VA−PA delta** (`va = pa + PHYS_OFF`), not the kernel's `PHYS_OFFSET` (0x20000000 on this unit). `init_task` is found at run time by `LocateInit`; the Image signature must match |
 | Task/cred offsets | `payload/Program.cs` (`O_COMM`, `O_CRED`, `O_REAL`, task-list offsets) | Re-measure from GPL source + `.config` or a matching DWARF build |
 | VIPT alias period | `payload/Program.cs` `SlotStride` | 32 KiB here; if a new L1 way size differs, test 8/16/32 KiB |
 | High-read boundary | `payload/Program.cs` high-alloc gate and `Kptr` | Keep `Kptr` wide; only the read gate is bounded |
 | Carrier app | `server/deploy.sh` (`APPID`, `D`, `S`, `DB`), `server/uninstall.sh`, `server/recover.sh` | Must be `dotnet-inhouse`, `app_onboot`, writable `/opt`, and you must be able to carry its SMACK label |
-| Payload artifact + gate | `server/payload.dll`, `server/deploy.sh` (`WANT=`, `SIZE_WANT=`) | Rebuild reproducibly (two builds), copy `payload/out/MultiControlService.dll` |
+| Payload artifact + gate | `server/payload.dll` | Rebuild reproducibly (two builds); copy `payload/out/MultiControlService.dll` over it. `server/deploy.sh` is a template — `server.py` renders `WANT=`/`SIZE_WANT=` from that file, so there is no constant to edit |
 | Browser ROP constants | `server/payloads/browser_payload.js`, `server/lib/wasm_builder.js` | Tied to the Chromium/libchrome build; re-derive |
-| PC/TV addresses | runtime only | `server/deploy.sh` ships a placeholder `H=`; `root.ps1` rewrites `deploy_local.sh`; the page rewrites the shellcode callback; the payload reads `rootchan.host` |
+| PC/TV addresses | runtime only | `server/deploy.sh` ships `H=@HOST@`; `server.py` renders it from the request's IPv4 `Host`; the page patches the shellcode callback (**IP and port**); the payload reads `rootchan.host` |
 
 Build and deploy:
 
 ```sh
 cd payload
 dotnet build -c Release -o out          # twice; md5s must match
-# copy out/MultiControlService.dll to server/payload.dll, update WANT/SIZE_WANT
+# copy out/MultiControlService.dll to server/payload.dll (the gate is rendered)
 python ../tools/test_all.py
 # then root.ps1 -TvIp <tv-ip>, deploy, cold boot, verify channel + md5
 ```

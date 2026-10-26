@@ -8,14 +8,17 @@ Layers (see docs/TESTING.md):
 
   1. tools/sim_rpc.py        in-memory physmap RPC: cred layout, scan straddle
   2. tools/test_gateway.py   server.py gateway on scratch ports: RSET, pairing,
-                             forwarding, BUSY, /save cap
+                             forwarding, BUSY, /save cap, rendered deploy.sh,
+                             HTTP-method gate, TV-only shell slot
   3. tools/test_shell.py     deploy.sh/uninstall.sh dry tests under sh with stubbed
-                             chsmack/sqlite3/aulctl/curl/ls/login
-  4. build_physrpc.py --check-embedded + embed_physrpc.py --check
+                             chsmack/sqlite3/aulctl/curl/ls/mv, including rollback
+  4. tools/test_constants.py the same offsets/limits across Program.cs, sim_rpc,
+                             kernel_root, physmap, physrpc.S and deploy.sh
+  5. build_physrpc.py --check-embedded + embed_physrpc.py --check
                              source == blob == page SHELLCODE
-  5. tools/test_logs.py      beacon analyzer (fixtures), the self-diagnosing
-                             tool error paths, PowerShell parse guard
-  6. tools/test_stub.py      (--tv) live stub protocol + the new clamps
+  6. tools/test_logs.py      beacon analyzer (fixtures + the on-TV marker file),
+                             the self-diagnosing tool error paths, PowerShell parse
+  7. tools/test_stub.py      (--tv) live stub protocol + the new clamps
 
 Exit code 0 means every layer passed (or was skipped for a documented reason).
 """
@@ -27,7 +30,7 @@ HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent
 
 
-def run(label, argv, *, required=True, timeout=300):
+def run(label, argv, *, timeout=300):
     print(f"\n=== {label} ===", flush=True)
     try:
         r = subprocess.run(argv, cwd=str(ROOT), capture_output=True, text=True,
@@ -37,9 +40,12 @@ def run(label, argv, *, required=True, timeout=300):
         return False
     out = (r.stdout or "") + (r.stderr or "")
     print(out.rstrip(), flush=True)
+    if r.returncode == 77:
+        print(f"--- {label}: SKIP")
+        return True
     ok = r.returncode == 0
     print(f"--- {label}: {'ok' if ok else 'FAILED'} (exit {r.returncode})")
-    return ok or not required
+    return ok
 
 
 def main() -> int:
@@ -49,6 +55,7 @@ def main() -> int:
     results.append(("sim_rpc", run("sim_rpc self-test", [py, "tools/sim_rpc.py"])))
     results.append(("gateway", run("gateway integration test", [py, "tools/test_gateway.py"])))
     results.append(("shell", run("deploy/uninstall dry tests", [py, "tools/test_shell.py"])))
+    results.append(("constants", run("constant cross-check", [py, "tools/test_constants.py"])))
     results.append(("auto-root", run("auto_root fresh-stub retry loop",
                                      [py, "tools/test_auto_root.py"])))
     results.append(("logs-and-errors", run("beacon analyzer + tool error paths + ps1 parse",

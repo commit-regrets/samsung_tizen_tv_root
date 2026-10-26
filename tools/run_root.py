@@ -1,6 +1,9 @@
 """Run a shell command as root inside the TV stub (op 7: fork + /bin/sh -c).
 
-Usage: python physrun.py "<command>" [wait_seconds]
+Usage: python tools/run_root.py "<command>" [wait_seconds]
+
+The payload (v39) kills a command after 120 s and caps its output at 1 MiB; the
+wait here only bounds how long this client listens for the reply.
 """
 import socket
 import struct
@@ -11,12 +14,12 @@ import physmap as T
 
 cmd = sys.argv[1]
 wait = float(sys.argv[2]) if len(sys.argv) > 2 else 3.0
-# The stub's cmdbuf is 512 B and it stores "-c\0" + command there; a longer one
-# writes past the buffer into adjacent stub data.
-if len(cmd.encode()) > 509:
-    raise SystemExit(f"[-] command is {len(cmd.encode())} B; the stub limit is 509 B.\n"
+# The stub's cmdbuf is 512 B, it stores "-c\0" + command there, and v39 writes a
+# NUL after the body: the command may use at most 508 bytes.
+if len(cmd.encode()) > 508:
+    raise SystemExit(f"[-] command is {len(cmd.encode())} B; the stub limit is 508 B.\n"
                      "    For long work (deploys, uninstall), fetch a script instead:\n"
-                     '    run_root.py "curl -s http://<pc-ip>/deploy_local.sh | sh" 45')
+                     '    run_root.py "curl -s http://<pc-ip>/deploy.sh | sh" 45')
 
 rpc = T.RPC(timeout=20)
 buf = b"-c\x00" + cmd.encode()

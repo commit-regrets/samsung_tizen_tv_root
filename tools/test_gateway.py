@@ -20,6 +20,7 @@ to server/logs/gateway-test.log (git-ignored through server/logs/).
 """
 from __future__ import annotations
 
+import hashlib
 import os
 import socket
 import struct
@@ -72,6 +73,30 @@ def check(name: str, ok: bool, note: str = "") -> bool:
     return ok
 
 
+def http_exchange(port: int, raw: bytes, timeout: float = 5.0):
+    """Send one raw request, read until close, return (status_line, headers, body)."""
+    s = connect(port, timeout=timeout)
+    try:
+        s.sendall(raw)
+        data = b""
+        while True:
+            chunk = s.recv(65536)
+            if not chunk:
+                break
+            data += chunk
+    finally:
+        s.close()
+    head, _, body = data.partition(b"\r\n\r\n")
+    lines = head.split(b"\r\n")
+    return (lines[0] if lines else b""), head, body
+
+
+def get(port: int, path: str, host: str | None = None):
+    host = host or f"127.0.0.1:{port}"
+    return http_exchange(port, (f"GET {path} HTTP/1.1\r\nHost: {host}\r\n"
+                                f"Connection: close\r\n\r\n").encode())
+
+
 def main() -> int:
     http_port, rpc_port, ctrl_port = free_port(), free_port(), free_port()
     LOG.parent.mkdir(parents=True, exist_ok=True)
@@ -88,7 +113,47 @@ def main() -> int:
             print("[-] server did not start; see", LOG, flush=True)
             return 1
 
-        # 1) a client that arrives before the page does waits for a stub ...
+        # 0) deploy.sh is a TEMPLATE rendered per request from the payload that is
+        #    actually served: no generated copy, no placeholder host (structural
+        #    fix for the stale deploy_local.sh class).
+        payload = (SERVER_DIR / "payload.dll").read_bytes()
+        md5 = hashlib.md5(payload).hexdigest()
+        status, _, body = get(http_port, "/deploy.sh")
+        text = body.decode("latin-1")
+        failed += not check(
+            "GET /deploy.sh is rendered",
+            b"200" in status and f"H=http://127.0.0.1" in text
+            and f"WANT={md5}" in text and f"SIZE_WANT={len(payload)}" in text
+            and "@HOST@" not in text,
+            status.decode("latin-1"))
+        status, _, body = get(http_port, "/deploy.sh", host=f"localhost:{http_port}")
+        failed += not check("deploy.sh refuses a non-IPv4 Host",
+                            b"409" in status and b"@HOST@" not in body,
+                            status.decode("latin-1"))
+
+        # 1) any HTTP method must be answered as HTTP, never as the TV shell.
+        status, _, _ = http_exchange(
+            http_port, b"PATCH / HTTP/1.1\r\nHost: t\r\nContent-Length: 0\r\n\r\n")
+        failed += not check("unknown HTTP method gets 405", b"405" in status,
+                            status.decode("latin-1"))
+        time.sleep(0.3)
+        failed += not check("405 did not capture the shell slot",
+                            not wait_for_log("reverse shell connected", timeout=0.2))
+
+        # 2) a silent peer that has never announced itself as the TV is refused.
+        t0 = time.time()
+        stranger = connect(http_port)
+        clients.append(stranger)
+        try:
+            closed = stranger.recv(1) == b""
+        except OSError:
+            closed = True
+        failed += not check("silent non-TV peer refused", closed,
+                            f"closed={closed} in {time.time() - t0:.1f}s")
+        failed += not check("shell refusal logged",
+                            wait_for_log("[shell] refused", timeout=3.0))
+
+        # 3) a client that arrives before the page does waits for a stub ...
         waiting = connect(rpc_port)
         clients.append(waiting)
         if not wait_for_log("[rpc] local client connected, waiting for TV"):
@@ -149,6 +214,14 @@ def main() -> int:
         failed += not check("oversized POST /save rejected",
                             b"413" in status and after == before,
                             f"{status.decode('latin-1')} (files {before}->{after})")
+
+        # 7) a peer that HAS announced itself (PGDB above came from 127.0.0.1) may
+        #    still open the silent reverse shell: the TV-only gate must not lock
+        #    the legitimate lane out.
+        shell = connect(http_port)
+        clients.append(shell)
+        failed += not check("known TV peer may hold the shell slot",
+                            wait_for_log("[shell] reverse shell connected", timeout=4.0))
     finally:
         for c in clients:
             try:
