@@ -22,10 +22,12 @@ from __future__ import annotations
 
 import hashlib
 import os
+import shutil
 import socket
 import struct
 import subprocess
 import sys
+import tempfile
 import time
 from pathlib import Path
 
@@ -101,8 +103,14 @@ def main() -> int:
     http_port, rpc_port, ctrl_port = free_port(), free_port(), free_port()
     LOG.parent.mkdir(parents=True, exist_ok=True)
     LOG.write_text("", encoding="utf-8")
+    # Keep this test's fake beacons out of server/logs/beacons.log (the file the
+    # operator reads): the server honours DSH_LOGS_DIR.
+    scratch_logs = tempfile.mkdtemp(prefix="dsh_gw_logs_")
+    prod_beacon = SERVER_DIR / "logs" / "beacons.log"
+    prod_before = prod_beacon.stat().st_size if prod_beacon.exists() else 0
     env = dict(os.environ, HTTP_PORT=str(http_port), RPC_PORT=str(rpc_port),
-               CTRL_PORT=str(ctrl_port), HTTP_BIND="127.0.0.1")
+               CTRL_PORT=str(ctrl_port), HTTP_BIND="127.0.0.1",
+               DSH_LOGS_DIR=scratch_logs)
     log = LOG.open("a", encoding="utf-8")
     srv = subprocess.Popen([sys.executable, "server.py"], cwd=str(SERVER_DIR),
                            env=env, stdout=log, stderr=subprocess.STDOUT)
@@ -282,6 +290,10 @@ def main() -> int:
                 wait_for_log("[shell] refused 127.0.0.2", timeout=4.0))
         except OSError as exc:
             print(f"SKIP: loopback alias 127.0.0.2 unavailable ({exc})", flush=True)
+
+        after = prod_beacon.stat().st_size if prod_beacon.exists() else 0
+        failed += not check("gateway test kept the production beacon log clean",
+                            after == prod_before, f"{prod_before} -> {after} bytes")
     finally:
         for c in clients:
             try:
@@ -294,6 +306,7 @@ def main() -> int:
         except subprocess.TimeoutExpired:
             srv.kill()
         log.close()
+        shutil.rmtree(scratch_logs, ignore_errors=True)
 
     print(flush=True)
     if failed:

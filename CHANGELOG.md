@@ -52,6 +52,17 @@ The TV came back on the network, so v39.2 got its first hardware run.
   kernel image read, normal read, oversized READ refused, cross-page WRITE
   refused, stub alive after each).
 
+- **Gateway tests poisoned the production beacon log** (found while asking why
+  AUL seemed to relaunch every ~2 min): the two new v39.2 gateway tests send
+  `DSHROOT t=1s start uid=5001`, and `server.py` computed `logs/beacons.log`
+  unconditionally, so every test run appended them to the operator's log; they
+  then read as a phantom boot. Fixed: `server.py` honours `DSH_LOGS_DIR` (the
+  gateway test points it at a temp dir and asserts the production log size did
+  not change), `beacons.py` drops a `start uid=` line without `pid=` (which the
+  payload always emits) and reports the count, and the 16 already-injected lines
+  were moved to `logs/beacons.log.testnoise-2026-10-26`. **There was no AUL
+  churn on the TV.**
+
 Still pending: one uninstall/`recover.sh` cycle (the undo path).
 
 ## 2026-10-26 (third pass) — second code review

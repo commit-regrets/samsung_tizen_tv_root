@@ -38,6 +38,12 @@ MARKER = re.compile(r"^(?P<rest>t=\d+s\s+\S.*)$")
 UPTIME = re.compile(r"(?:^|\s)t=(?P<t>\d+)s(?:\s|$)")
 ATTEMPT = re.compile(r"^attempt=(\d+)")
 START = re.compile(r"^start uid=(\d+) pid=(\d+)")
+# Program.cs always prints pid= in its start line.  A start line without one is
+# test or forged noise (the gateway tests used to write exactly this shape into
+# the production log).  Never let it open a boot: its hard-coded t=1s would
+# otherwise read as a cold boot (found 2026-10-26).
+START_NO_PID = re.compile(r"^start uid=(\d+)$")
+TEST_NOISE = {"start_without_pid": 0}
 
 # ---- signatures: (code, regex, severity, message, hint) ---------------------
 # Severity: "info" = expected on this design, "warn" = explains a slow boot or
@@ -147,9 +153,17 @@ def parse_lines(text):
 
 
 def group_boots(entries):
-    """Split the stream into boots: kernel uptime resets on a cold boot."""
+    """Split the stream into boots: kernel uptime resets on a cold boot.
+
+    A `start uid=` line without `pid=` is dropped first: it is not a payload
+    launch (Main always logs pid=), and its fake `t=1s` would otherwise split a
+    fresh boot out of the log.
+    """
     boots, cur, prev_t = [], [], None
     for ts, t, rest in entries:
+        if START_NO_PID.match(rest):
+            TEST_NOISE["start_without_pid"] += 1
+            continue
         if prev_t is not None and t is not None and t < prev_t:
             boots.append(cur)
             cur = []
@@ -277,11 +291,16 @@ def main(argv=None) -> int:
         boots = boots[-args.last:]
 
     report = [analyse_boot(b, i) for i, b in enumerate(boots)]
+    noise = TEST_NOISE["start_without_pid"]
     if args.json:
-        print(json.dumps({"boots": report, "log": str(p)}, indent=2))
+        print(json.dumps({"boots": report, "log": str(p),
+                          "ignored_start_without_pid": noise}, indent=2))
         return 0
 
     print(f"beacons: {len(report)} boot(s) in {p}")
+    if noise:
+        print(f"beacons: ignored {noise} `start uid=` line(s) without pid= "
+              f"(test/forged beacons, not a launch)")
     for b in report:
         print(f"\n--- boot #{b['index']}  {b['first_ts']} .. {b['last_ts']}"
               f"  (max t={b['max_t']}s, {b['lines']} lines, {b['runs']} launch(es))")

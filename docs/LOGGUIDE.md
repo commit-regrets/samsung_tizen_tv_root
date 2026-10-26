@@ -44,6 +44,7 @@ uptime; it resets on a cold boot (that reset is how boots are delimited).
 | Line | Meaning | Action |
 |---|---|---|
 | `start uid=5001 pid=<p>` | AUL launched the app; fresh process | normal |
+| `start uid=5001` (**no `pid=`**) | **test/forged noise**, not a launch: `Main()` always logs `pid=`, and the offline gateway tests used to write this shape with a fake `t=1s`. `beacons.py` drops it (and reports how many it ignored) so it cannot become a ghost boot. | ignore; real start lines carry `pid=` |
 | `attempt=<n> (fast mode|long retry mode)` | attempt counter (`/tmp/.dsh_try`, resets at boot); 1–4 fast, 5+ long | normal |
 | `kernel=<pa> init_task=<va>` | kernel image and `init_task` located | normal |
 | `cand n=<k> offs=<hex,…>` | task-list offset candidates (one line since v39; used to be k separate `cand off=` lines) | normal (several) |

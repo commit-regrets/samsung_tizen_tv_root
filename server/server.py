@@ -29,10 +29,13 @@ ROOT = Path(__file__).resolve().parent
 #   logs/shell.log[.1]                 rolling shell/TV console capture
 #   logs/beacons.log                   one timestamped line per DSHROOT beacon
 #   logs/tv/                           pages POST /save dumps (pruned)
-LOGS = ROOT / "logs"
+# DSH_LOGS_DIR lets the offline gateway tests (scratch ports, cwd=server/) use a
+# temp log dir.  Without it they appended their fake beacons to the production
+# beacons.log, which then read as a phantom boot (found 2026-10-26).
+LOGS = Path(os.environ.get("DSH_LOGS_DIR", str(ROOT / "logs")))
 LOGS_TV = LOGS / "tv"
-LOGS.mkdir(exist_ok=True)
-LOGS_TV.mkdir(exist_ok=True)
+LOGS.mkdir(parents=True, exist_ok=True)
+LOGS_TV.mkdir(parents=True, exist_ok=True)
 LOG = LOGS / "shell.log"
 BEACON_LOG = LOGS / "beacons.log"
 TV_KEEP = int(os.environ.get("TV_OUTPUT_KEEP", "100"))

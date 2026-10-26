@@ -130,6 +130,22 @@ def test_beacons():
     check("two boots split on uptime reset", len(boots3) == 2,
           f"boots={len(boots3)}")
 
+    # a no-pid start line is test/forged noise (Program.cs always logs pid=):
+    # its fake t=1s must not split a ghost boot out of a real one.
+    beacons.TEST_NOISE["start_without_pid"] = 0
+    noise = write_log(HEALTHY + [line(10, 10, 0, 1, "start uid=5001")])
+    boots_noise = beacons.group_boots(list(beacons.parse_lines(noise.read_text())))
+    check("no-pid start does not create a ghost boot", len(boots_noise) == 1,
+          f"boots={len(boots_noise)}")
+    check("no-pid start counted as test noise",
+          beacons.TEST_NOISE["start_without_pid"] == 1)
+    outn = subprocess.run([sys.executable, str(HERE / "beacons.py"),
+                           "--file", str(noise)],
+                          capture_output=True, text=True)
+    check("no-pid start is reported, not silently dropped",
+          "ignored 1" in outn.stdout and "without pid=" in outn.stdout,
+          outn.stdout.splitlines()[0] if outn.stdout else outn.stderr[:80])
+
     # the on-TV marker file is `t=<n>s <line>` with no timestamp and no DSHROOT
     # prefix; beacons.py --file reported "no DSHROOT lines" for it before v39.
     marker = write_log([
