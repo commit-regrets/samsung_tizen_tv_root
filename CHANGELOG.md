@@ -37,6 +37,11 @@ The TV came back on the network, so v39.2 got its first hardware run.
   `LowTotal 604,424 kB`, `HighTotal 1,212,416 kB` → lowmem ends at phys
   `0x44E42000`, so `high_memory` is ~VA `0xE4E42000`. The old "read limit at
   0xE0000000" was a prediction, not the map end; AGENTS/EXPLOIT/FAILED corrected.
+- **Browser-chain log strings are English now.** The vendored upstream payload
+  (`hdbreaker` chain) logs in Spanish (`CAMINO A - fase de ESCRITURA`), and the
+  page mirrors `console.log` into `#log`, so a correct run showed Spanish. The
+  user-facing strings were translated (comments stay upstream-Spanish for
+  provenance); nothing functional changed.
 - The stale `pysrv.exe` from the previous day (pre-render server, `H=@HOST@`)
   was replaced with the v39.2 server before deploying.
 
