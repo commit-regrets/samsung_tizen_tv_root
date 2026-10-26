@@ -94,8 +94,38 @@ function Get-LocalAddressFor {
 }
 
 function Test-TvPort {
+    # Raw TCP connect with a short timeout - deliberately NOT ping and NOT
+    # Test-NetConnection.  On this PC a VPN tunnel answers ICMP
+    # "destination net unreachable" and Windows ping reports it as a reply
+    # (0% loss, exit 0); a proxy-ARP router can answer for an offline TV too.
+    # Only a TCP connect says anything about the TV.
     param([string]$Tv, [int]$Port)
-    return (Test-NetConnection -ComputerName $Tv -Port $Port -WarningAction SilentlyContinue).TcpTestSucceeded
+    $c = New-Object Net.Sockets.TcpClient
+    try {
+        $r = $c.BeginConnect($Tv, $Port, $null, $null)
+        if (-not $r.AsyncWaitHandle.WaitOne(1500)) {
+            # cancel the pending connect so it cannot complete against a
+            # disposed client on a threadpool thread
+            try { [Net.Sockets.Socket]::CancelConnectAsync($r) } catch { }
+            return $false
+        }
+        $c.EndConnect($r)
+        return $true
+    } catch { return $false } finally { $c.Close() }
+}
+
+function Test-StockTv {
+    # "The TV came back" = a stock Samsung service answers TCP.  There is no
+    # ICMP alternative: ping cannot decide this on this PC (VPN tunnel error
+    # replies count as 0% loss; a proxy-ARP router answers for an offline set).
+    # HONESTY NOTE: none of these four ports is MEASURED on this set - if the
+    # model serves none of them, the caller treats silence as "not confirmed"
+    # (conservative exit 2), never as proof the TV is down.
+    param([string]$Tv)
+    foreach ($p in 8001, 8002, 7676, 9197) {
+        if (Test-TvPort -Tv $Tv -Port $p) { return $true }
+    }
+    return $false
 }
 
 function Test-LocalListen {
@@ -245,13 +275,17 @@ if (Test-TvPort -Tv $TvIp -Port 31337) {
     exit 1
 }
 
-Say "   channel closed; waiting for the TV to come back..."
+Say "   channel closed; waiting for a stock TV service to answer (up to $BootTimeoutSec s)..."
 $deadline = (Get-Date).AddSeconds($BootTimeoutSec)
-while ((Get-Date) -lt $deadline -and -not (Test-Connection -ComputerName $TvIp -Count 1 -Quiet -ErrorAction SilentlyContinue)) {
+while ((Get-Date) -lt $deadline -and -not (Test-StockTv -Tv $TvIp)) {
     Start-Sleep -Seconds 5
 }
-if (-not (Test-Connection -ComputerName $TvIp -Count 1 -Quiet -ErrorAction SilentlyContinue)) {
+if (-not (Test-StockTv -Tv $TvIp)) {
     Say "TV did not come back online; run this script again when it is on to verify."
+    Say "(decided by TCP probes of 8001/8002/7676/9197 - ping is not evidence on this PC,"
+    Say " a VPN tunnel's ICMP errors count as replies; see AGENTS.md section 8, ICMP trap)"
+    Say "(none of those ports is measured on this set - if this fires while the TV is"
+    Say " clearly on, record which ports it serves and update Test-StockTv)"
     exit 2
 }
 

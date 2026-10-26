@@ -102,8 +102,24 @@ function Get-LocalAddressFor {
 }
 
 function Test-TvPort {
+    # Raw TCP connect with a short timeout - deliberately NOT ping and NOT
+    # Test-NetConnection.  On this PC a VPN tunnel answers ICMP
+    # "destination net unreachable" and Windows ping reports it as a reply
+    # (0% loss, exit 0); a proxy-ARP router can answer for an offline TV too.
+    # Only a TCP connect says anything about the TV.
     param([string]$Tv, [int]$Port)
-    return (Test-NetConnection -ComputerName $Tv -Port $Port -WarningAction SilentlyContinue).TcpTestSucceeded
+    $c = New-Object Net.Sockets.TcpClient
+    try {
+        $r = $c.BeginConnect($Tv, $Port, $null, $null)
+        if (-not $r.AsyncWaitHandle.WaitOne(1500)) {
+            # cancel the pending connect so it cannot complete against a
+            # disposed client on a threadpool thread
+            try { [Net.Sockets.Socket]::CancelConnectAsync($r) } catch { }
+            return $false
+        }
+        $c.EndConnect($r)
+        return $true
+    } catch { return $false } finally { $c.Close() }
 }
 
 function Test-LocalListen {
@@ -203,8 +219,20 @@ if ($DryRun) {
     exit 0
 }
 
-if (-not (Test-Connection -ComputerName $TvIp -Count 1 -Quiet -ErrorAction SilentlyContinue)) {
-    Say "warning : the TV does not answer ping; continuing anyway"
+# Ping proves nothing on this setup: when the PC is off the TV's LAN (Wi-Fi or
+# VPN up) the tunnel gateway answers ICMP "net unreachable" and Windows ping
+# still prints 0% loss / exit 0, and when the TV is merely off a proxy-ARP
+# router can answer for it.  The honest reachability signal is TCP.
+if (-not $tvRooted) {
+    $stockUp = $false
+    foreach ($p in 8001, 8002, 7676, 9197) {
+        if (Test-TvPort -Tv $TvIp -Port $p) { $stockUp = $true; break }
+    }
+    if (-not $stockUp) {
+        Say "warning : no TCP service answers on the TV (31337 closed, stock ports 8001/8002/7676/9197 silent)."
+        Say "          Do not trust ping to decide this - see the ICMP trap in AGENTS.md section 8."
+        Say "          If the TV is actually on, check that this PC is on the TV's LAN and the VPN is off."
+    }
 }
 
 if ($tvRooted -and -not $Force) {
