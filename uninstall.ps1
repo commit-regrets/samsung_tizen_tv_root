@@ -206,7 +206,8 @@ function Start-ToolkitServer {
 
 if (-not $TvIp) { throw "Pass -TvIp <tv-ip> (or set ROOT_TV)." }
 $TvParsed = $null
-if (-not [Net.IPAddress]::TryParse($TvIp, [ref]$TvParsed)) {
+if (-not [Net.IPAddress]::TryParse($TvIp, [ref]$TvParsed) -or
+    $TvParsed.AddressFamily -ne [Net.Sockets.AddressFamily]::InterNetwork) {
     throw "-TvIp '$TvIp' is not an IPv4 address (the payload's allowlist compares IPs)."
 }
 
@@ -214,7 +215,8 @@ $layout = Find-Layout -Hint $ToolkitDir
 $py = Find-Python -Explicit $Python
 if ($HostIp) {
     $HostParsed = $null
-    if (-not [Net.IPAddress]::TryParse($HostIp, [ref]$HostParsed)) {
+    if (-not [Net.IPAddress]::TryParse($HostIp, [ref]$HostParsed) -or
+        $HostParsed.AddressFamily -ne [Net.Sockets.AddressFamily]::InterNetwork) {
         throw "-HostIp '$HostIp' is not an IPv4 address."
     }
 } else {
@@ -244,8 +246,8 @@ if ($DryRun) {
     Say ""
     if (-not $serverUp) {
         Say "server on :80 : not listening (would start $($layout.Server))"
-    } elseif ($serverOurs -and $scriptOk) {
-        Say "server on :80 : this toolkit's server (would reuse)"
+    } elseif (Test-Page -Name "uninstall.sh") {
+        Say "server on :80 : serving /uninstall.sh (ownership not probed in DRY RUN; would reuse if it is this toolkit)"
     } else {
         Say "server on :80 : a DIFFERENT server / no uninstall.sh (would need -RestartServer)"
     }
@@ -280,7 +282,7 @@ The server IS running and serving http://$HostIp/index.html.
 If the TV is rooted only through the browser path, do it manually:
   1. load http://$HostIp/index.html on the TV and leave it
   2. python $($layout.Tools)\kernel_root.py --fork
-  3. python $($layout.Tools)\run_root.py "curl -s http://$HostIp/uninstall.sh | sh" 30
+  3. python $($layout.Tools)\run_root.py "curl -s http://$HostIp/uninstall.sh | sh" 120
   4. reboot the TV
 "@
 }

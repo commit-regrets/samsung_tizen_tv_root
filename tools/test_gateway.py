@@ -153,6 +153,20 @@ def main() -> int:
         failed += not check("shell refusal logged",
                             wait_for_log("[shell] refused", timeout=3.0))
 
+        # 2b) a stalled beacon sender must not hold the accept loop: the peeked
+        # bytes make recv return at once, and the connection is closed after the
+        # line.  The next request must not wait on it.
+        stalled = connect(http_port)
+        clients.append(stalled)
+        stalled.sendall(b"DSHROOT t=1s start uid=5001")
+        t0 = time.time()
+        status, _, _ = get(http_port, "/index.html")
+        failed += not check(
+            "stalled beacon sender does not block the next request",
+            b"200" in status and time.time() - t0 < 3.0,
+            f"{time.time() - t0:.1f}s {status.decode('latin-1')}",
+        )
+
         # 3) a client that arrives before the page does waits for a stub ...
         waiting = connect(rpc_port)
         clients.append(waiting)
@@ -175,6 +189,21 @@ def main() -> int:
         )
         failed += not check("RSET keeps the waiting client", reply == "IDLE",
                             "nothing was paired yet")
+
+        # 2c) RSET split across two TCP segments ("RSE" then "T") is still
+        # recognised; one peek used to send it into the 30-minute BUSY wait.
+        t0 = time.time()
+        split = connect(rpc_port)
+        clients.append(split)
+        split.sendall(b"RSE")
+        time.sleep(0.05)
+        split.sendall(b"T")
+        reply = split.recv(16).decode("latin-1").strip()
+        failed += not check(
+            "RSET split across segments",
+            reply in ("OK", "IDLE") and time.time() - t0 < 2.0,
+            f"reply={reply!r} in {time.time() - t0:.2f}s",
+        )
 
         # 3) the next stub pairs with that waiting client, hello intact.
         stub = connect(http_port)
@@ -222,6 +251,27 @@ def main() -> int:
         clients.append(shell)
         failed += not check("known TV peer may hold the shell slot",
                             wait_for_log("[shell] reverse shell connected", timeout=4.0))
+
+        # 8) a DIFFERENT peer cannot evict the attached shell (two-connect attack:
+        #    send PGDB/DSHROOT to join TV_PEERS, then open a silent connection).
+        #    Uses the 127.0.0.2 loopback alias as a distinct source address.
+        try:
+            alias = socket.socket()
+            alias.bind(("127.0.0.2", 0))
+            alias.settimeout(3)
+            alias.connect(("127.0.0.1", http_port))
+            alias.sendall(b"DSHROOT t=1s start uid=5001\n")
+            alias.close()
+            intruder = socket.socket()
+            intruder.bind(("127.0.0.2", 0))
+            intruder.settimeout(3)
+            intruder.connect(("127.0.0.1", http_port))
+            clients.append(intruder)
+            failed += not check(
+                "a different peer cannot evict the attached shell",
+                wait_for_log("[shell] refused 127.0.0.2", timeout=4.0))
+        except OSError as exc:
+            print(f"SKIP: loopback alias 127.0.0.2 unavailable ({exc})", flush=True)
     finally:
         for c in clients:
             try:

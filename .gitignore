@@ -2,7 +2,7 @@
 #
 # Rule of thumb: source, docs, scripts and the shipped payload artifact are
 # tracked; anything generated at runtime, rebuilt, or host-specific is not.
-# `server/payload.dll` IS tracked on purpose - it is the 32,768-byte v39 artifact
+# `server/payload.dll` IS tracked on purpose - it is the 33,280-byte v39.2 artifact
 # the toolkit serves to the TV, so the repo runs without a .NET SDK
 # (byte-identical to payload/out/MultiControlService.dll).  deploy.sh itself is a
 # TEMPLATE (H=@HOST@, WANT=@WANT@) rendered by server.py, so no per-host copy
@@ -61,6 +61,8 @@ Thumbs.db
 desktop.ini
 
 # --------------------------------------------------------------- local scratch
+# agent scaffolding (not part of the toolkit)
+.zcode/
 *.bak
 *.tmp
 *.orig
@@ -79,3 +81,6 @@ tmp/
 # dotnet build scratch dirs (-o out10, out11, ...); only server/payload.dll is tracked
 payload/out*/
 python/
+
+# independent review notes (not part of the toolkit)
+docs/codreview.md

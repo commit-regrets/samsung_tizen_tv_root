@@ -10,6 +10,101 @@ entry is an incomplete change. `AGENTS.md` repeats this rule for agents.
 
 ---
 
+## 2026-10-26 (third pass) — second code review
+
+An independent re-review (`docs/codreview.md`, kept out of git: it is a review
+note, not a repo doc) agreed v39.1 was fit to deploy and found two P1s in
+`server.py`, a P2 in the stub's FILE op, a P2 in `Run()`'s tmpfs redirect, and
+documentation that had the kernel's memory model wrong. Fixed offline; the
+payload is now **v39.2** (`010946ff…`, 33,280 B) and the shellcode blob 7,696 B.
+Nothing is hardware-verified (TV still disconnected).
+
+### Server (P1/P2)
+
+- **Every post-peek read is bounded.** The accept loop reset the socket to
+  `None` after the 1.5 s peek, so a peer that sent `DSHROOT`/`GET ` and stalled
+  could hold the single accept thread (and with it the page, `/deploy.sh`,
+  `/save`, beacons and the shell slot). Accept now sets 2 s; `serve_http` keeps
+  its 10 s body timeout; the shell branch restores blocking reads only because
+  its reader is a dedicated thread; the gateway bounds its hello read.
+- **The interactive shell slot can no longer be evicted by a different peer.**
+  Two TCP connects used to be enough (send `PGDB`, then open a silent
+  connection) to take the operator's shell; now a different peer is refused and
+  logged, and the same TV may still replace its own (page reload). The token-less
+  `PGDB` handshake remains the open item.
+- **`tv_sock` is only aimed at a stub after op5/op7.** Setting it at hello meant
+  a keystroke on 9999 could be parsed as the next 16-byte RPC header and desync
+  the in-flight operation.
+- **`RSET` is matched across split TCP segments** (`RSE` then `T`): one peek
+  used to send the client into the 30-minute BUSY wait, in exactly the
+  wedged-stub case RSET exists for.
+- **`handle_shell` advances `output_dropped`** before clearing the buffer, so a
+  shell-log reader at a saved absolute offset no longer silently misses output.
+- **`beacons.log` rotates at 16 MiB** (`beacons.log.1`): any LAN peer can append
+  a 4 KB line per connection, so the file was a disk-fill vector and a way to
+  bury a real boot verdict.
+
+### Stub (P2)
+
+`op_file` ignored `write(2)`'s return, so a short write (ENOSPC on `/opt`)
+silently truncated a 4 KB chunk. New `write_full()` loops on partial writes,
+retries `EINTR`, reports `-EIO` on a zero write, and op8 sends its status. The
+blob was rebuilt and re-embedded (7,600 → 7,696 B); both `--check` modes pass.
+
+### Payload v39.2 (P2 + nits)
+
+- `Run()`'s wrapper now runs `ulimit -f 2048`: the 1 MiB cap bounded only what
+  the payload read, while `/tmp` is tmpfs, so a `yes` could fill RAM until the
+  120 s kill.
+- The first "still waiting on the device" beacon fires at 30 s (it fired at
+  ~1 s because the state started at `-30000`); a failed reopen names `_node`
+  instead of a hardcoded video40; the scan loop's indentation matches its block;
+  the `Kptr` comment now explains VMSPLIT_3G instead of LPAE.
+- `payload/global.json` pins SDK 10.0.301 (`latestPatch`): the artifact is
+  reproducible only against a known SDK.
+
+### Documentation (actively wrong before this)
+
+- **"ARM32 LPAE" was wrong.** The reference tree's kernel `.config` has
+  `# CONFIG_ARM_LPAE is not set`, `CONFIG_VMSPLIT_3G=y`,
+  `CONFIG_PAGE_OFFSET=0xC0000000`, `CONFIG_HIGHMEM=y`. The linear map therefore
+  covers **lowmem only**; with `PHYS_OFFSET 0x20000000`, `VA = PA + 0xA0000000`
+  and `high_memory` at VA `0xE0000000` if lowmem is capped at 512 MiB. A
+  pointer at/above that is vmalloc/module space where the subtraction is not a
+  translation: a **garbage read**, not a high task/cred. Corrected in
+  `AGENTS.md` (§1, §2, traps 5/16), `docs/EXPLOIT.md` (the address-space table
+  and the high-half note), `docs/FAILED.md`, `docs/PORTABILITY.md`,
+  `README.md`, `docs/TESTING.md` and the `Kptr` comment.
+- The high-half item is now two falsifiable checks (read
+  `high_memory`/`max_low_pfn`; one deliberate high-PA read against the recon
+  claim), not "two causes open".
+- `docs/OPEN-ISSUES.md`: removed the stale "update `WANT=`/size" instruction
+  (the deploy gate is rendered), added the second review's deferred items, and
+  fixed the state block (v39.2, blob size).
+- `AGENTS.md` §5 gained `payload/global.json`; `docs/SERVER-HOSTING.md` and
+  `SECURITY.md` describe the new server bounds; `.gitignore` ignores `.zcode/`
+  (agent scaffolding, not part of the toolkit) and names the 33,280-byte v39.2
+  artifact.
+
+### Tools and tests
+
+- `test_constants.py`: a check no longer passes when **both** regexes miss
+  (sentinel `None`), and new checks cover the stub caps and `write_full`, the
+  payload's `ulimit`/beacon/node fixes, and each server hardening token.
+- `test_gateway.py`: stalled beacon sender, split `RSET`, and cross-peer shell
+  refusal.
+- `root_shell.py` / `run_root.py` / `auto_root.py` reconfigure stdout with
+  `errors="replace"` (a TV byte can kill a cp1252 console); `find_task.py`
+  closes a desynced reconnect instead of leaking it; `root.ps1` /
+  `uninstall.ps1` require IPv4 (TryParse also accepts IPv6), `-DryRun` no longer
+  calls a working server "DIFFERENT", and uninstall's manual wait hint is 120 s
+  (was 30, while the script needs far longer); `wasm_builder.js` fixes
+  `typeof x == "array"` → `Array.isArray`, removes an implicit global `flags`,
+  and notes the shared script scope.
+
+All of this is offline: `python tools/test_all.py` → 8/8 layers pass, both
+shellcode checks green, two clean builds byte-identical.
+
 ## 2026-10-26 (later) — independent review, v39 hardening
 
 A full-repo review (payload, stub, server, tools, scripts, page/WASM, tests, docs)

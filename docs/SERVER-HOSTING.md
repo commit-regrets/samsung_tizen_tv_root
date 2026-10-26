@@ -82,6 +82,15 @@ firewall rule; the TV only ever talks to port 80 and to `31337` on its own side.
   cross-origin POST; beacon lines are capped at 4 KB.
 - A crash leaves a traceback in `logs/server.task.err`.
 
+- **Every post-peek read is bounded** (2 s at accept, 10 s for the HTTP body):
+  a peer that sends `DSHROOT`/`GET ` and stalls can no longer hold the single
+  accept thread.
+- **The shell slot cannot be evicted by another peer**; the same TV may replace
+  its own. `tv_sock` is only aimed at a stub after op5/op7 (before that,
+  keystrokes would be parsed as an RPC header and desync the operation).
+- **`RSET` is matched across split TCP segments** (`RSE` + `T`), and
+  `beacons.log` rotates at 16 MiB (`beacons.log.1`) so a LAN peer cannot fill
+  the disk with 4 KB lines.
 ## Reading the task status correctly
 
 `wscript … , False` launches the server detached and returns immediately, so

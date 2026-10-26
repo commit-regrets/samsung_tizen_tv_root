@@ -27,6 +27,11 @@ import time
 import kernel_root as kroot
 import physmap as T
 
+try:
+    sys.stdout.reconfigure(errors="replace")
+except Exception:
+    pass
+
 DEFAULT_HOST = os.environ.get("ROOT_HOST")
 DEFAULT_SCRIPT = os.environ.get("ROOT_SCRIPT", "deploy.sh")
 

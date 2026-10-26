@@ -4,8 +4,8 @@
 
 TV: **v37** (`968e1154…`, 29,184 B), rooted; last beacon `ROOTCHAN` at
 2026-10-25 22:55 and 31337 has timed out since — the set is powered off / off
-the network. The repo stages **v39.1** (`bc05cf51…`, 33,280 B, shellcode blob
-7,600 B): the code half of the 2026-10-26 independent review, plus the review
+the network. The repo stages **v39.2** (`010946ff…`, 33,280 B, shellcode blob
+7,696 B): the code half of the 2026-10-26 independent review, plus the review
 pass's own follow-up fixes (video40-only EBUSY retry, no cap writes on a uid-0
 cred, child-cred exclusion in `cred-elsewhere`, no re-fork, honest
 `root_via_fork` `already`). The review's findings and their fixes are in
@@ -23,10 +23,10 @@ floor, but a slow hunt can push to attempt 3. Read everything below the
 
 1. **Deploy v39.1 and verify it on the TV (first connected session).** Nothing in
    the batch has run on hardware. Minimum acceptance: `deploy.sh` renders and
-   reaches `COPY=ok`/`DEPLOY_DONE` with `SIZE=33280 MD5=bc05cf51…`; the payload
+   reaches `COPY=ok`/`DEPLOY_DONE` with `SIZE=33280 MD5=010946ff…`; the payload
    opens video40 (`device /dev/video40 fd=`, or an `absent` line for another
    model); one cold boot roots on attempt 1 or 2 with `SUCCESS`/`ROOTCHAN`;
-   `id -u` = 0; `md5sum` of the installed DLL = `bc05cf51…`;
+   `id -u` = 0; `md5sum` of the installed DLL = `010946ff…`;
    `tools/test_all.py --tv` green on a fresh page load. Then uninstall/`recover.sh`
    once to prove the rollback and the allowlist ordering did not break the undo
    path.
@@ -477,7 +477,7 @@ The attempt-1 marker to look for: `attempt=1` → (optionally `retry in 5s`)
   `python server.py` does not.
 - **Payload builds:** any dotnet SDK ≥ 8 builds the `net6.0` project; the
   `NETSDK1138` "out of support" warning is expected. A payload change means: rebuild,
-  update `WANT=`/size in `server/deploy.sh`, deploy over the channel, reboot, and
+  copy the new DLL over `server/payload.dll` (the deploy gate is rendered from it), deploy over the channel, reboot, and
   check the beacon chain — `AGENTS.md` §7/§9.
 - **Do not launch a second server** while the task's one owns `:80`; the TV would
   fetch whichever answered.

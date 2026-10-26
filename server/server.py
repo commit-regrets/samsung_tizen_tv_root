@@ -16,6 +16,7 @@ import os
 import queue
 import re
 import socket
+import struct
 import threading
 import time
 import traceback
@@ -84,7 +85,7 @@ def _drop_tv_socket():
     socket: a killed client leaves its thread holding the slot, and every later
     client then gets "BUSY" - the same class of stall as a wedged stub.
     """
-    global rpc_tv, rpc_hello, rpc_client
+    global rpc_tv, rpc_hello, rpc_client, tv_sock
     conn, rpc_tv, rpc_hello = rpc_tv, None, b""
     if conn is None:
         # Nothing paired, so any rpc_client is a client still *waiting* for a stub.
@@ -93,6 +94,11 @@ def _drop_tv_socket():
         print("[rpc] RSET: nothing paired, keeping the waiting client", flush=True)
         return
     client, rpc_client = rpc_client, None
+    with state_lock:
+        # If this stub had been turned into a shell (op5/op7), the 9999 bridge
+        # must not keep a handle on the socket we are about to close.
+        if tv_sock is conn:
+            tv_sock = None
     try:
         conn.close()
     except OSError:
@@ -345,10 +351,29 @@ def tv_reader(conn):
 
 
 def handle_shell(conn):
-    global tv_sock
+    global tv_sock, output_dropped
+    peer = _tcp_peer(conn)
     with state_lock:
-        tv_sock = conn
+        cur = tv_sock
+        cur_peer = _tcp_peer(cur) if cur is not None else ""
+        if cur is not None and cur_peer not in ("", peer):
+            # Two TCP connects used to be enough to take the operator's shell
+            # slot: send PGDB (any sender joins TV_PEERS), then open a silent
+            # connection.  A different peer can no longer evict an attached
+            # shell; the same TV may replace its own (page reload / new op5).
+            print(f"[shell] refused {peer}: a shell from {cur_peer} is already "
+                  f"attached", flush=True)
+            try:
+                conn.close()
+            except OSError:
+                pass
+            return
+        # Keep the absolute-position invariant _append_output maintains: a bare
+        # clear left shell readers with a saved offset past the end and they
+        # silently missed output until the buffer caught up.
+        output_dropped += len(output)
         output.clear()
+        tv_sock = conn
     print("[shell] reverse shell connected", flush=True)
     log(f"\n===== {datetime.now().isoformat(timespec='seconds')} shell open =====\n")
     threading.Thread(target=tv_reader, args=(conn,), daemon=True).start()
@@ -451,32 +476,58 @@ def rpc_gateway_client(client):
         print("[rpc] paired with TV physmap stub", flush=True)
 
     if first:
-        hello = _recv_exact(conn, 12)
+        # The queued stub may be fake, or a page that died between PGDB and its
+        # hello.  The accept loop set a 10 s timeout on this socket; honour it
+        # here so a stalled peer cannot park this thread with the client slot
+        # claimed forever.
+        try:
+            conn.settimeout(10)
+            hello = _recv_exact(conn, 12)
+        except OSError:
+            hello = None
         if hello is None:
-            print("[rpc] TV closed before hello", flush=True)
+            print("[rpc] TV closed (or stalled) before hello", flush=True)
             with rpc_lock:
                 if rpc_tv is conn:
                     rpc_tv = None
                 if rpc_client is client:
                     rpc_client = None
-            client.close()
+            try:
+                client.close()
+            except OSError:
+                pass
+            try:
+                conn.close()
+            except OSError:
+                pass
             return
         rpc_hello = hello
         m, pr, op = hello[:4], int.from_bytes(hello[4:8], "little", signed=True), \
             int.from_bytes(hello[8:12], "little", signed=True)
         print(f"[rpc] hello {m!r} prctl_ret={pr} open_ret={op}", flush=True)
-        with state_lock:
-            tv_sock = conn
+        # From here reads are blocking: a stub idles between commands and must
+        # not be dropped for being quiet.
+        conn.settimeout(None)
         threading.Thread(target=rpc_tv_reader, args=(conn,), daemon=True).start()
     else:
         hello = rpc_hello
 
     try:
         client.sendall(hello)
+        header = b""
         while True:
             data = client.recv(65536)
             if not data:
                 break
+            if len(header) < 4:
+                header += data[:4 - len(header)]
+                if len(header) == 4 and struct.unpack("<I", header)[0] in (5, 7):
+                    # op5 EXEC / op7 RUN turn the stub into a shell.  Only now
+                    # may the 9999 bridge aim at it: during ordinary RPC, stray
+                    # keystrokes would be parsed as the next 16-byte header and
+                    # desync the in-flight operation.
+                    with state_lock:
+                        tv_sock = conn
             conn.sendall(data)
     except OSError:
         pass
@@ -564,18 +615,29 @@ def rpc_server():
         # Without this the only cure was restarting the whole server, because a
         # stub that was consumed by op 5/op 7 (or half-dead after a power cycle)
         # stays as rpc_tv and answers every later client with a cached hello.
-        # RSET is sent immediately after connect, so a short peek is enough and
-        # keeps the accept loop from stalling 2 s on every silent client.
-        # The timeout MUST be cleared even when the peek times out: a socket that
-        # keeps it detaches the gateway client on its first idle read (0.5 s).
+        # RSET is sent immediately after connect, but TCP may deliver "RSE"
+        # first: one peek then sent the client into the 30-minute BUSY wait, in
+        # exactly the wedged-stub case RSET exists for (review 2026-10-26).  Peek
+        # until four bytes arrive or the prefix stops matching.
+        c.settimeout(0.5)
+        head = b""
         try:
-            c.settimeout(0.5)
-            try:
-                head = c.recv(4, socket.MSG_PEEK)
-            finally:
-                c.settimeout(None)
+            deadline = time.time() + 0.5
+            while len(head) < 4:
+                try:
+                    head = c.recv(4, socket.MSG_PEEK)
+                except socket.timeout:
+                    break
+                if not head or not b"RSET".startswith(head):
+                    break
+                left = deadline - time.time()
+                if left <= 0:
+                    break
+                c.settimeout(left)
         except OSError:
             head = b""
+        finally:
+            c.settimeout(None)
         if head == b"RSET":
             try:
                 c.recv(4)
@@ -594,10 +656,36 @@ def rpc_server():
 
 
 def _tcp_peer(conn):
+    if conn is None:
+        return ""
     try:
         return conn.getpeername()[0]
     except OSError:
         return ""
+
+
+BEACON_LOG_MAX = 16 * 1024 * 1024
+
+
+def _append_beacon_line(text: str):
+    """Append one beacon line, rotating the log first (disk-fill guard).
+
+    Any LAN peer can append a 4 KB DSHROOT line per connection, so an
+    unrotated beacons.log was both a disk-fill vector and a way to bury (or
+    forge) boot verdicts.  Rotation keeps at most ~32 MiB.
+    """
+    try:
+        if BEACON_LOG.exists() and BEACON_LOG.stat().st_size > BEACON_LOG_MAX:
+            bak = BEACON_LOG.with_name("beacons.log.1")
+            try:
+                bak.unlink()
+            except FileNotFoundError:
+                pass
+            BEACON_LOG.rename(bak)
+    except OSError:
+        pass
+    with BEACON_LOG.open("a", encoding="utf-8", errors="replace") as fh:
+        fh.write(f"{datetime.now().isoformat(timespec='seconds')} {text}\n")
 
 
 def _queue_stub(conn):
@@ -634,7 +722,12 @@ def http_server():
                 first = conn.recv(64, socket.MSG_PEEK)
             except socket.timeout:
                 first = b""
-            conn.settimeout(None)
+            # Every branch below must be bounded.  Restoring None here (the v39
+            # code) let a peer that sent "DSHROOT" or "GET " and then stalled
+            # freeze the single accept thread - and with it the page, /deploy.sh,
+            # /save, beacons and the shell slot (review P1, 2026-10-26).  2 s is
+            # ample on a LAN; serve_http raises it to 10 s for the body.
+            conn.settimeout(2.0)
             peer = addr[0] if addr else ""
             if first[:4] == b"PGDB":
                 print("[rpc] TV physmap stub connected", flush=True)
@@ -653,9 +746,7 @@ def http_server():
                               f"({len(data)}B) truncated", flush=True)
                         data = data[:BEACON_MAX]
                     print(f"[beacon] {data[:300]!r}", flush=True)
-                    with BEACON_LOG.open("a", encoding="utf-8", errors="replace") as fh:
-                        fh.write(f"{datetime.now().isoformat(timespec='seconds')} "
-                                 f"{data.decode('latin-1').strip()}\n")
+                    _append_beacon_line(data.decode("latin-1").strip())
                 except OSError:
                     pass
                 conn.close()
@@ -684,6 +775,9 @@ def http_server():
                           f"(send PGDB or a DSHROOT beacon first)", flush=True)
                     conn.close()
                 else:
+                    # The shell is silent by design and long-lived; its reader is
+                    # a dedicated thread, so blocking reads there are correct.
+                    conn.settimeout(None)
                     handle_shell(conn)   # keep open
         except Exception as exc:
             print(f"[http] {exc}", flush=True)

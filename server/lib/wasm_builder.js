@@ -1,6 +1,9 @@
       // Copyright 2016 the V8 project authors. All rights reserved.
       // Use of this source code is governed by a BSD-style license that can be
       // found in the LICENSE file.
+      // NOTE: this vendored helper shares the page's script scope with
+      // payloads/browser_payload.js, so its kExpr*/kGCPrefix constants are
+      // visible there; keep names unique when editing either file.
       // Used for encoding f32 and double constants to bits.
       let byte_view = new Uint8Array(8);
       let data_view = new DataView(byte_view.buffer);
@@ -11,7 +14,9 @@
       //  - a single string; the returned buffer will contain the char codes of all
       //    contained characters.
       function bytes(...input) {
-        if (input.length == 1 && typeof input[0] == "array") input = input[0];
+        // `typeof x == "array"` is never true in JS, so bytes([1,2,3]) used to
+        // return a single zero byte (dormant, but a trap for the next edit).
+        if (input.length == 1 && Array.isArray(input[0])) input = input[0];
         if (input.length == 1 && typeof input[0] == "string") {
           let len = input[0].length;
           let view = new Uint8Array(len);
@@ -2257,7 +2262,7 @@
           let tgtHeap = wasmSignedLeb(targetType.heap_type, kMaxVarInt32Size);
           let srcIsNullable = sourceType.opcode == kWasmRefNull;
           let tgtIsNullable = targetType.opcode == kWasmRefNull;
-          flags = (tgtIsNullable << 1) + srcIsNullable;
+          let flags = (tgtIsNullable << 1) + srcIsNullable;
           return [
             kGCPrefix,
             brOnFail ? kExprBrOnCastFailGeneric : kExprBrOnCastGeneric,

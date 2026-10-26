@@ -12,6 +12,11 @@ import time
 
 import physmap as T
 
+try:
+    sys.stdout.reconfigure(errors="replace")
+except Exception:
+    pass
+
 cmd = sys.argv[1]
 wait = float(sys.argv[2]) if len(sys.argv) > 2 else 3.0
 # The stub's cmdbuf is 512 B, it stores "-c\0" + command there, and v39 writes a

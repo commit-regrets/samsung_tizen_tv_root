@@ -29,6 +29,13 @@ persistent boot payload. It is not a consumer tool and it is not hardened.
   file server would leave its `@HOST@`/`@WANT@` markers and the script refuses to
   run (`NEED_RENDER`), so there is no stale generated copy to tamper with.
 
+- **The PC server is part of the boundary too.** In v39.2 the shell slot can no
+  longer be evicted by a different peer, `tv_sock` is only aimed at a stub after
+  op5/op7, every post-peek read is bounded, `RSET` is recognised across split TCP
+  segments, and `beacons.log` rotates at 16 MiB. **Still open:** `PGDB` pairing
+  has no token, so a LAN peer can race the TV for the stub and feed the tools
+  forged reads; keep the PC off untrusted networks. The design for the fix is in
+  `docs/OPEN-ISSUES.md`.
 ## Supported scope
 
 - The test unit described in `README.md` and the constants in

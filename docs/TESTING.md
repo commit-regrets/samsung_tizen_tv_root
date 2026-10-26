@@ -19,7 +19,7 @@ TV and matched against the DWARF dump of a same-family kernel. It exercises
 (`iter_owner_creds`) and the page-straddle case that a per-page `find()` misses.
 It also twins the payload hunt (`hunt_new_phyrfork` + pre-set), the v18
 MapPage-vs-kernel alias (`AliasedMemRPC`), per-instance device contention
-(`Video40`; two nodes can be open at once), LPAE pointers above `0xE0000000`, and
+(`Video40`; two nodes can be open at once), pointers above `0xE0000000` (VMSPLIT_3G: not a valid translation), and
 a hole that must break the scanner's carry. Since v39 `patch_gate` also enforces
 `SaneCred`, `high_alloc_probe` emits `cred-miss` and models the 2.5 s sweep
 budget, and `high_alloc_gate` mirrors the payload's highCred back-fill.
@@ -98,7 +98,7 @@ Assembles `tools/physrpc.S` and compares it byte-for-byte with the `SHELLCODE`
 array the page actually runs (`server/payloads/browser_payload.js`), and
 `tools/embed_physrpc.py --check` compares that array with
 `tools/physrpc_shellcode.bin`. Run both after touching either side
-(blob is 7,600 B since v39):
+(blob is 7,696 B since the v39.2 stub write-check):
 
 ```sh
 python tools/build_physrpc.py                 # physrpc.S -> physrpc_shellcode.bin
@@ -139,7 +139,7 @@ Run these once per payload change (`AGENTS.md` §7 has the canonical list):
 2. `python tools/root_shell.py "grep CapEff /proc/self/status" <tv-ip>` →
    `0000003fffffffff`.
 3. `python tools/root_shell.py "md5sum <bin>/MultiControlService.dll" <tv-ip>` →
-   the md5 of `server/payload.dll` (v39.1: `bc05cf51…`, 33,280 B). The deploy gate
+   the md5 of `server/payload.dll` (v39.2: `010946ff…`, 33,280 B). The deploy gate
    is rendered from that file, so there is no constant in the scripts to compare.
 4. Cold boot (mains unplug, not the remote) with the browser closed → 31337 is
    back within ~60–90 s; `logs/beacons.log` shows `DSHROOT` chain.

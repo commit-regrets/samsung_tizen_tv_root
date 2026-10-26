@@ -209,7 +209,8 @@ function Start-ToolkitServer {
 
 if (-not $TvIp) { throw "Pass -TvIp <tv-ip> (or set ROOT_TV)." }
 $TvParsed = $null
-if (-not [Net.IPAddress]::TryParse($TvIp, [ref]$TvParsed)) {
+if (-not [Net.IPAddress]::TryParse($TvIp, [ref]$TvParsed) -or
+    $TvParsed.AddressFamily -ne [Net.Sockets.AddressFamily]::InterNetwork) {
     throw "-TvIp '$TvIp' is not an IPv4 address (the payload's allowlist compares IPs)."
 }
 
@@ -217,7 +218,8 @@ $layout = Find-Layout -Hint $ToolkitDir
 $py = Find-Python -Explicit $Python
 if ($HostIp) {
     $HostParsed = $null
-    if (-not [Net.IPAddress]::TryParse($HostIp, [ref]$HostParsed)) {
+    if (-not [Net.IPAddress]::TryParse($HostIp, [ref]$HostParsed) -or
+        $HostParsed.AddressFamily -ne [Net.Sockets.AddressFamily]::InterNetwork) {
         throw "-HostIp '$HostIp' is not an IPv4 address."
     }
 } else {
@@ -245,12 +247,12 @@ if ($DryRun) {
     Say ""
     if (-not $serverUp) {
         Say "server on :80 : not listening (would start $($layout.Server))"
-    } elseif ($serverOurs -and $pageOk) {
-        Say "server on :80 : this toolkit's server (would reuse)"
-    } elseif ($serverOurs) {
-        Say "server on :80 : this toolkit, but /$Page is not 200"
+    } elseif (Test-Page -Name $Page) {
+        # Ownership is not probed under -DryRun (no probe file), so do not claim
+        # a different server merely because the probe was skipped.
+        Say "server on :80 : serving /$Page (ownership not probed in DRY RUN; would reuse if it is this toolkit)"
     } else {
-        Say "server on :80 : a DIFFERENT server (would need -RestartServer)"
+        Say "server on :80 : a DIFFERENT server or no /$Page (would need -RestartServer)"
     }
     Say "31337 on TV   : $(if ($tvRooted) { 'open (TV looks rooted)' } else { 'closed' })"
     if ($tvRooted -and -not $Force) {

@@ -8,10 +8,10 @@ browser, and the root is made persistent through a stock on-boot service app.
 |---|---|
 | Test unit | 2024 Neo QLED, QNX1D series (QTV T09 platform) |
 | Firmware | `T-PTMDDEUC` (01400) |
-| Kernel | Linux 5.4.249, ARM32 LPAE, `PHYS_OFFSET 0x20000000` |
+| Kernel | Linux 5.4.249, ARM32 (VMSPLIT_3G + HIGHMEM, no LPAE), `PAGE_OFFSET 0xC0000000`, `PHYS_OFFSET 0x20000000` |
 | Browser | Chromium 120.0.6099.5 (`SamsungBrowser/7.0`) |
 | Root | `uid=0`, `CapEff=0x3fffffffff` |
-| Persistent payload | repo v39.1: 33,280 B, md5 `bc05cf51…` (test unit still runs v37: 29,184 B, `968e1154…`) |
+| Persistent payload | repo v39.2: 33,280 B, md5 `010946ff…` (test unit still runs v37: 29,184 B, `968e1154…`) |
 | Root channel | TCP **31337** on the TV, line protocol, replies end with `__END__` |
 
 ## Quick start

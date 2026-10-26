@@ -53,6 +53,10 @@ def main() -> int:
     stub = STUB.read_text(encoding="ascii")
     deploy = DEPLOY.read_text(encoding="utf-8")
     recover = RECOVER.read_text(encoding="utf-8")
+    server = (ROOT / "server" / "server.py").read_text(encoding="utf-8")
+    run_root = (HERE / "run_root.py").read_text(encoding="utf-8")
+    auto_root = (HERE / "auto_root.py").read_text(encoding="utf-8")
+    write_root = (HERE / "write_root.py").read_text(encoding="utf-8")
 
     # --- the payload's own offsets -----------------------------------------
     want = {
@@ -77,9 +81,11 @@ def main() -> int:
     check("sim_rpc sweep band == proven RAM (0x20000000-0x40000000)",
           grab(sim, r"^SWEEP_LO\s*=\s*(0x[0-9A-Fa-f]+)") == 0x20000000
           and grab(sim, r"^SWEEP_HI\s*=\s*(0x[0-9A-Fa-f]+)") == 0x40000000)
+    sim_span = grab(sim, r"^PROBE_SPAN_PAGES\s*=\s*(\d+)")
+    prog_span = grab(prog, r"const int SpanPages\s*=\s*(\d+)")
     check("sim_rpc probe span mirrors SpanPages",
-          grab(sim, r"^PROBE_SPAN_PAGES\s*=\s*(\d+)")
-          == grab(prog, r"const int SpanPages\s*=\s*(\d+)"))
+          sim_span is not None and sim_span == prog_span,
+          f"sim={sim_span} payload={prog_span}")
     check("sim_rpc CAP_FULL == payload caps (0x3fffffffff)",
           grab(sim, r"^CAP_FULL\s*=\s*(0x[0-9A-Fa-f]+)") == 0x3FFFFFFFFF)
 
@@ -167,6 +173,33 @@ def main() -> int:
           "WANT=$want" in recover and "SIZE_WANT=$size" in recover)
     check("high-scan skips the child's own cred object",
           "childCredPhys" in prog and "child_cred_phys" in sim)
+
+    # --- v39.2 hardening tokens (review 2026-10-26, third pass) ------------
+    check("stub op8 checks write(2) through write_full",
+          "write_full:" in stub and "bl      write_full" in stub)
+    cmd_cap = grab(stub, r"movw\s+r2, #(\d+)\s+@ cmdbuf")
+    path_cap = grab(stub, r"movw\s+r2, #(\d+)\s+@ pathbuf")
+    check("stub cmdbuf cap == 511 (508-byte command + NUL)",
+          cmd_cap == 511, f"got {cmd_cap}")
+    check("stub pathbuf cap == 255", path_cap == 255, f"got {path_cap}")
+    check("run_root refuses commands over 508 B", "> 508" in run_root)
+    check("auto_root refuses buffers over 511 B", "> 511" in auto_root)
+    check("write_root refuses paths over 255 B", "> 255" in write_root)
+    check("payload caps the Run() redirect file (ulimit -f)",
+          "ulimit -f 2048" in prog)
+    check("payload's first still-waiting beacon is at 30 s",
+          "long lastWaitBeacon = 0" in prog)
+    check("payload names the actual node on a failed reopen",
+          'fail reopen " + _node' in prog)
+    check("server bounds every post-peek read", "conn.settimeout(2.0)" in server)
+    check("server keeps output_dropped on shell connect",
+          "output_dropped += len(output)" in server)
+    check("server refuses a different peer while a shell is attached",
+          "a shell from" in server and "is already" in server)
+    check("server accepts RSET split across TCP segments",
+          'b"RSET".startswith(head)' in server)
+    check("server rotates beacons.log", "beacons.log.1" in server)
+    check("server only aims tv_sock at op5/op7", "in (5, 7)" in server)
 
     # --- deploy is a template (structural fix) -----------------------------
     check("deploy.sh H/WANT/SIZE come from the server",

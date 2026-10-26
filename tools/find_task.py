@@ -77,11 +77,15 @@ def scan(comm, lo=LO, hi=HI, batch=128):
             rpc = None
             for attempt in range(5):
                 try:
-                    rpc = T.RPC(timeout=15)
-                    if R.sanity(rpc):
+                    new = T.RPC(timeout=15)
+                    if R.sanity(new):
+                        rpc = new
                         break
+                    # An out-of-sync stub must be closed, not abandoned: the
+                    # old loop overwrote it on the next attempt (fd/socket leak).
+                    new.close()
                 except Exception:
-                    rpc = None
+                    pass
                 time.sleep(1.0)
             if rpc is None:
                 print("[-] could not re-establish an in-sync stub", flush=True)
@@ -97,11 +101,13 @@ def scan(comm, lo=LO, hi=HI, batch=128):
             rpc = None
             for attempt in range(5):
                 try:
-                    rpc = T.RPC(timeout=15)
-                    if R.sanity(rpc):
+                    new = T.RPC(timeout=15)
+                    if R.sanity(new):
+                        rpc = new
                         break
+                    new.close()
                 except Exception:
-                    rpc = None
+                    pass
                 time.sleep(1.0)
             if rpc is None:
                 return hits

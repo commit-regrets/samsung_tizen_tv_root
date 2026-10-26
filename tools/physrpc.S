@@ -394,12 +394,12 @@ file_open:
     movw    r1, #OFF_databuf
     add     r1, r12, r1
     mov     r2, r11
-    mov     r7, #4
-    svc     #0
+    bl      write_full
+    mov     r4, r0            @ write status (0 = all bytes written)
     mov     r0, r9
-    mov     r7, #6
+    mov     r7, #6            @ close
     svc     #0
-    mov     r0, #0
+    mov     r0, r4
     bl      send_status
     b       loop
 
@@ -516,6 +516,41 @@ send_status:
     mov     r2, #4
     bl      send_full
     pop     {r1, r2, r3, pc}
+
+@ write_full(r0=fd, r1=buf, r2=len) -> 0 or negative
+@ A 4 KiB write can be short (ENOSPC on /opt, EINTR, signals).  The old op 8
+@ ignored write(2)'s return entirely, so a short write silently produced a
+@ truncated-but-plausible file (review P2, 2026-10-26).
+write_full:
+    push    {r4, r5, lr}
+    mov     r4, r0            @ fd
+    mov     r5, r1            @ buf
+    mov     r3, r2            @ remaining
+wf_loop:
+    cmp     r3, #0
+    beq     wf_ok
+    mov     r0, r4
+    mov     r1, r5
+    mov     r2, r3
+    mov     r7, #4            @ write
+    svc     #0
+    cmp     r0, #0
+    blt     wf_err
+    beq     wf_zero
+    add     r5, r5, r0
+    sub     r3, r3, r0
+    b       wf_loop
+wf_err:
+    cmn     r0, #4            @ -EINTR -> retry
+    beq     wf_loop
+    b       wf_done
+wf_zero:
+    mvn     r0, #4            @ -EIO: write returned 0 with bytes left
+    b       wf_done
+wf_ok:
+    mov     r0, #0
+wf_done:
+    pop     {r4, r5, pc}
 
 @ ---------------------------------------------------------------- data
     .align 2

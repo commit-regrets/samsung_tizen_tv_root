@@ -1,7 +1,7 @@
 # Portability — running this on a different Tizen 9 TV
 
 This toolkit was built against **one** unit: 2024 Neo QLED (QNX1D / QTV T09
-platform), firmware `T-PTMDDEUC 01400`, kernel 5.4.249 ARM32 LPAE, Chromium
+platform), firmware `T-PTMDDEUC 01400`, kernel 5.4.249 ARM32 (VMSPLIT_3G, no LPAE), Chromium
 120.0.6099.5. Everything model-specific below was *measured* on that unit.
 
 Network addresses are *not* in that list: the page rewrites the shellcode callback
@@ -130,7 +130,7 @@ These are the values that are *specific to the kernel build* and must be redone:
 
 | Constant | This unit | How to re-measure |
 |---|---|---|
-| `PHYS_OFFSET` | `0x20000000` | ARM32 LPAE: usually `0x20000000` on 5.4 Samsung TV kernels; confirm with the Image signature |
+| `PHYS_OFFSET` / `PHYS_OFF` | `0x20000000` / VA-PA `0xA0000000` | ARM32 VMSPLIT_3G (not LPAE): `0x20000000` on 5.4 Samsung TV kernels; confirm with the Image signature |
 | Kernel Image phys | `0x20008000` | `PHYS_OFFSET + 0x8000`; find by signature scan |
 | `init_task` | `0xC0957180` | via `__ksymtab` (kallsyms is absent on retail builds) — see `tools/` |
 | `task_struct`: `tasks` / `comm` / `cred` / `real_parent` | `0x23C` / `0x400` / `0x3F8` / `0x2F0` | GPL source + `.config`, or DWARF from a matching build (a vmlinux with DWARF and `pyelftools`; the reference tree has the reader as `recon/dwarf_offsets.py`) |

@@ -35,7 +35,7 @@ channel on TCP 31337 (line protocol, replies end with `__END__`).
 
 | | |
 |---|---|
-| Payload | repo **v39.1** (`bc05cf51…`, 33,280 B) built 2026-10-26 — review hardening + follow-up: rendered `deploy.sh` template, transactional deploy with rollback, video40-only EBUSY retry (video30/video60 only on ENOENT), NUL-safe stub buffers, 120 s `Run()` cap with capped output, cap writes only after a uid-5001 ids write, browser page fixes. **TV still on v37** (`968e1154…`, 29,184 B, deployed 2026-10-25, set disconnected since). Deploy v39.1 on the next connected session; one cold boot then answers the high-half question. |
+| Payload | repo **v39.2** (`010946ff…`, 33,280 B) built 2026-10-26 — v39 review hardening + the second review's payload fixes (`ulimit -f` on the Run() redirect file, first still-waiting beacon at 30 s, failed reopen names the actual node, SDK pinned by `payload/global.json`): rendered `deploy.sh` template, transactional deploy with rollback, video40-only EBUSY retry, NUL-safe stub, 120 s `Run()` cap, cap writes only after a uid-5001 ids write. **TV still on v37** (`968e1154…`, 29,184 B, deployed 2026-10-25, set disconnected since). Deploy v39.2 on the next connected session. |
 | Boot-to-root | **Fifth pass closed: attempt 2 is the floor; v37 cold boot 37 s.** The final stock→root cycle passed with the retry loop: attempt 1's stub died (`probe timed out`), `auto_root` requested a reload, attempt 2 on the fresh page rooted and deployed v37 (`COPY=ok`), then the cold boot rooted at t=37 (attempt 1 `seen=0`, attempt 2 `direct-parent+2f0`). v37 adds `real=`/`junk=` and the parent/latch summary fixes; this boot did not hit the high-alloc gate. v35: 37 s; v34: 34 s and 68 s (stock cycle); v33: 38–39 s; v32: 59 s; v31: 132 s. Evidence: every coherent task/cred read < `0xE0000000` (78/78 `cuid=5001` creds low; 21/21 high creds junk; 15/15 `direct-parent+` and 19/19 `self-patch` successes low; 0/81 task pointers high). Marker: `share/root_boot.txt` |
 | Root identity | `uid=0`, `CapEff=0x3fffffffff`, running under the app's own SMACK label |
 | Boot hook | a `boot_sequence` row in `/opt/dbspace/user/5001/.appsvc.db` |
@@ -59,9 +59,9 @@ wake).
 The boot sequence is deliberate: the first launch after a cold boot usually cannot read
 task memory coherently. v29 kept the exit-on-purpose design but gave attempt 1 four
 rounds; the rounds are `{0,0,5000,5000}` (the v31 10 s last wait was reverted).
-**Attempt 1 is an allocation lottery** — if the first process's task/cred land in
-the unreliable high half (≥ `0xE0000000` for reads), no amount of in-process waiting
-helps; v33's `high-alloc` gate fast-exits as soon as that is seen, and AUL
+**Attempt 1 is a lottery for lowmem placement.** A high value (>= `0xE0000000`) is
+a garbage read under VMSPLIT_3G, not a readable high allocation, so no amount of
+in-process waiting helps; v33's `high-alloc` gate fast-exits as soon as that is seen, and AUL
 relaunches, because only a fresh process re-rolls the allocation. Four fast attempts
 are allowed (counter in `/tmp/.dsh_try`, which resets at boot), then a long
 in-process fallback takes over. The gate is fast-mode only, so long mode cannot
@@ -91,13 +91,24 @@ cannot be restored it switches the window off (`physmap window off: …`). `Rele
 does the same when a slot re-protect fails. One-time beacon per process:
 `physmap window at <va> slots=2048x8000`.
 
-**Second limit, found on the v31 cold boot:** the video40 physmap does not read the
-high half reliably even with an alias-correct window. Every coherent task/cred read
-in the log is `< 0xE0000000`; at/above it the reads are 0, junk or `0xFF` (0/21 high
-creds ever read 5001; 0/81 successful task pointers were high). That is why the
-first process after a cold boot has always failed attempt 1: its task/cred landed
-high. A fresh process re-rolls the allocation; waiting in-process does not. Do not
-add more rounds/waits for attempt 1.
+**Second limit, found on the v31 cold boot — and now explained by the kernel config.**
+The kernel is **not LPAE**: `CONFIG_ARM_LPAE` is unset, `CONFIG_VMSPLIT_3G=y`,
+`CONFIG_PAGE_OFFSET=0xC0000000`, `CONFIG_HIGHMEM=y` (reference tree,
+`firmware/gpl/kernel_src/linux-5.4/.config`). The linear map therefore covers
+**lowmem only**; with `PHYS_OFFSET 0x20000000`, `VA = PA + 0xA0000000`, and if
+`max_low_pfn` caps lowmem at 512 MiB (phys `0x40000000`), `high_memory` lands
+exactly at VA **`0xE0000000`**. Everything above it is vmalloc/module space, so
+`va - 0xA0000000` is not a translation there at all: a "task pointer" at/above
+`0xE0000000` is a garbage read, not a high allocation (v31: 0/21 creds and 0/81
+task pointers above it ever read coherently; above it the reads are 0, junk or
+`0xFF`). The retracted 2026-10-26 note was based on the *later*
+`recon/tvphys.py` revision; the earlier `publish/recon/tvphys.py` comment
+(`0xC0000000..0xE0000000`, vmalloc above `0xE0800000`) matches the config. This
+does not change attempt 2 being the floor, and it does not by itself prove that
+video40 cannot read a high PA — the falsifiable checks are (a) `high_memory` /
+`max_low_pfn` read from the running Image and (b) a deliberate high-PA read
+against the recon claim that high reads succeeded on 2026-10-22.
+Do not add more rounds/waits for attempt 1.
 
 Diagnostic beacons (fifth pass, `docs/OPEN-ISSUES.md`): the `child=` line now carries
 `pu=` (the latched child's parent-cred uid), and while the direct-parent patch gate
@@ -188,7 +199,7 @@ thread (auto-update off) can run commands concurrently with the channel.
 |---|---|
 | Model / platform | QNX1D series, 2024 Neo QLED (QTV T09 platform) |
 | OS | Tizen 9 |
-| Kernel | Linux 5.4.249, ARM32 LPAE, `PHYS_OFFSET 0x20000000` |
+| Kernel | Linux 5.4.249, ARM32 (VMSPLIT_3G + HIGHMEM; `CONFIG_ARM_LPAE` is **not** set), `PAGE_OFFSET 0xC0000000`, `PHYS_OFFSET 0x20000000` |
 | Browser | Chromium 120.0.6099.5 (WasmGC available) |
 | Kernel Image | phys `0x20008000`, signature `ee4400eb00900fe1` |
 | `init_task` | `0xC0957180` (phys `0x20957180`) |
@@ -262,7 +273,8 @@ TV boot: com.samsung.tv.MultiControl-Service (dotnet-inhouse, app_onboot)
 | `tools/test_logs.py` | offline: beacon-analyzer fixtures (log **and** the on-TV marker), tool error paths, ps1 parse guard |
 | `tools/test_constants.py` | cross-checks the same offsets/limits/node names across `Program.cs`, `sim_rpc.py`, `kernel_root.py`, `physmap.py`, `physrpc.S`, the page and `deploy.sh` |
 | `tools/test_all.py` | runs every layer above; `--tv` adds the live stub |
-| `payload/Program.cs` | boot payload source (v39.1; TV on v37) |
+| `payload/Program.cs` | boot payload source (v39.2; TV on v37) |
+| `payload/global.json` | pins SDK 10.0.301 (rollForward latestPatch): a different SDK can change the artifact md5 |
 | `payload/BootPayload.csproj` | net6.0 project, assembly `MultiControlService` |
 | `root.ps1` | one-command runner (server + root + deploy + verify) |
 | `uninstall.ps1` | one-command uninstall (restore stock + verify) |
@@ -341,7 +353,7 @@ shell - that corrupts the stream and wastes the page load.
 duplicate an inventory here.
 
 `server/payload.dll` is the artifact the TV fetches during deploy and is
-byte-identical to `payload/out/MultiControlService.dll` (md5 `bc05cf51…`, v39.1;
+byte-identical to `payload/out/MultiControlService.dll` (md5 `010946ff…`, v39.2;
 reproducible — see §9), so a clone runs without a .NET SDK. Rebuild with
 `dotnet build payload/BootPayload.csproj -c Release -o out`, then copy it over
 `server/payload.dll`; there is **no `WANT=` constant to update** any more — the
@@ -391,7 +403,7 @@ python run_root.py "id" 6               # uid=0(root)
 #    from the address the TV used and WANT=/SIZE_WANT= from the payload.dll it
 #    serves, so there is no generated copy to go stale (the old deploy_local.sh).
 python run_root.py "curl -s http://<HOST_IP>/deploy.sh | sh" 45
-#    expect: UID=0, SIZE=33280, MD5=bc05cf51..., COPY=ok, HOST_FILE=..., DEPLOY_DONE
+#    expect: UID=0, SIZE=33280, MD5=010946ff..., COPY=ok, HOST_FILE=..., DEPLOY_DONE
 
 # 5. reboot the TV (exit the browser first so it does not restore the page)
 
@@ -409,7 +421,7 @@ gateway, deploy/uninstall control flow, source↔blob↔page consistency). Then:
 
 - [ ] `root_shell.py "id" <TV_IP>` returns `uid=0(root)`.
 - [ ] `root_shell.py "cat /proc/self/status | grep CapEff" <TV_IP>` → `0000003fffffffff`.
-- [ ] `root_shell.py "md5sum /opt/usr/apps/com.samsung.tv.MultiControl-Service/bin/MultiControlService.dll" <TV_IP>` → `bc05cf51…` after the v39.1 deploy (v37 `968e1154…` until then)
+- [ ] `root_shell.py "md5sum /opt/usr/apps/com.samsung.tv.MultiControl-Service/bin/MultiControlService.dll" <TV_IP>` → `010946ff…` after the v39.2 deploy (v37 `968e1154…` until then)
 - [ ] Cold boot with the browser closed → attempt 1 high exits in ~2 s (`high-alloc … fast-exit`), attempt 2 roots; v37 cold boot observed **37 s** (attempt 2; attempt 1 `seen=0`); v35: 37 s; v34: 34 s and 68 s. Attempt-1 `SUCCESS` is a bonus; attempt 2 is the floor, but a slow hunt can push to attempt 3.
 - [ ] `kill -9 <app pid>` → channel back in ~5–45 s (v33's high-alloc gate skips a high attempt quickly; otherwise attempt 2 roots), still uid 0.
 - [ ] `python tools/test_all.py --tv` against a fresh page load (stub protocol
@@ -431,10 +443,13 @@ gateway, deploy/uninstall control flow, source↔blob↔page consistency). Then:
    `O_RDONLY` skips the busy check (diagnostics only: `PROT_WRITE` needs RDWR).
 4. **`fork()` copies the cred.** Patch the parent found via `real_parent`, not
    the child.
-5. **Kernel pointers can be above `0xE0000000`** (LPAE 1 GB direct map). Never
-   bound the *pointer shape* at `0xE0000000`. But do not expect to **read** there:
-   the v31 cold boot showed 0/21 high creds coherent and 0/81 high task pointers;
-   a high task/cred needs a fresh process, not waiting (trap 16).
+5. **Do not read a kernel pointer above `0xE0000000`.** The kernel is VMSPLIT_3G
+   with HIGHMEM (`CONFIG_ARM_LPAE` unset), so the linear map ends at
+   `high_memory` — `0xE0000000` if lowmem is capped at 512 MiB — and anything
+   above it is vmalloc/module space where `va - 0xA0000000` is not a valid
+   translation. A value at/above `0xE0000000` is a garbage read, not a high
+   allocation (v31: 0/21 high creds, 0/81 high task pointers). Keep accepting
+   the full kernel range for POINTER SHAPE, but do not expect to read there.
 6. **Post-fork managed code.** Use a pre-pinned buffer + raw
    `syscall(172,15,…)` in the child; a CLR allocation can deadlock.
 7. **Short commands.** The stub's `cmdbuf` is 512 B and is NUL-terminated after
@@ -484,14 +499,15 @@ gateway, deploy/uninstall control flow, source↔blob↔page consistency). Then:
     foreign uid" rule — a stale read can look foreign, and that skip is what
     lost attempt 1. Kill leftover landmarks so a real init-reparented orphan is
     in `pre` and never looked at.
-16. **High-half physmap reads are unreliable; attempt 1 is an allocation
-    lottery.** Every coherent task/cred read in the v30/v31 cold-boot logs was
-    `< 0xE0000000`; high creds read 0/junk (0/21 ever 5001), and the first
-    process after a cold boot always landed high. Only a fresh process re-rolls
-    the allocation. Do **not** "fix" attempt 1 with more rounds/waits — v31's
-    10 s last wait booted in 132 s vs v30's 51 s. v33 fast-exits a high
-    allocation in ~2 s (`high-alloc … fast-exit`); the fifth pass is closed with
-    attempt 2 as the floor.
+16. **A high-half read is a garbage read, not a slow allocation.** Every coherent
+    task/cred read in the v30/v31 cold-boot logs was `< 0xE0000000`; with
+    VMSPLIT_3G + HIGHMEM the linear map ends at `high_memory` (`0xE0000000` when
+    lowmem is 512 MiB), so a value above it is vmalloc/module space where
+    `va - 0xA0000000` is meaningless. Attempt 1's fresh process does not "re-roll
+    into a readable high allocation" — it re-rolls into lowmem. Do **not** "fix"
+    attempt 1 with more rounds/waits (v31's 10 s last wait booted in 132 s vs
+    v30's 51 s); v33's `high-alloc` gate fast-exits in ~2 s and the fifth pass is
+    closed with attempt 2 as the floor.
 17. **Ping is not evidence on this PC — probe TCP instead.** Windows `ping`
     counts ICMP *error* replies as replies: with the PC off the TV's LAN
     (Wi-Fi instead of Ethernet, or the NordVPN tunnel up), the tunnel gateway
@@ -584,16 +600,17 @@ that downloads it) and reboot. Things to preserve when editing `Program.cs`:
   After a payload change: copy `payload/out/MultiControlService.dll` over
   `server/payload.dll`; the deploy gate is rendered from that file, so there is
   no `WANT=` to update by hand.
-- **v39.1 hardening to preserve:** the device open retries **video40** on
+- **v39.2 hardening to preserve:** the device open retries **video40** on
   `EBUSY` for the whole budget and advances to `video30`/`video60` only on
   `ENOENT`/`ENODEV`, beaconing on state change plus one "still waiting" line per
-  30 s (never per attempt, never on busy); `Run()` uses a unique temp file per
-  call, passes the command as an argument (not spliced into `-c`), caps output at
-  1 MiB and times out at 120 s; `Write32` splits a page-crossing word byte-wise;
-  the failure paths and long-mode idle close the device; `RootChannel` retries a
-  failed bind and stops the listener that threw; auto-update-off runs on a
-  background thread; capability writes happen **only** after an ids write that
-  started from uid 5001.
+  30 s (never per attempt, never at 1 s); `Run()` uses a unique temp file per
+  call, passes the command as an argument (not spliced into `-c`), caps the
+  redirect file with `ulimit -f 2048` (tmpfs!), caps the read at 1 MiB and times
+  out at 120 s; `Write32` splits a page-crossing word byte-wise; the failure
+  paths and long-mode idle close the device; `RootChannel` retries a failed bind
+  and stops the listener that threw; auto-update-off runs on a background
+  thread; capability writes happen **only** after an ids write that started from
+  uid 5001; a failed reopen names `_node`, not a hardcoded video40.
 
 ## 10. Recovery
 
@@ -622,21 +639,18 @@ that downloads it) and reboot. Things to preserve when editing `Program.cs`:
 ## 11. Open work
 
 - ~~Bind 31337 to a single address~~ — **done in v16**: the listener binds the TV address derived from the route to the recorded PC (re-derived every 30 s, `Any` fallback with a beacon if there is no route), so it is off Wi-Fi Direct/tethering while staying portable. `/proc/net/tcp` shows the TV's own address on 31337, not `00000000:7A69`.
-- **Pending: high-half read mechanism — measure `high_memory`/`max_low_pfn`.**
-  Reads at/above `0xE0000000` are unreliable (0/21 high creds, 0/81 high task
-  pointers). The cache-visibility story is closed (v28 measured `uid == plain`
-  garbage through two VA geometries). Two causes remain open, and an earlier
-  "not in the linear map by construction" claim was **retracted 2026-10-26**;
-  the reference tree has since supplied a live `MemTotal` (1.73 GB) **and** the
-  older, canonical VMSPLIT_3G note (`recon/VIDEO-PHYSMAP…`, `publish/recon/tvphys.py`),
-  so a high VA is probably not direct-mapped at all — but this is still a
-  hypothesis, not a measurement. Next step: read `high_memory` and
-  `max_low_pfn` from the running Image (both `.bss`; anchor the build→running
-  delta on the `init_task` the payload already locates, and require
-  `high_memory == 0xA0000000 + max_low_pfn*0x1000` as a self-check) in the
-  existing v38 diagnostic slot. That replaces the per-boot allocation lottery
-  with a number. It no longer blocks this unit (attempt 2 is the floor) but
-  matters for porting and for any future attempt-1 work.
+- **Pending: high-half read mechanism — the config now has a falsifiable story.**
+  `CONFIG_ARM_LPAE` is unset and `CONFIG_VMSPLIT_3G=y` + `CONFIG_HIGHMEM=y`, so
+  the linear map is lowmem only; if `max_low_pfn` caps lowmem at 512 MiB then
+  `high_memory` is VA `0xE0000000` and a "pointer" above it was never a task.
+  This is consistent with every measurement (0/21 high creds, 0/81 high task
+  pointers; `0xFF` = unbacked) but is still inference from a config file. Two
+  falsifiable checks on the next connected session: (a) read `high_memory` and
+  `max_low_pfn` from the running Image (`.bss`; anchor the build→running delta
+  on the located `init_task`, require `high_memory == 0xA0000000 +
+  max_low_pfn*0x1000`), and (b) one deliberate high-PA read (e.g. `0x40000000`,
+  highmem) to settle `recon/tvphys.py:251-253`'s claim that high reads
+  succeeded on 2026-10-22. Neither changes attempt 2 being the floor.
 - **Pending: portability.** No second model/firmware has been tested. Use the
   four gates and the file-by-file checklist in `docs/PORTABILITY.md`; record each
   unit there.
@@ -661,9 +675,9 @@ that downloads it) and reboot. Things to preserve when editing `Program.cs`:
 - ~~Clamp the stub's client-controlled lengths~~ — **done**: `physrpc.S` bounds
   READ/WRITE32/READMANY/RUN/FILE, refuses with -EINVAL, and ends the stub for the
   two ops whose payload would desync the stream; v39 added NUL termination and
-  moved the RUN/FILE caps to 511/255, so the blob is now 7,600 B (rebuilt and
+  moved the RUN/FILE caps to 511/255, so the blob is now 7,696 B (rebuilt and
   re-embedded; both `--check` modes green, live-verified earlier by
-  `tools/test_stub.py` — re-run `--tv` after deploying v39.1).
+  `tools/test_stub.py` — re-run `--tv` after deploying v39.2).
 - ~~Retry `open("/dev/video40")` instead of sleeping 120 s~~ — **done in v7**
   (120 s retry), so a browser stub holding the device no longer costs a cycle.
 - ~~Replace the task-list walk with a list-independent locator~~ — **done**: `tools/scan_cred.py` finds creds by content
@@ -699,7 +713,7 @@ rooted set risks the root; the warning to keep auto-update off remains).
   **IP and port**, and aborts when served by hostname). Open the page by **IPv4**.
 - **31337 is an unauthenticated LAN root shell.** The allowlist is the only
   filter; see `SECURITY.md`.
-- **Attempt 1 after a cold boot is an allocation lottery.** Do not chase it with
+- **Attempt 1 after a cold boot is a lowmem-placement lottery.** Do not chase it with
   waits (v31: 132 s); the high-half read limit is in §1 and trap 16.
 - **Do not re-add the v34 removals without a design.** A `next.dll` update needs
   a pinned hash or auth; remote/OTA work is out of scope.

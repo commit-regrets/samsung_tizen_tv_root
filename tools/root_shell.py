@@ -13,6 +13,14 @@ import os
 import socket
 import sys
 
+# TV output is bytes; a Windows console can be cp1252 and a dump can contain
+# anything.  Never crash the client because a byte did not decode (review
+# 2026-10-26; Python 3.14 still uses locale encodings off a redirected stdout).
+try:
+    sys.stdout.reconfigure(errors="replace")
+except Exception:
+    pass
+
 host = (sys.argv[2] if len(sys.argv) > 2
         else os.environ.get("TV_IP") or os.environ.get("ROOT_TV"))
 if not host:
