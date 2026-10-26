@@ -12,8 +12,8 @@ B="$S/payload_backup.dll"
 A="$S/rootchan.allow"
 HOSTF="$S/rootchan.host"
 DB=/opt/dbspace/user/5001/.appsvc.db
-WANT=968e1154f3fc5ba9b14b0d67e59306d2
-SIZE_WANT=29184
+WANT=adc2b27c81ec1225453cb3274c6a0e24
+SIZE_WANT=31744
 APPID=com.samsung.tv.MultiControl-Service
 # SMACK label the app runs under.  Files in bin/ carry "<label>::RO" and the app
 # (label "<label>") may read those.  A file created by US keeps OUR label - e.g.

