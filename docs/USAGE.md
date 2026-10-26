@@ -69,6 +69,16 @@ python tools\root_shell.py                       # interactive
 It runs as `uid=0` under the app's SMACK label
 (`User::Pkg::com.samsung.tv.MultiControl-Service`), not under the browser's.
 
+**Do not use ping to decide whether the TV is reachable.** Windows `ping`
+counts ICMP *error* replies as replies: when this PC is off the TV's LAN
+(Wi-Fi instead of Ethernet, or the VPN tunnel up), the tunnel gateway answers
+"Destination net unreachable" and `ping` still prints 0% loss and exits 0; a
+proxy-ARP router can likewise answer for an offline set. The honest signals
+are TCP (the 31337 probe above; the scripts' `Test-TvPort`/`Test-StockTv`) and
+a fresh `DSHROOT` line in `server/logs/beacons.log`. If neither answers but
+you believe the TV is on, check that this PC has an IPv4 on the TV's LAN and
+the VPN is off (`ipconfig`, `route print -4`).
+
 ## Uninstalling
 
 `uninstall.ps1` uses the root channel to run `server/uninstall.sh` as root, which:

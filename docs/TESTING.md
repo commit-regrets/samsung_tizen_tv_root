@@ -71,6 +71,24 @@ page, retries, and deploys exactly once. This catches the regression that made
 `root.ps1` exit when a single-use browser stub died during root. It is part of
 `tools/test_all.py`.
 
+## Logging and error paths — `tools/test_logs.py`
+
+Covers the agent-facing diagnostics layer, offline:
+
+- `tools/beacons.py` against fixture logs: boot splitting on the kernel-uptime
+  reset, `ROOTED`/`NOT rooted` verdicts, the attempt outcomes (including the
+  `high-alloc … fast-exit` lottery shape), signature findings
+  (`HIGH-ALLOC`/`HIGH-SCAN`/`VID40-HELD`/`WIN-OFF`/`BIND-FALLBACK`/`CRASH`),
+  the `--json` shape, and the missing-log hint.
+- `root_shell.py` connection failures print the self-diagnosis blocks
+  (refused vs. nobody-answered; see trap 17 for why ping is never the check).
+- `run_root.py` refuses over-509 B commands with the curl-script hint.
+- `root.ps1` / `uninstall.ps1` parse cleanly (skipped where PowerShell is
+  absent).
+
+It is part of `tools/test_all.py` (layer `logs-and-errors`); the line
+dictionary behind the fixture signatures is `docs/LOGGUIDE.md`.
+
 ## 4. Shellcode consistency — `build_physrpc.py --check-embedded`
 
 Assembles `tools/physrpc.S` and compares it byte-for-byte with the `SHELLCODE`

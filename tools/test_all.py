@@ -13,7 +13,9 @@ Layers (see docs/TESTING.md):
                              chsmack/sqlite3/aulctl/curl/ls/login
   4. build_physrpc.py --check-embedded + embed_physrpc.py --check
                              source == blob == page SHELLCODE
-  5. tools/test_stub.py      (--tv) live stub protocol + the new clamps
+  5. tools/test_logs.py      beacon analyzer (fixtures), the self-diagnosing
+                             tool error paths, PowerShell parse guard
+  6. tools/test_stub.py      (--tv) live stub protocol + the new clamps
 
 Exit code 0 means every layer passed (or was skipped for a documented reason).
 """
@@ -49,6 +51,8 @@ def main() -> int:
     results.append(("shell", run("deploy/uninstall dry tests", [py, "tools/test_shell.py"])))
     results.append(("auto-root", run("auto_root fresh-stub retry loop",
                                      [py, "tools/test_auto_root.py"])))
+    results.append(("logs-and-errors", run("beacon analyzer + tool error paths + ps1 parse",
+                                           [py, "tools/test_logs.py"])))
 
     # requires keystone+capstone; report the skip instead of failing a fresh clone
     try:

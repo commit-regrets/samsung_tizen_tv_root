@@ -14,7 +14,9 @@ wait = float(sys.argv[2]) if len(sys.argv) > 2 else 3.0
 # The stub's cmdbuf is 512 B and it stores "-c\0" + command there; a longer one
 # writes past the buffer into adjacent stub data.
 if len(cmd.encode()) > 509:
-    raise SystemExit(f"[-] command is {len(cmd.encode())} B; the stub limit is 509 B")
+    raise SystemExit(f"[-] command is {len(cmd.encode())} B; the stub limit is 509 B.\n"
+                     "    For long work (deploys, uninstall), fetch a script instead:\n"
+                     '    run_root.py "curl -s http://<pc-ip>/deploy_local.sh | sh" 45')
 
 rpc = T.RPC(timeout=20)
 buf = b"-c\x00" + cmd.encode()
@@ -24,6 +26,9 @@ try:
     pid = struct.unpack("<i", rpc._recv_exact(4))[0]
 except Exception as exc:
     print(f"[run] no status: {exc}")
+    print("[run] the stub died before answering - op 7 is effectively single-use.")
+    print("[run] recover: physmap.reset_stub() (RSET), reload index.html on the TV,")
+    print("[run] re-root (kernel_root.py --fork or auto_root), then retry.")
     raise SystemExit(1)
 print(f"[run] child pid={pid}")
 
