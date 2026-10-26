@@ -189,9 +189,19 @@ def deploy_script(host_header: str):
     except OSError as exc:
         print(f"[http] deploy template unavailable: {exc}", flush=True)
         return None
-    text = (text.replace("@HOST@", f"http://{host}")
-                .replace("@WANT@", hashlib.md5(data).hexdigest())
-                .replace("@SIZE@", str(len(data))))
+    # Anchor on the assignment lines.  A global replace also rewrote the
+    # template's own guard (`*@HOST@*|*@WANT@*)`) into `*http://<host>*`, which
+    # matches every valid render, so NEED_RENDER fired on a correctly rendered
+    # script and the first real deploy could never run (found on hardware,
+    # 2026-10-26).
+    text = re.sub(r"(?m)^H=@HOST@$", f"H=http://{host}", text, count=1)
+    text = re.sub(r"(?m)^WANT=@WANT@$",
+                  "WANT=" + hashlib.md5(data).hexdigest(), text, count=1)
+    text = re.sub(r"(?m)^SIZE_WANT=@SIZE@$",
+                  "SIZE_WANT=" + str(len(data)), text, count=1)
+    if re.search(r"(?m)^(H=@HOST@|WANT=@WANT@|SIZE_WANT=@SIZE@)$", text):
+        print("[http] deploy template markers not where expected", flush=True)
+        return None
     return text.encode()
 
 

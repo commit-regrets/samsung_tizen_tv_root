@@ -1,50 +1,42 @@
 # Open issues — current state, pending work, and closed history
 
-## Current state — 2026-10-26 (repo v39 staged; TV on v37, disconnected)
+## Current state — 2026-10-26 (TV on v39.2, deployed and rooted)
 
-TV: **v37** (`968e1154…`, 29,184 B), rooted; last beacon `ROOTCHAN` at
-2026-10-25 22:55 and 31337 has timed out since — the set is powered off / off
-the network. The repo stages **v39.2** (`010946ff…`, 33,280 B, shellcode blob
-7,696 B): the code half of the 2026-10-26 independent review, plus the review
-pass's own follow-up fixes (video40-only EBUSY retry, no cap writes on a uid-0
-cred, child-cred exclusion in `cred-elsewhere`, no re-fork, honest
-`root_via_fork` `already`). The review's findings and their fixes are in
-`CHANGELOG.md` (2026-10-26 later batch); the offline suite is green
-(`python tools/test_all.py`). **Nothing in v39.1 is hardware-verified yet**: the
-TV was disconnected for the whole batch. The final stock→root cycle on v37
-passed with the retry loop (attempt 1's stub died, `auto_root` requested a
-reload, attempt 2 rooted and deployed, cold boot rooted at **t=37**); v35: 37 s;
-v34: **34 s** and **68 s** on the earlier stock cycle. The fifth pass is
-**closed**: attempt 1 is an allocation lottery on this unit; attempt 2 is the
-floor, but a slow hunt can push to attempt 3. Read everything below the
-"History" line as history; do not reopen attempt 1 without a new read path.
+TV: **v39.2** (`010946ff…`, 33,280 B), rooted via 31337; deployed 2026-10-26
+22:48 over the existing v37 channel. Evidence from that session: `deploy.sh`
+rendered and reached `COPY=ok`/`DEPLOY_DONE`; the app restart rooted in ~6 s
+(attempt 1 `fast-exit` t=86013, attempt 2 `self-patch` t=86021); `id -u` = 0,
+`CapEff=0x3fffffffff`; installed md5 `010946ff…`; the 120 s `Run()` timeout and
+the 2 MiB `ulimit -f` redirect guard both verified. Backups intact in
+`/opt/usr/home/owner/share`: `mcs_orig.dll` (stock, md5 `f61f60dd…`),
+`mcs_ni_orig.dll`, `payload_backup.dll` = v37 `968e1154…`. **No cold boot on
+v39.2 yet**, and `test_all.py --tv` plus one uninstall/`recover.sh` cycle remain.
+
+The repo is green offline (`python tools/test_all.py`, 8/8). The first deploy
+attempt failed with `NEED_RENDER` because `server.py` replaced the template's
+own guard marker; fixed and re-deployed the same session (see `CHANGELOG.md`,
+2026-10-26 third pass). Lowmem/highmem are now measured (meminfo), which
+corrects the old `0xE0000000` read-limit claim: see item 2 below.
 
 **Pending / next, in order:**
 
-1. **Deploy v39.1 and verify it on the TV (first connected session).** Nothing in
-   the batch has run on hardware. Minimum acceptance: `deploy.sh` renders and
-   reaches `COPY=ok`/`DEPLOY_DONE` with `SIZE=33280 MD5=010946ff…`; the payload
-   opens video40 (`device /dev/video40 fd=`, or an `absent` line for another
-   model); one cold boot roots on attempt 1 or 2 with `SUCCESS`/`ROOTCHAN`;
-   `id -u` = 0; `md5sum` of the installed DLL = `010946ff…`;
-   `tools/test_all.py --tv` green on a fresh page load. Then uninstall/`recover.sh`
-   once to prove the rollback and the allowlist ordering did not break the undo
-   path.
-2. **High-half read mechanism — measure `high_memory`/`max_low_pfn`.**
-   Reads at/above `0xE0000000` are unreliable (`0/21` high creds coherent,
-   `0/81` high task pointers; every successful patch used a cred below it).
-   **Cache visibility is not a candidate**: v28 measured `uid == plain`
-   garbage through two VA geometries. Two causes were open — (a) wrong
-   translation vs (b) the node returning wrong bytes — and the earlier
-   "not in the linear map by construction" claim was retracted on 2026-10-26.
-   The reference tree now supplies both a live `MemTotal` (1.73 GB) and the
-   older, canonical VMSPLIT_3G layout note, which together make (a) the lead
-   again — but that is still an argument, not a measurement. Next step is a
-   read-only beacon in the existing v38 `high-scan` slot: read `high_memory` and
-   `max_low_pfn` from the running Image (both `.bss`; anchor the build→running
-   delta on the `init_task` the payload already locates), and require
-   `high_memory == 0xA0000000 + max_low_pfn*0x1000` before believing the delta.
-   One number replaces the per-boot allocation lottery for porting.
+1. **~~Deploy v39.2~~ — done 2026-10-26.** Rendered + `COPY=ok`/`DEPLOY_DONE`;
+   restart-root in ~6 s; `id -u`=0; installed md5 `010946ff…`. Remaining
+   acceptance: (a) one **cold boot** on v39.2 (the boot row is in place, but only
+   a real power cycle exercises AUL), (b) `tools/test_all.py --tv` on a fresh
+   page load, (c) one uninstall/`recover.sh` cycle to prove the undo path against
+   the now-confirmed stock backups.
+2. **High-half read mechanism — zone sizes measured; exact variable pending.**
+   Reads at/above `0xE0000000` were unreliable (0/21 high creds, 0/81 high task
+   pointers), but that line was a *prediction*: live `meminfo` (2026-10-26) is
+   `MemTotal 1,816,840 kB`, `LowTotal 604,424 kB`, `HighTotal 1,212,416 kB`, so
+   lowmem ends at phys `0x44E42000` and `high_memory` is ~VA `0xE4E42000`.
+   `0xE0000000` is therefore *inside* the linear map; re-read the v38 `high-scan`
+   verdicts (`linear`/`elsewhere`/`comm-only`/`miss`/`cred-miss`) against that
+   corrected boundary, not against 0xE0000000. Still to measure: the
+   `high_memory` variable itself (anchor the build→running delta on `init_task`;
+   require `high_memory == 0xA0000000 + max_low_pfn*0x1000`), and one deliberate
+   high-PA read to settle `recon/tvphys.py:251-253`.
 3. **31337 is an unauthenticated LAN root shell.** The allowlist is the only
    filter on the channel. The PC side now also gates the shell slot to peers that
    announced themselves, answers unknown HTTP methods with 405, caps the stub

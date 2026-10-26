@@ -200,6 +200,10 @@ def main() -> int:
           'b"RSET".startswith(head)' in server)
     check("server rotates beacons.log", "beacons.log.1" in server)
     check("server only aims tv_sock at op5/op7", "in (5, 7)" in server)
+    check("server renders only the deploy assignment lines",
+          'r"(?m)^H=@HOST@$"' in server and 'r"(?m)^WANT=@WANT@$"' in server)
+    check("deploy.sh keeps its literal NEED_RENDER guard",
+          "*@HOST@*|*@WANT@*)" in deploy)
 
     # --- deploy is a template (structural fix) -----------------------------
     check("deploy.sh H/WANT/SIZE come from the server",

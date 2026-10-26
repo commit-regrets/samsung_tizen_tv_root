@@ -10,6 +10,39 @@ entry is an incomplete change. `AGENTS.md` repeats this rule for agents.
 
 ---
 
+## 2026-10-26 (hardware session) — v39.2 deployed and rooted
+
+The TV came back on the network, so v39.2 got its first hardware run.
+
+- **The first deploy was refused with `NEED_RENDER`** even though the script was
+  rendered: `deploy_script()` replaced `@HOST@`/`@WANT@` globally, which also
+  rewrote the template's own guard (`*@HOST@*|*@WANT@*)`) into
+  `*http://<host>*` - a pattern that matches every valid render. Fixed to
+  replace only the three assignment lines; `test_gateway` now asserts the guard
+  stays literal and the rendered `H` cannot match it.
+- **Deploy then succeeded:** `SIZE=33280 MD5=010946ff…`, `BACKUP_IL=exists`,
+  `BACKUP_NI=exists`, `PREV_IL=968e1154…` (v37 saved), `BOOT_ROW_COUNT=1`,
+  `AUL_RELOAD=ok`, `COPY=ok`, `DEPLOY_DONE`.
+- **Restart-root in ~6 s:** attempt 1 `fast-exit` at t=86013, attempt 2
+  `self-patch` at t=86021, `SUCCESS-R00T`, `ROOTCHAN 31337`; `id -u` = 0,
+  `CapEff=0x3fffffffff`, installed md5 `010946ff…`.
+- **New guards verified on hardware:** `sleep 130` returned
+  `[timeout: killed after 120s]` (122 s) and the channel kept serving; `dd` into
+  `/tmp` died with "File size limit exceeded" at exactly **2 MiB** (`ulimit -f
+  2048` is 1024-byte blocks in this busybox).
+- **Backups confirmed** in `/opt/usr/home/owner/share` (not the app dir):
+  `mcs_orig.dll` (stock IL, f61f60dd…), `mcs_ni_orig.dll` (94,208 B),
+  `payload_backup.dll` = v37 (968e1154…).
+- **Memory model measured** (`/proc/meminfo`): `MemTotal 1,816,840 kB`,
+  `LowTotal 604,424 kB`, `HighTotal 1,212,416 kB` → lowmem ends at phys
+  `0x44E42000`, so `high_memory` is ~VA `0xE4E42000`. The old "read limit at
+  0xE0000000" was a prediction, not the map end; AGENTS/EXPLOIT/FAILED corrected.
+- The stale `pysrv.exe` from the previous day (pre-render server, `H=@HOST@`)
+  was replaced with the v39.2 server before deploying.
+
+Still pending: one cold boot on v39.2, `tools/test_all.py --tv` on a fresh page
+load, and one uninstall/`recover.sh` cycle.
+
 ## 2026-10-26 (third pass) — second code review
 
 An independent re-review (`docs/codreview.md`, kept out of git: it is a review
@@ -43,6 +76,13 @@ Nothing is hardware-verified (TV still disconnected).
 - **`beacons.log` rotates at 16 MiB** (`beacons.log.1`): any LAN peer can append
   a 4 KB line per connection, so the file was a disk-fill vector and a way to
   bury a real boot verdict.
+- **The renderer rewrote the template's own guard.** `deploy_script()` replaced
+  `@HOST@`/`@WANT@` globally, which turned the guard
+  `*@HOST@*|*@WANT@*)` into `*http://<host>*` — a pattern that matches every
+  valid render — so the first real deploy refused with `NEED_RENDER`. Found only
+  when the TV was finally connected (2026-10-26, first v39.2 deploy attempt);
+  the renderer now replaces only the three assignment lines, and the gateway test
+  asserts the guard stays literal.
 
 ### Stub (P2)
 

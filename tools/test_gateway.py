@@ -124,8 +124,18 @@ def main() -> int:
             "GET /deploy.sh is rendered",
             b"200" in status and f"H=http://127.0.0.1" in text
             and f"WANT={md5}" in text and f"SIZE_WANT={len(payload)}" in text
-            and "@HOST@" not in text,
+            and "H=@HOST@" not in text and "WANT=@WANT@" not in text,
             status.decode("latin-1"))
+        # The template's own guard must survive rendering: a global replace
+        # rewrote it to *http://<host>*, which matched every valid render and
+        # made the first hardware deploy refuse with NEED_RENDER (2026-10-26).
+        failed += not check(
+            "rendered deploy keeps its guard literal",
+            "*@HOST@*|*@WANT@*)" in text,
+            "the renderer rewrote the guard pattern")
+        hline = next((ln for ln in text.splitlines() if ln.startswith("H=")), "")
+        failed += not check("rendered H cannot trip its own guard",
+                            "@HOST@" not in hline and "@WANT@" not in hline)
         status, _, body = get(http_port, "/deploy.sh", host=f"localhost:{http_port}")
         failed += not check("deploy.sh refuses a non-IPv4 Host",
                             b"409" in status and b"@HOST@" not in body,
