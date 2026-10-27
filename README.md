@@ -106,6 +106,10 @@ per-host generated deploy script are git-ignored and never served over HTTP.
   firewall allows (see [`docs/SERVER-HOSTING.md`](docs/SERVER-HOSTING.md)).
 - .NET SDK 6+ only if you rebuild the boot payload.
 
+Reference material (firmware, GPL kernel sources, QEMU tooling) is not
+bundled; [docs/REFERENCE-MATERIALS.md](docs/REFERENCE-MATERIALS.md) lists
+where to download each piece for your own model.
+
 ## Porting to another Tizen 9 TV
 
 The method is portable; this build is not. `payload.dll` hardcodes this kernel's

@@ -61,7 +61,14 @@ meminfo-derived `0xE4E42000` was wrong (vendor-adjusted counters): see item 2.
 6. **Public-release hygiene** — `LICENSE` (MIT for original work), `NOTICE.md`
    (third-party browser chain is not relicensed), logs and build output ignored,
    only the payload DLL and the physrpc shellcode blob tracked as binaries. The
-   baked addresses are now TEST-NET placeholders (`192.0.2.1`).
+   baked addresses are now TEST-NET placeholders (`192.0.2.1`);
+   `tools/sanitize_for_public.py --check` is green in-tree (2026-10-27) and
+   `docs/REFERENCE-MATERIALS.md` points contributors at the download sources for
+   firmware/GPL sources/sim tooling. **Blocking before publishing: git history
+   still contains every private token (real IPs, model/firmware strings, and the
+   device DUID - filter-repo with the sanitizer's token list, or publish a
+   fresh/squashed history).** Also decide whether `.zcode/` (agent scaffolding,
+   6 files tracked since 1b05289 despite the .gitignore rule) ships.
 
 ## History
 

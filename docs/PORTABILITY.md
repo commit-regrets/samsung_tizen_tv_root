@@ -200,3 +200,11 @@ Different SoC generation or 2025+ firmware: expect the browser gate to fail
 first, and assume the mmap validation may be fixed. Treat any foreign unit as
 "test on hardware you can afford to brick", and keep the stock DLL/AOT backups
 that `deploy.sh` makes before writing.
+
+
+## Getting the reference material
+
+Firmware packages, GPL kernel sources and QEMU tooling are not bundled with
+this repo. [REFERENCE-MATERIALS.md](REFERENCE-MATERIALS.md) lists where to
+download each for your own model (Samsung support page for firmware,
+opensource.samsung.com / kernel.org for sources, distro QEMU for the sim).
