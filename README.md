@@ -171,15 +171,6 @@ Full gates, measurement recipes, and a file-by-file porting checklist:
   third-party browser-chain files are attributed in [`NOTICE.md`](NOTICE.md) and
   are not relicensed by that file.
 
-## Publishing a copy
-
-The working tree is gated (`test_all.py`, `sanitize_for_public.py --check`), but
-the **commit history predates the sanitized tree**: it still contains the real
-LAN addresses, per-deploy tokens and a few commit messages with them. Do not
-push `main` as-is. The pre-flight checklist and the history-reset procedure
-(orphan commit, or a filter-repo rewrite) are in
-[`docs/PUBLISHING.md`](docs/PUBLISHING.md).
-
 ## Acknowledgements
 
 Standing on public work by:
