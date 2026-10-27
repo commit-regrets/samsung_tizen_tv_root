@@ -94,7 +94,22 @@ Live observations recorded during the dry run:
   baseline, so any state change after the real run is attributable to us.
 
 The actual run is deliberately not executed: it is one approved command per
-package, following the apply protocol in the plan file.
+package, following the apply protocol in the plan file. The plan now covers
+all three non-keep groups:
+
+- **Batch 1 — tracking (11)**: ready, in
+  [`debloat/qnx1d-disable-plan.md`](debloat/qnx1d-disable-plan.md);
+- **Batch 2 — commercial/unused (30 of 33; 3 skipped as coupled to keepers)**:
+  commands in the same plan file;
+- **Batch 3 — optional (160)**: a selection menu with purposes, reverse-
+  dependencies and COUPLED flags per package is
+  [`debloat/qnx1d-optional-menu.md`](debloat/qnx1d-optional-menu.md) — pick
+  areas or individual app_ids and they are appended to the plan with commands.
+
+Coupling flags matter: several optional packages (e.g. the always-on voice
+services) are referenced by keepers such as `lightweight-node-service`, so
+disabling them may leave a keeper retrying or logging — read the flag before
+choosing.
 
 ## How a disable would work (NOT executed yet)
 
