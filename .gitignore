@@ -1,0 +1,87 @@
+# Ignore rules for the Samsung Tizen 9 TV root toolkit.
+#
+# Rule of thumb: source, docs, scripts and the shipped payload artifact are
+# tracked; anything generated at runtime, rebuilt, or host-specific is not.
+# `server/payload.dll` IS tracked on purpose - it is the artifact the toolkit
+# serves to the TV (current version/hash in the AGENTS.md state row), so the
+# repo runs without a .NET SDK (byte-identical to
+# payload/out/MultiControlService.dll).  deploy.sh itself is a TEMPLATE
+# (H=@HOST@, WANT=@WANT@, SIZE_WANT=@SIZE@, @BEACON_TOKEN@) rendered by
+# server.py, so no per-host copy exists any more.
+
+# ---------------------------------------------------------------- runtime logs
+# server.py writes here; root.ps1/uninstall.ps1 redirect the server's stdout and
+# stderr here. Contains TV console capture, beacons and page /save dumps - all
+# machine-specific (paths, LAN IPs).
+server/logs/
+# legacy locations, in case an older copy is run from server/
+server/shell.log
+server/shell.log.*
+server/server.out
+server/server.err
+shell.log
+shell.log.*
+server.out
+server.err
+tv_output_*.txt
+
+# ------------------------------------------------------------- generated files
+# liveness probe file used by root.ps1
+.root_probe
+
+# ------------------------------------------------------------ Python artifacts
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+
+# --------------------------------------------------------------- build outputs
+# `dotnet build` output; regenerate with: cd payload && dotnet build -c Release
+payload/obj/
+payload/out/
+payload/bin/
+*.pdb
+
+# ------------------------------------------------------ Tizen package artifacts
+*.tpk
+*.wgt
+*.wgt.tmp
+
+# ------------------------------------------------------------ editor / OS junk
+.vs/
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# --------------------------------------------------------------- local scratch
+# agent scaffolding (not part of the toolkit)
+.zcode/
+*.bak
+*.tmp
+*.orig
+*.rej
+*.log
+scratch/
+tmp/
+
+# ------------------------------------------------------ secrets (defensive only)
+# No keys belong in this repo; ignore them so a stray one cannot be committed.
+*.pem
+*.key
+*.pfx
+*.p12
+*.jks
+# dotnet build scratch dirs (-o out10, out11, ...); only server/payload.dll is tracked
+payload/out*/
+python/
+
+# independent review notes (not part of the toolkit)
+docs/codreview.md

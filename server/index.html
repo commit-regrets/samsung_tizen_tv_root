@@ -1,0 +1,96 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>physrpc</title>
+<style>
+  body { background:#111; color:#ddd; font-family:monospace; margin:0; padding:8px; }
+  #log { width:100%; height:80vh; background:#000; color:#0f0; border:1px solid #333; font-family:monospace; font-size:13px; }
+  #st { color:#ff0; font-size:13px; margin-bottom:6px; }
+  #hint { color:#888; font-size:12px; margin:4px 0 8px 0; }
+</style>
+</head>
+<body>
+<div id="st">physrpc loading</div>
+<div id="hint">RUNNING = the payload is executing here. Root success is reported on
+the PC console, not on this page. This page may freeze after RUNNING - that is
+expected, leave it alone.</div>
+<textarea id="log" readonly></textarea>
+<script>
+(function () {
+  var box = document.getElementById('log');
+  var st  = document.getElementById('st');
+  function W(s) { box.value += s + "\n"; box.scrollTop = box.scrollHeight; }
+  window.saveOutput = function (t) {
+    try { var x = new XMLHttpRequest(); x.open('POST', '/save', true); x.send(t || box.value); } catch (e) {}
+  };
+  window.onerror = function (m, src, ln) { W('JSERR ' + m + ' @' + ln); try { saveOutput('JSERR ' + m); } catch(e){} };
+
+  W('HARNESS_UP ' + new Date().toISOString());
+  saveOutput('HARNESS_UP ' + new Date().toISOString());
+  st.textContent = 'clearing caches ...';
+
+  // A service worker or a stale cached builder is the one way this page can run
+  // old code against a new payload and die before it logs anything.
+  var V = String(Date.now());
+  try {
+    if (navigator.serviceWorker && navigator.serviceWorker.getRegistrations) {
+      navigator.serviceWorker.getRegistrations().then(function (rs) {
+        rs.forEach(function (r) { try { r.unregister(); } catch (e) {} });
+        W('SW_UNREG ' + rs.length);
+      }).catch(function (e) { W('SW_ERR ' + e); });
+    }
+  } catch (e) { W('SW_NA ' + e); }
+
+  st.textContent = 'loading wasm_builder ...';
+
+  // One retry per script with a fresh cache-buster: a single transient load
+  // failure used to cost a whole page load (= a stub).  The status is logged so
+  // a 404/500 is distinguishable from a network blip.
+  function loadScript(src, ok, fail) {
+    var done = false;
+    var el = document.createElement('script');
+    el.src = src;
+    el.onload = function () { if (!done) { done = true; ok(); } };
+    el.onerror = function () {
+      if (done) return;
+      done = true;
+      W('RETRY ' + src);
+      var retry = document.createElement('script');
+      retry.src = src + (src.indexOf('?') >= 0 ? '&' : '?') + 'retry=' + Date.now();
+      retry.onload = ok;
+      retry.onerror = fail;
+      document.body.appendChild(retry);
+    };
+    document.body.appendChild(el);
+  }
+
+  loadScript('lib/wasm_builder.js?v=' + V, function () {
+    W('WASM_LOADED');
+    saveOutput('WASM_LOADED ' + new Date().toISOString());
+    st.textContent = 'loading payload ...';
+    loadScript('payloads/browser_payload.js?v=' + V, function () {
+      W('PAYLOAD_LOADED');
+      saveOutput('PAYLOAD_LOADED ' + new Date().toISOString());
+      if (typeof window.runPayload_fn !== 'function') {
+        W('NO_RUNPAYLOAD'); saveOutput('NO_RUNPAYLOAD'); st.textContent = 'no runPayload_fn'; return;
+      }
+      W('RUNNING');
+      st.textContent = 'running ...';
+      window.saveOutput(box.value);
+      // If the renderer dies inside the exploit this is the last line we ever
+      // get, so record it distinctly - it separates "crashed in the exploit"
+      // from "never started".  The payload also logs its abort reason here.
+      saveOutput('RUNNING_AT ' + new Date().toISOString());
+      Promise.resolve().then(function () { return window.runPayload_fn(); })
+        .then(function () { W('RETURNED'); saveOutput('RETURNED'); st.textContent = 'returned'; })
+        .catch(function (e) { W('THREW ' + e); saveOutput('THREW ' + e); st.textContent = 'threw'; });
+    }, function () {
+      W('PAYLOAD_ERR'); saveOutput('PAYLOAD_ERR'); st.textContent = 'payload error';
+    });
+  }, function () {
+    W('WASM_ERR'); saveOutput('WASM_ERR'); st.textContent = 'wasm error';
+  });
+})();
+</script>
+</body></html>

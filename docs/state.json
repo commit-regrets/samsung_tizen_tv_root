@@ -1,0 +1,14 @@
+{
+  "repo_payload_version": "v41",
+  "tv": {
+    "payload_version": "v41",
+    "deployed_date": "2026-10-27",
+    "beacon_token": "<BEACON_TOKEN>",
+    "notes": "v41 cold boot verified twice on 2026-10-27: 36 s (attempt 1 fast-exit t=29, attempt 2 direct-parent t=36) and, after the uninstall/recover cycle, 49 s (AUL launched late; single direct-patch attempt at t=49). kill -9 recovery ~2 s (new pid, uid 0). Uninstall/recover verified the same day - stock IL f61f60dd.., boot row removed remain=0, 31337 stayed closed after a cold boot, stock 9197 back; recover.sh with the PC URL restored v41 (token <TOKEN>), and the following cold boot rooted again. payload_backup.dll is now v41; stock mcs_orig.dll intact."
+  },
+  "memory": {
+    "max_low_pfn": "0x50400",
+    "high_memory_va": "0xF0400000",
+    "source": "/proc/zoneinfo start_pfn values, measured 2026-10-27; meminfo is vendor-adjusted on this set"
+  }
+}

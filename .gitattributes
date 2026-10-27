@@ -1,0 +1,31 @@
+# Line endings matter here: the TV-side scripts run under the TV's busybox sh,
+# which treats a CR as part of the token ("#!/bin/sh^M: not found"). Force LF on
+# everything that executes on the TV or on POSIX, and CRLF on PowerShell.
+* text=auto
+
+*.sh            text eol=lf
+*.py            text eol=lf
+*.md            text eol=lf
+*.html          text eol=lf
+*.js            text eol=lf
+*.json          text eol=lf
+*.cs            text eol=lf
+*.csproj        text eol=lf
+*.S             text eol=lf
+
+*.ps1           text eol=crlf
+*.cmd           text eol=crlf
+*.vbs           text eol=crlf
+
+# binaries must never be normalised or diffed as text
+*.dll           binary
+*.exe           binary
+*.png           binary
+*.gz            binary
+*.tpk           binary
+*.wgt           binary
+
+# the assembled ARM stub blob: byte-exact, page==blob==source is checked by
+# tools/embed_physrpc.py --check and build_physrpc.py --check-embedded
+*.bin          binary
+*.txt          text eol=lf

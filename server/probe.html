@@ -1,0 +1,54 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>TV probe</title>
+<style>body{background:#111;color:#ddd;font-family:monospace;padding:12px}
+pre{white-space:pre-wrap;font-size:13px}</style></head>
+<body>
+<h3>Safe probe — no exploit, nothing is executed on the TV</h3>
+<pre id="o">probing…</pre>
+<p style="color:#888;font-size:12px">Result is also posted to the PC under
+server/logs/tv/tv_output_*.txt</p>
+<script>
+(function () {
+  var out = [];
+  function add(k, v) { out.push(k + "=" + v); }
+
+  add("UA", navigator.userAgent);
+  add("PLATFORM", navigator.platform || "?");
+  add("CORES", navigator.hardwareConcurrency || "?");
+  add("MEM_GB", navigator.deviceMemory || "?");
+
+  var wasm = (typeof WebAssembly === "object");
+  add("WASM", wasm ? "yes" : "no");
+
+  add("WEBASSEMBLY", wasm ? "present" : "absent");
+
+  // Definitive test: this module declares a *struct type* (0x5f), which only the
+  // WasmGC proposal understands.  Encoding: section 1, size 5, count 1,
+  // 0x5f (struct), field-count 1, 0x7f (i32), mutability 0.  The previous bytes
+  // had field-count 0 plus two stray bytes, so V8 rejected the module and the
+  // probe always said "rejected (no GC)" (review finding M2).
+  try {
+    var gcBytes = new Uint8Array([0, 97, 115, 109, 1, 0, 0, 0,   // magic + version
+                                  1, 5, 1, 0x5f, 1, 0x7f, 0]);  // type: struct { i32 }
+    add("WASM_GC_MODULE", WebAssembly.validate(gcBytes)
+        ? "valid (GC engine)" : "rejected (no GC)");
+  } catch (e) { add("WASM_GC_MODULE", "error:" + e); }
+  // NOTE: V8 never exposed WebAssembly.gc / WebAssembly["wasm-gc"], so the old
+  // feature() probe could only ever answer "unknown"; the module test above is
+  // the real check.
+
+  add("TIZEN", (navigator.userAgent.match(/Tizen[\s\/]?([\w.]+)/i) || [])[1] || "not-in-UA");
+  add("SAMSUNG", (navigator.userAgent.match(/SamsungBrowser\/([\d.]+)/i) || [])[1] || "n/a");
+  add("CHROME", (navigator.userAgent.match(/Chrome\/([\d.]+)/i) || [])[1] || "n/a");
+  add("V8_HINT", (navigator.userAgent.match(/Chrome\/(\d+)\./) || [])[1] || "?");
+
+  var text = out.join("\n");
+  document.getElementById("o").textContent = text;
+  try {
+    var x = new XMLHttpRequest();
+    x.open("POST", "/save", true);
+    x.send("PROBE\n" + text + "\nPROBE_END");
+  } catch (e) {}
+})();
+</script>
+</body></html>
