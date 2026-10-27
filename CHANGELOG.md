@@ -15,6 +15,35 @@ entry is an incomplete change. `AGENTS.md` repeats this rule for agents.
 
 ---
 
+## 2026-10-27 (night) — full docs sweep: every file checked against v41 state
+
+All 19 docs read one by one; EXPLOIT/FAILED/ROOT-METHODS/BOOT-REGRESSION/
+NOTICE/OPEN-ISSUES/REFERENCE-MATERIALS were already current (the hardware-
+session agent had corrected EXPLOIT/FAILED to the zoneinfo boundary). Eight
+files needed fixes:
+
+- **README.md:** the safety bullet claimed the payload "cycles video30/video60
+  if the node is busy" - contradicts the v39.1 invariant (retry video40 on
+  EBUSY, advance only on ENOENT/ENODEV). Read-limit paragraph updated to the
+  zoneinfo boundary + DMA-window suspect. ".NET SDK 6+" now states the
+  global.json 10.0.x pin. Docs table gained TESTING/LOGGUIDE/
+  REFERENCE-MATERIALS/REVIEW-HISTORY rows; deploy markers mention TOKEN=.
+- **SECURITY.md:** still said the DSHROOT beacon half was open - now records
+  v41 closing it and names the deliberate residue (token-less log content,
+  legacy unauthenticated PGDB window).
+- **TESTING.md:** porting step 3 said "update WANT=/SIZE_WANT= in deploy.sh" -
+  that constant no longer exists (rendered per request). Layer list now counts
+  11; sim wording for the high half matches the DMA-window explanation.
+- **LOGGUIDE.md:** documents the tok= wire prefix, rootchan.token in the proof
+  files, the high-alloc row per zoneinfo, and five new server console lines
+  ([pair], stub token mismatch, unknown beacon token, sent-no-token).
+- **SERVER-HOSTING.md:** hardening list gains the v40/v41 token gates; deploy
+  render list gains TOKEN=.
+- **USAGE.md:** deploy render description includes the token and rootchan.token.
+- **SCRIPT-REVIEW.md / PORTABILITY.md:** dwarf_offsets now points at the ported
+  tools/dwarf_offsets.py (was "only in the reference tree"); SDK guidance via
+  global.json.
+
 ## 2026-10-27 (evening) — codreview.md mined and retired
 
 `docs/codreview.md` (the 2026-10-26 first-review scratch report, git-ignored)

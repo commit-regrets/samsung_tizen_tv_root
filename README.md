@@ -67,6 +67,10 @@ part; the stage-by-stage writeup with the measured constants is
 | [`docs/PORTABILITY.md`](docs/PORTABILITY.md) | another Tizen 9 TV: the four gates, what to re-measure, a step-by-step port |
 | [`docs/SERVER-HOSTING.md`](docs/SERVER-HOSTING.md) | the PC-side server: how it must run, the silent-death trap, firewall, logs |
 | [`docs/SCRIPT-REVIEW.md`](docs/SCRIPT-REVIEW.md) | production-readiness audit of the scripts |
+| [`docs/TESTING.md`](docs/TESTING.md) | the test layers, offline and on-TV, and what each catches |
+| [`docs/LOGGUIDE.md`](docs/LOGGUIDE.md) | every beacon and tool error decoded, with next steps |
+| [`docs/REFERENCE-MATERIALS.md`](docs/REFERENCE-MATERIALS.md) | where to download firmware / GPL sources / sim tooling for your own model |
+| [`docs/REVIEW-HISTORY.md`](docs/REVIEW-HISTORY.md) | closed review findings and their evidence (archive) |
 | [`docs/OPEN-ISSUES.md`](docs/OPEN-ISSUES.md) | current state, pending work, and the closed review/pass history |
 | [`AGENTS.md`](AGENTS.md) | hand-off: tools, procedure, verification, traps, recovery |
 | [`CHANGELOG.md`](CHANGELOG.md) | dated history of what changed and why |
@@ -98,13 +102,16 @@ per-host generated deploy script are git-ignored and never served over HTTP.
   [`docs/PORTABILITY.md`](docs/PORTABILITY.md) before trying another model.
 - A PC on the same LAN, able to receive TCP/80 from the TV and reach TCP/31337
   on it. No address is committed for the normal flow: `server/deploy.sh` is a
-  template whose `H=`/`WANT=`/`SIZE_WANT=` markers `server.py` renders per request
+  template whose `H=`/`WANT=`/`SIZE_WANT=`/`TOKEN=` markers `server.py` renders
+  per request
   from the address the TV used and the payload actually served, the page rewrites
   the shellcode's callback (IP **and** port), and the payload reads
   `share/rootchan.host`. The compiled-in `Host` is a TEST-NET placeholder.
 - Python 3 on the PC. On Windows the server must run under an interpreter path the
   firewall allows (see [`docs/SERVER-HOSTING.md`](docs/SERVER-HOSTING.md)).
-- .NET SDK 6+ only if you rebuild the boot payload.
+- .NET SDK only if you rebuild the boot payload — `payload/global.json` pins
+  10.0.x (`rollForward: latestPatch`); the project targets net6.0, which the
+  pinned SDK still builds (an EOL warning is expected).
 
 Reference material (firmware, GPL kernel sources, QEMU tooling) is not
 bundled; [docs/REFERENCE-MATERIALS.md](docs/REFERENCE-MATERIALS.md) lists
@@ -135,10 +142,11 @@ is specific to Chromium 120. The short version:
 
 **Read-reliability limit found on the test unit:** the video40 physmap returns
 garbage for reads at/above `0xE0000000` even when the VA/PA alias is correct.
-Test a known low page and a known high page on the new model before trusting
-`Kptr`; all successful cred patches here were below `0xE0000000`. This is not a
-pointer-validity bound (the direct map really is that wide), it is a read-path
-limit and it affects how you interpret "not found".
+The linear map itself is bigger (`zoneinfo`: `high_memory` = VA `0xF0400000`),
+so `0xE0000000` is *inside* it — the prime suspect is the V4L2 node's DMA
+window, not the CPU map. Either way: test a known low page and a known high
+page on the new model before trusting `Kptr`; all successful cred patches here
+were below `0xE0000000`, and it affects how you interpret "not found".
 
 Full gates, measurement recipes, and a file-by-file porting checklist:
 [`docs/PORTABILITY.md`](docs/PORTABILITY.md).
@@ -151,8 +159,10 @@ Full gates, measurement recipes, and a file-by-file porting checklist:
   is the only filter). Never expose it to the internet or a network you do not
   control. See [`SECURITY.md`](SECURITY.md).
 - The boot payload takes a physmap node (`/dev/video40`; exclusivity is per
-  instance, and it cycles `video30`/`video60` if the node is busy). It closes the
-  node after rooting so the browser path keeps working.
+  instance). It **retries video40 while it is busy** and only moves to
+  `video30`/`video60` when a node reports ENOENT/ENODEV — switching on busy
+  would break the boot, because only video40 serves the payload's reads. It
+  closes the node after rooting so the browser path keeps working.
 - Keep the stock `mcs_orig.dll` / `mcs_ni_orig.dll` backups and leave TV
   auto-update **off** — an OTA can replace the app and undo persistence.
 - No Samsung firmware, proprietary images or dumps are distributed here.

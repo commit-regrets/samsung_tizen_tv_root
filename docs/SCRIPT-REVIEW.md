@@ -71,9 +71,9 @@ document is about the scripts as they are now.
   labelled diagnostic: the kernel-relabel path is still the dead end recorded in
   `docs/FAILED.md`; the supported way to reach the app label is the app's own
   channel (31337) or `server/recover.sh`.
-  `dwarf_offsets.py` still lives only in the reference tree (`recon/`), although
-  `docs/PORTABILITY.md` recommends it for re-measuring offsets on another model —
-  port it with a `--vmlinux` argument if that work starts.
+  ~~`dwarf_offsets.py` still lives only in the reference tree~~ — ported
+  2026-10-27 as `tools/dwarf_offsets.py` (with `--vmlinux` and a `--check`
+  fingerprint gate), covered by the `listwalk-dwarf` layer of `test_all.py`.
 
 ## Validation performed
 

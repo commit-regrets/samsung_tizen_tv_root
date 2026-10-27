@@ -25,11 +25,14 @@ persistent boot payload. It is not a consumer tool and it is not hardened.
   the page generates one per load, announces it (`POST /pair`) and patches it
   into the stub, which sends it as the 4 bytes after `PGDB` — a LAN peer can no
   longer pre-empt the stub pairing or join `TV_PEERS` with a forged `PGDB`
-  hello. **Still open:** a forged `DSHROOT` beacon still admits a peer to
-  `TV_PEERS` (the payload cannot know the page token until it is deployed with
-  one — see `docs/OPEN-ISSUES.md`), and a page older than the server accepts
-  pairings unauthenticated (logged loudly) so the toolkit keeps working across
-  an upgrade. Keep the PC off untrusted networks.
+  hello. **v41 closes the `DSHROOT` half the same way:** `deploy.sh` renders a
+  per-deploy token into `share/rootchan.token`, the payload prefixes every
+  beacon with `tok=`, and the server refuses unknown tokens and never admits a
+  token-less one. **Residue, by design:** a token-less beacon's *content* still
+  reaches `beacons.log` (so a legacy or pre-deploy payload stays diagnosable),
+  and a page older than the server accepts `PGDB` pairings unauthenticated
+  (logged loudly) so the toolkit keeps working across an upgrade. Keep the PC
+  off untrusted networks.
 - `/deploy.sh` is rendered per request and refuses a non-IPv4 `Host`; a static
   file server would leave its `@HOST@`/`@WANT@` markers and the script refuses to
   run (`NEED_RENDER`), so there is no stale generated copy to tamper with.
@@ -37,9 +40,8 @@ persistent boot payload. It is not a consumer tool and it is not hardened.
 - **The PC server is part of the boundary too.** In v39.2 the shell slot can no
   longer be evicted by a different peer, `tv_sock` is only aimed at a stub after
   op5/op7, every post-peek read is bounded, `RSET` is recognised across split TCP
-  segments, and `beacons.log` rotates at 16 MiB. In v40 the `PGDB` half of the
-  token gap closed (above); the `DSHROOT` half and `beacons.log` forgery remain
-  open pending a payload-side token.
+  segments, and `beacons.log` rotates at 16 MiB. Both halves of the token gap are closed (v40 `PGDB`, v41 `DSHROOT`);
+  the deliberate residue is the token-less log content above.
 ## Supported scope
 
 - The test unit described in `README.md` and the constants in

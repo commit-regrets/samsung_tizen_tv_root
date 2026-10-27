@@ -1,7 +1,9 @@
 # Testing this toolkit — on this TV and on yours
 
 Several layers, from "runs anywhere" to "needs the TV". `python tools/test_all.py`
-runs the offline ones and summarises; `--tv` adds the live-stub layer.
+runs the offline ones and summarises (11 layers: the ones below plus the
+public-release sanitizer selftest, the list-walk/DWARF fingerprint gate, and
+the AGENTS.md state-row drift check); `--tv` adds the live-stub layer.
 
 ```sh
 python tools/test_all.py            # offline: no TV, no root, no page
@@ -19,7 +21,9 @@ TV and matched against the DWARF dump of a same-family kernel. It exercises
 (`iter_owner_creds`) and the page-straddle case that a per-page `find()` misses.
 It also twins the payload hunt (`hunt_new_phyrfork` + pre-set), the v18
 MapPage-vs-kernel alias (`AliasedMemRPC`), per-instance device contention
-(`Video40`; two nodes can be open at once), pointers above `0xE0000000` (VMSPLIT_3G: not a valid translation), and
+(`Video40`; two nodes can be open at once), pointers above `0xE0000000` (VMSPLIT_3G + HIGHMEM puts them inside the linear
+map, but the video40 read path returns garbage there — the DMA window is the
+suspect), and
 a hole that must break the scanner's carry. Since v39 `patch_gate` also enforces
 `SaneCred`, `high_alloc_probe` emits `cred-miss` and models the 2.5 s sweep
 budget, and `high_alloc_gate` mirrors the payload's highCred back-fill.
@@ -154,7 +158,9 @@ The suite is written to be pointed at a different set, not just re-run:
    `tools/kernel_root.py`, `tools/physmap.py` and the payload.
 2. Put your PC's IP into `tools/physrpc.S` (the `sa` word), rebuild, re-embed,
    and re-run the two consistency checks.
-3. Update `WANT=`/`SIZE_WANT=` in `server/deploy.sh` after a payload rebuild.
+3. Nothing to edit for the deploy gate: `server.py` renders `WANT=`/`SIZE_WANT=`/
+   `TOKEN=` per request from the `payload.dll` it serves — just copy your build
+   over `server/payload.dll`.
 4. The device node matters: the shipped stub opens `/dev/video30`; if your set
    only exposes another node, change `physrpc.S`'s `path:` and rebuild.
 5. Run `python tools/test_all.py` first (it should be green before any hardware),

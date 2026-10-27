@@ -46,10 +46,13 @@ would dial a foreign network.
 
 `root.ps1` works out your PC's address from the route to the TV and validates it
 as IPv4; `server.py` renders that address into `deploy.sh` when the TV fetches
-it, and `deploy.sh` records it on the TV as `share/rootchan.host`, which the
-payload (v10+) uses for beacons and `server/recover.sh` uses to find the PC
-again. The committed `server/deploy.sh` ships `H=@HOST@` (TEST-NET placeholder
-`192.0.2.1`); serving it from a plain static server is refused (`NEED_RENDER`).
+it (together with the payload hash/size and a fresh beacon `TOKEN=`), and
+`deploy.sh` records them on the TV as `share/rootchan.host` and
+`share/rootchan.token`, which the payload uses for its beacons;
+`server/recover.sh` uses the host file to find the PC again. The committed
+`server/deploy.sh` ships `H=@HOST@`/`TOKEN=@BEACON_TOKEN@` (TEST-NET
+placeholder `192.0.2.1`); serving it from a plain static server is refused
+(`NEED_RENDER`).
 
 If you ever want to check or change it, that file is the one to edit:
 

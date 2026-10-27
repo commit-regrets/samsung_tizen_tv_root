@@ -36,8 +36,10 @@ prints the hints below.
 
 ## Beacon dictionary
 
-Prefixes below follow `DSHROOT t=<n>s ` in the log. `t=` is TV kernel
-uptime; it resets on a cold boot (that reset is how boots are delimited).
+On the PC, lines are `<timestamp> DSHROOT tok=<hex> t=<n>s <payload line>`:
+`tok=` (v41) is the deploy-rendered beacon token, and `t=` is TV kernel
+uptime, which resets on a cold boot (that reset is how boots are delimited).
+The on-TV marker keeps the `t=<n>s <payload line>` shape (no token).
 
 ### Lifecycle
 
@@ -79,7 +81,7 @@ uptime; it resets on a cold boot (that reset is how boots are delimited).
 | `direct-patch uid=0` | root confirmed after that patch | done |
 | `direct-patch-fail …` | write did not stick (stale/cached) | scan fallback follows; watch `cred-scan` |
 | `parent=<va> cred=<va>` / `parent-patch uid=<n>` | comm-scan path (slow lane) | fine if it ends in `uid=0` |
-| `high-alloc parent=<va> cred=<w> real=<w> junk=<0\|1> fast-exit` | **v33 gate**: parent task or cred at/above `0xE0000000` — unreadable, wait cannot help | **normal, not an error**: with VMSPLIT_3G a value above `0xE0000000` is a garbage read, and a fresh process re-rolls the allocation into lowmem; expect the next attempt to root |
+| `high-alloc parent=<va> cred=<w> real=<w> junk=<0\|1> fast-exit` | **v33 gate**: parent task or cred at/above `0xE0000000` — unreadable, wait cannot help | **normal, not an error**: the video40 read path returns garbage there even though `zoneinfo` puts `high_memory` at VA `0xF0400000` (the node's DMA window is the suspect — `docs/OPEN-ISSUES.md` item 2); a fresh process re-rolls the allocation into the readable range; expect the next attempt to root |
 | `high-scan C=… P=… pp=… cp=… pc= hits= at= cred= cuid= cov= ms= verdict=…` | **v38 read-only probe** answering *why* the high half is unreadable (tasks are not page-aligned: `at=` is the TASK address, found by the comm pattern at any offset — NUL verified across the page edge — and validated against the children list linking `&child->sibling`, task+0x2F8 ↔ child+0x300, DWARF-confirmed) | `verdict=linear` (`pc=1`: the comm read at the translated parent address itself) → video40 returned wrong bytes for a frame it can address (read-path failure); `verdict=elsewhere` → the `va-0xA0000000` translation is the bug, and `cuid=5001` on `at=` would mean a locate-and-patch read path is possible; `cred-elsewhere` → an owner-ids cred was found in the sweep (the child's own fork-copy cred is excluded); it is **not** evidence about the high half, because `at=`/`cred=` are PHYSICAL while `C=`/`P=` are virtual — a linear hit on parent `0xe2df7300` reads `P=e2df7300 at=42df7300`, and `cuid=5001` on `verdict=linear` simply means the frame was readable; `comm-only`/`miss`/`cred-miss` → inconclusive, read `cov=`, the range ACTUALLY read (a miss is not evidence of absence) |
 | `cred-scan ROOT\|miss patched=<n> total=<n>` | v28 content scan near the child's cred (budget 8/process) | `ROOT` = rooted via scan; `miss` = ran, ours still stale |
 | `cred-scan skip anchor=<va> cuid=<u>` | scan gate closed (child cred page itself stale) | expected in the stale window |
@@ -142,6 +144,10 @@ down/wrong interpreter. The TV-side `root_boot.txt` marker splits that case.
 | gateway: cached hello / nothing answers after a page load | wedged stub pairing | `python -c "import physmap; print(physmap.reset_stub())"`, then reload the page |
 | server: `/logs/…` returns 404 | by design — logs are never served | read them on the PC |
 | server: HTTP 413 on `/save` | POST body over the 1 MB cap | client bug; nothing on the TV |
+| server console: `[pair] token announced (<hex>)` | the page announced its per-load stub pairing token (v40) | normal before every page load |
+| server console: `[rpc] stub token mismatch (<a> != <b>) - ... refused` | a stub presented a different token than announced; usually a stale page | reload `index.html` so the stub carries the announced token |
+| server console: `refused <ip>: unknown beacon token <hex>` | a forged (or stale-deploy) beacon was refused admission | expected for foreign peers; if it is your TV, redeploy so `rootchan.token` matches |
+| server console: `<ip> sent no token - logged but NOT admitted` | a token-less beacon (legacy payload, or the payload cannot read `rootchan.token`) | logged to `beacons.log` anyway; check the token file's mode/label on the TV |
 
 ## Proof files (TV side)
 
@@ -149,4 +155,5 @@ down/wrong interpreter. The TV-side `root_boot.txt` marker splits that case.
 |---|---|
 | `share/root_boot.txt` | every beacon this payload ever emitted, local copy |
 | `share/root_proof.txt`, `/opt/usr/system/dsh_root_proof.txt` | written on SUCCESS with uid/pid/kernel/init_task |
-| `share/rootchan.host`, `share/rootchan.allow` | beacon target; allowlist (missing = fail closed) |
+| `share/rootchan.host`, `share/rootchan.allow`, `share/rootchan.token` | beacon target; allowlist (missing = fail closed); the v41 beacon token (chmod 644 — 0600 is unreadable by the uid-5001 payload) |
+| `rootchan.token` mismatch symptoms | beacons arrive but the server console prints `refused ... unknown beacon token` or `sent no token - NOT admitted`: the payload cannot read the token file (check mode/label), or the server was restarted after a newer deploy render (the last two renders stay valid) |
