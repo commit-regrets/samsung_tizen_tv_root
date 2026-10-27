@@ -88,6 +88,11 @@ rediscover them:
 - **Splits:** `server.py` into client/gateway/http modules, a threaded accept
   loop, `sim_rpc.py` / `Program.cs` partials. Offline tests exist; the
   refactors are riskier than their value until the hardware lane demands them.
+  When it happens: fix order is local P1s first, then extract `ShellChannel` /
+  `RpcGateway` classes keeping every wire byte and log token identical
+  (`tools/test_gateway.py` is the oracle), thread `serve_http` last - and do
+  not migrate frameworks, the raw-socket peer classification is the
+  load-bearing part.
 - **Remaining research ports:** `taskwalk.py` orphan detection, a QEMU/softmmu
   physmap harness, a C `cred_scan` utility - porting investments, not
   this-firmware work.

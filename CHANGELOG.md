@@ -10,6 +10,26 @@ entry is an incomplete change. `AGENTS.md` repeats this rule for agents.
 
 ---
 
+## 2026-10-27 (evening) — codreview.md mined and retired
+
+`docs/codreview.md` (the 2026-10-26 first-review scratch report, git-ignored)
+was checked item by item against the repo: every P1/P2 and doc correction in
+it had already landed and is recorded in `CHANGELOG.md` /
+`docs/REVIEW-HISTORY.md`.  Three pieces existed nowhere durable and were
+extracted before deleting the file:
+
+- `browser_payload.js`: a comment warning that `wasm_builder.js` owns hundreds
+  of script-scope names (`kExpr*`, ...) - a redeclaration in the payload is a
+  parse-time SyntaxError that kills the whole page.  (The `Array.isArray` and
+  implicit-global fixes from the same list landed in v39.2.)
+- `docs/EXPLOIT.md`: a "shelf life" section - CVE-2024-2887 is fixed in
+  Chrome 123, but this firmware's Chromium 120 will never receive it, so the
+  renderer primitive stays viable for the firmware's life (and stays a known
+  browser hole: keep the set off untrusted networks).
+- `docs/OPEN-ISSUES.md` splits bullet: the refactor guidance (wire bytes and
+  log tokens identical, `test_gateway.py` the oracle, framework migration
+  explicitly out).
+
 ## 2026-10-27 (later) — review fixes + self-updating state docs
 
 - **Second reviewer's fixes landed (`7e2a711`):** `dwarf_offsets.py --check`
