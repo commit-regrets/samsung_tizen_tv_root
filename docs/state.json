@@ -1,0 +1,14 @@
+{
+  "repo_payload_version": "v41",
+  "tv": {
+    "payload_version": "v41",
+    "deployed_date": "2026-10-27",
+    "beacon_token": "c1eadc03",
+    "notes": "A v41 cold boot and the uninstall/recover cycle are still owed; payload_backup.dll keeps v39.2 (010946ff...), stock mcs_orig.dll f61f60dd..."
+  },
+  "memory": {
+    "max_low_pfn": "0x50400",
+    "high_memory_va": "0xF0400000",
+    "source": "/proc/zoneinfo start_pfn values, measured 2026-10-27; meminfo is vendor-adjusted on this set"
+  }
+}

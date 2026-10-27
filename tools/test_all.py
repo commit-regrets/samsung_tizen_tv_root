@@ -66,6 +66,8 @@ def main() -> int:
     results.append(("sanitize", run("public-release sanitizer", [py, "tools/test_sanitize.py"])))
     results.append(("listwalk-dwarf", run("list-walk port + dwarf fingerprint",
                                           [py, "tools/test_listwalk.py"])))
+    results.append(("state-docs", run("AGENTS.md payload row matches artifacts/state",
+                                      [py, "tools/update_state.py", "--check"])))
 
     # requires keystone+capstone; report the skip instead of failing a fresh clone
     try:

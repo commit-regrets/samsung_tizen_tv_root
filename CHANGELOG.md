@@ -10,6 +10,24 @@ entry is an incomplete change. `AGENTS.md` repeats this rule for agents.
 
 ---
 
+## 2026-10-27 (later) — review fixes + self-updating state docs
+
+- **Second reviewer's fixes landed (`7e2a711`):** `dwarf_offsets.py --check`
+  walked every DIE of the 123 MB sim vmlinux (>3 min, hanging the suite
+  timeout); kernel structs live at CU top level, so it now scans top-level
+  children and stops when done (1.3 s), and `test_listwalk.py` treats a DWARF
+  timeout as SKIP. Docs were brought to v41 / the zoneinfo boundary
+  (`high_memory = 0xF0400000`) everywhere.
+- **Self-updating state docs (`tools/update_state.py`).** The Payload row in
+  `AGENTS.md` §1 is now a generated block between STATE markers, rendered from
+  the artifacts (payload md5/size, blob size - never hand-written) plus
+  `docs/state.json` (tracked; the operator-session facts: version labels,
+  deploy date, live beacon token, owed items, memory facts). `--check` runs as
+  a `test_all.py` layer (11 offline layers now) and fails the suite on drift -
+  the same discipline `test_constants.py` applies to code constants; `--fix`
+  rewrites the block. After a deploy session: update `docs/state.json`, run
+  `--fix`, done.
+
 ## 2026-10-27 (unattended session) — v41 live, release pass, porting seeds
 
 Everything below was done with the TV unattended, through the live 31337
