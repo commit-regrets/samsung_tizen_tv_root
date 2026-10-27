@@ -1,9 +1,12 @@
 # Boot-persistence regression — root cause and fix
 
-**Status: resolved.** The app was being launched at every boot; it exited before
+**Status: resolved (2026-10-22, payload v10 era).** The app was being launched at
+every boot; it exited before
 `Main` because our payload DLL carried the wrong SMACK label. The fix is in
 `deploy.sh` and `uninstall.sh`, and both verify it on every run. This document is
 kept because the diagnosis was wrong for a long time and the mechanism is subtle.
+Evidence blocks and deploy output below are from that era (sizes, beacon shapes
+and the label-check placement have since evolved - `AGENTS.md` is current).
 
 ## TL;DR
 
@@ -82,7 +85,10 @@ echo "DLL_LABEL=$GOT_LABEL"
 ```
 
 with `WANT_LABEL="User::Pkg::$APPID::RO"`. `uninstall.sh` relabels the stock IL
-and NI files it copies back, for the same reason.
+and NI files it copies back, for the same reason. (Later hardening moved the
+label-and-verify one step earlier: current `deploy.sh` labels and verifies the
+*temp* DLL before the rename, so a wrong label aborts with the live DLL
+untouched - `AGENTS.md` §9.)
 
 Live deploy over the root channel (payload v10):
 
@@ -173,5 +179,5 @@ All of it is done and verified: the script fixes are in the repo, the uninstall
 path was re-run end to end (stock restored, boot row verified gone, channel stayed
 closed after reboot), and the payload was reinstalled and confirmed on cold boots.
 The pid-hash/IDR locator remains blocked, and no longer matters — the cred-pattern
-scan replaced it. See `CHANGELOG.md` for the sequence and `AGENTS.md` for the
-current procedure.
+scan replaced it. See `docs/CHANGELOG-ARCHIVE.md` (2026-10-22 entries) for the
+sequence and `AGENTS.md` for the current procedure.
