@@ -11,7 +11,7 @@ browser, and the root is made persistent through a stock on-boot service app.
 | Kernel | Linux 5.4.249, ARM32 (VMSPLIT_3G + HIGHMEM, no LPAE), `PAGE_OFFSET 0xC0000000`, `PHYS_OFFSET 0x20000000` |
 | Browser | Chromium 120.0.6099.5 (`SamsungBrowser/7.0`) |
 | Root | `uid=0`, `CapEff=0x3fffffffff` |
-| Persistent payload | repo v41: 33,792 B, md5 `1ab4343e…`; test unit runs v41 (deployed 2026-10-27, beacons carry `tok=`); `payload_backup.dll` keeps the previous build |
+| Persistent payload | repo **v41** (current md5/size in the `AGENTS.md` state row — regenerated from the artifact); the test unit runs the same build (deployed 2026-10-27, beacons carry `tok=`); `payload_backup.dll` keeps the previous build |
 | Root channel | TCP **31337** on the TV, line protocol, replies end with `__END__` |
 
 ## Quick start
@@ -159,8 +159,8 @@ Full gates, measurement recipes, and a file-by-file porting checklist:
   is the only filter). Never expose it to the internet or a network you do not
   control. See [`SECURITY.md`](SECURITY.md).
 - The boot payload takes a physmap node (`/dev/video40`; exclusivity is per
-  instance). It **retries video40 while it is busy** and only moves to
-  `video30`/`video60` when a node reports ENOENT/ENODEV — switching on busy
+  instance). It **retries video40 on `EBUSY`** and only moves to
+  `video30`/`video60` when a node reports `ENOENT`/`ENODEV` — switching on busy
   would break the boot, because only video40 serves the payload's reads. It
   closes the node after rooting so the browser path keeps working.
 - Keep the stock `mcs_orig.dll` / `mcs_ni_orig.dll` backups and leave TV

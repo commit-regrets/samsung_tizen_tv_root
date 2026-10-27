@@ -21,7 +21,9 @@ Layers (see docs/TESTING.md):
   7. tools/test_listwalk.py  layout-shift-proof list walk (sim) + the DWARF
                              fingerprint gate (needs pyelftools + the sim
                              vmlinux; skips without them)
-  8. tools/test_stub.py      (--tv) live stub protocol + the new clamps
+  8. tools/test_docs.py      living docs vs current mechanisms (banned stale
+                             claims, required tokens, artifact-number hygiene)
+  9. tools/test_stub.py      (--tv) live stub protocol + the new clamps
 
 Exit code 0 means every layer passed (or was skipped for a documented reason).
 """
@@ -68,6 +70,8 @@ def main() -> int:
                                           [py, "tools/test_listwalk.py"])))
     results.append(("state-docs", run("AGENTS.md payload row matches artifacts/state",
                                       [py, "tools/update_state.py", "--check"])))
+    results.append(("docs-consistency", run("living docs vs current mechanisms",
+                                            [py, "tools/test_docs.py"])))
 
     # requires keystone+capstone; report the skip instead of failing a fresh clone
     try:

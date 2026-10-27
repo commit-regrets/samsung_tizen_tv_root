@@ -58,7 +58,7 @@ All pip/apt-installable; nothing vendor-specific:
 | Python 3.10+ | python.org (or distro) | everything |
 | keystone-engine, capstone | `pip install -r tools/requirements.txt` | `build_physrpc.py` (stub rebuild) |
 | pyelftools | same requirements file | `dwarf_offsets.py` |
-| .NET SDK 6+ (10.x pinned via `payload/global.json`) | dotnet.microsoft.com | rebuilding the boot payload |
+| .NET SDK (10.0.x pinned via `payload/global.json`) | dotnet.microsoft.com | rebuilding the boot payload |
 | Wireshark/tshark (optional) | wireshark.org | network forensics on the LAN |
 
 ## Browser-chain upstream

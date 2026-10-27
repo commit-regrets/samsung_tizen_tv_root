@@ -102,7 +102,7 @@ Assembles `tools/physrpc.S` and compares it byte-for-byte with the `SHELLCODE`
 array the page actually runs (`server/payloads/browser_payload.js`), and
 `tools/embed_physrpc.py --check` compares that array with
 `tools/physrpc_shellcode.bin`. Run both after touching either side
-(blob is 7,720 B since the v40 stub pairing token):
+(current size in the `AGENTS.md` state row; it changes with every stub edit):
 
 ```sh
 python tools/build_physrpc.py                 # physrpc.S -> physrpc_shellcode.bin
@@ -143,8 +143,9 @@ Run these once per payload change (`AGENTS.md` §7 has the canonical list):
 2. `python tools/root_shell.py "grep CapEff /proc/self/status" <tv-ip>` →
    `0000003fffffffff`.
 3. `python tools/root_shell.py "md5sum <bin>/MultiControlService.dll" <tv-ip>` →
-   the md5 of `server/payload.dll` (v41: `1ab4343e…`, 33,792 B). The deploy gate
-   is rendered from that file, so there is no constant in the scripts to compare.
+   the md5 of `server/payload.dll` (the `AGENTS.md` state row is the single
+   source). The deploy gate is rendered from that file, so there is no constant
+   in the scripts to compare.
 4. Cold boot (mains unplug, not the remote) with the browser closed → 31337 is
    back within ~60–90 s; `logs/beacons.log` shows `DSHROOT` chain.
 5. `python tools/test_all.py --tv` against a fresh page load.

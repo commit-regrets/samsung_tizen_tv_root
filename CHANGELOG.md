@@ -15,6 +15,33 @@ entry is an incomplete change. `AGENTS.md` repeats this rule for agents.
 
 ---
 
+## 2026-10-27 (late) — docs-consistency gate: stale claims now fail the suite
+
+The two sweeps showed doc drift is enumerable: the same claim classes broke in
+three-plus files each.  `tools/test_docs.py` (new `test_all.py` layer
+`docs-consistency`, 12 offline layers now) turns them into checks:
+
+- **Banned patterns** (one per past incident): "update WANT=" / "update the
+  deploy constants" (rendered gate since v39), "cycles videoNN / three nodes"
+  (the v39.1 EBUSY-retry invariant), "binds 0.0.0.0:31337" (route-derived since
+  v16), ".NET SDK 6+" (global.json pins 10.0.x), "ARM32 LPAE" (VMSPLIT_3G).
+- **Required tokens**: the current mechanisms must stay documented -
+  `0xF0400000` (zoneinfo boundary), `tok=`, `rootchan.token`, `POST /pair`,
+  `ENOENT/ENODEV`, `EBUSY`, `errors="replace"` - each mapped to the files that
+  describe it.
+- **Artifact hygiene**: md5s and byte sizes are single-sourced in the AGENTS.md
+  generated STATE block (+ state.json, + dated history); living prose must point
+  at the state row, not hand-copy numbers.  The offenders found on the first
+  run were de-hardcoded: README's payload table row, TESTING's md5/size
+  mentions, and three places in AGENTS.md outside the STATE block.  The
+  OPEN-ISSUES current-state header is exempt by design (a per-session snapshot,
+  refreshed by hand).
+
+Matching is backtick-insensitive; dated-history files (CHANGELOG, archives,
+REVIEW-HISTORY) are exempt - they are records, not claims.  When a future
+change makes a check wrong, the fix is to update the doc AND the check, with
+the incident named.
+
 ## 2026-10-27 (late) — docs sweep completion: the six partially-read files done in full
 
 The earlier sweep had read eight docs fully and only grep/section-checked six.

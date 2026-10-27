@@ -98,8 +98,10 @@ rediscover them:
   this-firmware work.
 - **High-PA deliberate read:** one falsifiable check left from the memory-model
   work (`AGENTS.md` §11); the zoneinfo boundary is already measured.
-- **Encoding hardening beyond stdout:** a few tool file reads/writes still rely
-  on the locale; pin `encoding="utf-8"` when touching them.
+- **Encoding hardening beyond stdout:** TV-facing stdout already uses
+  `errors="replace"` (a locale console used to crash the reporting tools on
+  non-ASCII bytes), but a few tool file reads/writes still rely on the locale;
+  pin `encoding="utf-8"` when touching them.
 
 ## Closed history
 
