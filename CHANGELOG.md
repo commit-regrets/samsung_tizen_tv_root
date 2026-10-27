@@ -116,6 +116,12 @@ The TV came back on the network, so v39.2 got its first hardware run.
   `test_constants` check), so the announced hex is what PGDB carries. Hardware
   validation was still pending at the end of this session.
 
+- **The vtable trigger was flaky on fresh loads** (`nodeName` stayed `'DIV'`):
+  the wrapper address captured before ~20 console lines can be stale after a
+  V8 scavenge. The page now re-captures `addrOf(el)` immediately before the
+  single `cw`, verifies `wrapper+0x10 == backing`, and retries once; that made
+  the live pairing work. This is independent of the token and affects any page
+  load that allocates between wrapper capture and the write.
 Still pending: one uninstall/`recover.sh` cycle (the undo path).
 
 ## 2026-10-26 (third pass) — second code review

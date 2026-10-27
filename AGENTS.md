@@ -424,7 +424,7 @@ gateway, deploy/uninstall control flow, source↔blob↔page consistency). Then:
 - [x] Cold boot with the browser closed → attempt 1 high exits in ~2 s (v39.2, 2026-10-26: **39 s**, attempt 1 `fast-exit` t=29, attempt 2 `self-patch` t=39, `ROOTCHAN` t=40) (`high-alloc … fast-exit`), attempt 2 roots; v37 cold boot observed **37 s** (attempt 2; attempt 1 `seen=0`); v35: 37 s; v34: 34 s and 68 s. Attempt-1 `SUCCESS` is a bonus; attempt 2 is the floor, but a slow hunt can push to attempt 3.
 - [ ] `kill -9 <app pid>` → channel back in ~5–45 s (v33's high-alloc gate skips a high attempt quickly; otherwise attempt 2 roots), still uid 0.
 - [x] `python tools/test_all.py --tv` against a fresh page load (stub protocol
-      + clamps) - **9/9 layers passed 2026-10-26** (hello, kernel read, oversize READ/WRITE refused, stub alive). Details per layer: `docs/TESTING.md`.
+      + clamps) - **10/10 layers passed 2026-10-27** on the v40 token path (hello, kernel read, oversize READ/WRITE refused, stub alive). Details per layer: `docs/TESTING.md`.
 
 ## 8. Traps (each cost hours — read `docs/FAILED.md`)
 
@@ -670,7 +670,10 @@ that downloads it) and reboot. Things to preserve when editing `Program.cs`:
   now carries a per-run token (page-generated, announced via `POST /pair`,
   patched into the stub's `TOK1` placeholder and sent as the 4 bytes after
   `PGDB`, before the device open); an unannounced or mismatched stub is refused
-  and never joins `TV_PEERS`. **Still open:** a forged `DSHROOT` beacon still
+  and never joins `TV_PEERS`. **Live-validated 2026-10-27**: announced
+  `c7eeacdb`, stub connected/paired, `test_all.py --tv` 10/10. The page also
+  re-captures the wrapper before the single `cw` (heap move made the trigger
+  return `'DIV'` on fresh loads). **Still open:** a forged `DSHROOT` beacon still
   joins `TV_PEERS` (and `beacons.log` forgery) - that needs a payload-side
   token, not a server change. Keep the set off untrusted networks; see
   `SECURITY.md`.
