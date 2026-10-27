@@ -1,15 +1,18 @@
 # Open issues — current state, pending work, and closed history
 
-## Current state — 2026-10-27 (TV on v41, beacon token live)
+## Current state — 2026-10-27 (v41 verified: cold boots, kill -9, uninstall/recover)
 
-TV: **v41** (`1ab4343e…`, 33,792 B), rooted via 31337; deployed 2026-10-27 over the
-v39.2 channel and restart-rooted in ~1 s (`self-patch`). Every beacon carries
-`tok=c1eadc03` (from `rootchan.token`); live negative tests from the PC: forged
-`tok=deadbeef` was refused (`unknown beacon token`), a token-less start was logged
-but never admitted to the shell slot. `id -u` = 0, `CapEff=0x3fffffffff`, installed
-md5 `1ab4343e…`. The v39.2 cold boot (39 s, attempt 2) and `--tv` (10/10) are done.
-Backups: `mcs_orig.dll` (stock), `mcs_ni_orig.dll`, `payload_backup.dll` = the
-previous build. **Remaining: a v41 cold boot and one uninstall/`recover.sh` cycle.**
+TV: **v41** (`1ab4343e…`, 33,792 B), rooted via 31337. Every beacon carries
+`tok=814bce42` (from `rootchan.token`); forged and token-less beacons are refused.
+`id -u` = 0, `CapEff=0x3fffffffff`.
+**All hardware gates are closed (2026-10-27):** v41 cold boots at **36 s**
+(attempt 1 fast-exit t=29, attempt 2 direct-parent t=36) and **49 s** after the
+recover cycle (AUL launched late; one direct-patch attempt); `kill -9` recovery
+**~2 s**; uninstall verified (stock IL `f61f60dd…`, AOT `6c9bdcc4…`, boot row 0,
+allow removed, 31337 stayed closed after a cold boot, stock 9197 back); recovery
+via `recover.sh <pc-url>` completed `DEPLOY_DONE`/`RECOVER_DONE` and the following
+cold boot rooted again.
+Backups: `mcs_orig.dll` (stock), `mcs_ni_orig.dll`, `payload_backup.dll` = v41.
 
 The repo is green offline (`python tools/test_all.py`, 10/10) and
 `sanitize_for_public.py --check` passes. The kernel memory boundary is now
@@ -18,10 +21,12 @@ meminfo-derived `0xE4E42000` was wrong (vendor-adjusted counters): see item 2.
 
 **Pending / next, in order:**
 
-1. **~~Deploy v41~~ — done 2026-10-27.** Restart-rooted in ~1 s; beacon token live
-   (`tok=c1eadc03`), forged and token-less beacons refused; installed md5
-   `1ab4343e…`. Remaining: one **v41 cold boot** and one uninstall/`recover.sh`
-   cycle against the confirmed stock backups.
+1. **~~Deploy v41 / cold boot / kill -9 / uninstall + recover~~ — all done 2026-10-27.**
+   Restart-rooted in ~1 s; token live; cold boots 36 s and 49 s; `kill -9` back in
+   ~2 s; uninstall restored stock and stayed unrooted through a cold boot;
+   `recover.sh` with the PC URL reinstalled v41 and that boot row fired on the next
+   cold boot. The run also fixed two `recover.sh` bugs (rendered-guard marker grep,
+   Tizen UEB unsigned-file refusal) and added `auto_root --script-args`.
 2. **High-half read mechanism — boundary corrected by zoneinfo; DMA window suspect.**
    Reads at/above `0xE0000000` were unreliable (0/21 high creds, 0/81 high task
    pointers), but that line is *inside* the linear map: `/proc/zoneinfo` (2026-10-27)
@@ -87,7 +92,7 @@ verified on the TV, including a forced cold reboot.
 | 2 | **closed** | fork children `close(_fd)` + `waitpid(WNOHANG)`; a boot-time attempt-1 failure followed by attempt-2 success no longer hits the 120 s open retry |
 | 3 | **closed, proven on a stock state** | the stock IL/AOT were put back on disk and the backups deleted; the next deploy created them (`BACKUP_IL=ok`, `BACKUP_NI=ok`) with md5s `f61f60dd…` / `6c9bdcc4…` and recorded `mcs_orig.md5` / `mcs_ni_orig.md5` |
 | 4 | **closed** | both `.ps1` pass `$TvIp`, check the exit code; `root_shell.py` also accepts `ROOT_TV` and fails on a broken stream. `uninstall.ps1 -NoWait` ran end-to-end on the TV: stock IL/AOT restored + relabelled, boot row removed (`remain=0`), `UNINSTALL_DONE`, exit 0 |
-| 5 | **closed, proven on the TV** | `recover.sh` ran from the root channel: `RECOVER=deploy_local.sh` → deploy → `DEPLOY_DONE` → `RECOVER_DONE` |
+| 5 | **closed, proven on the TV twice** | `recover.sh <pc-url>` → `RECOVER=deploy.sh (rendered by server.py)` → `DEPLOY_DONE` → `RECOVER_DONE`. The 2026-10-27 run also fixed the marker-grep/rendered-guard bug and the UEB `sh /tmp/file` refusal (now fed through stdin), both gated by `test_constants` |
 | 6 | **closed** | lock released before `rpc_queue.get`; `tools/test_gateway.py` asserts `RSET` in ~2 ms while a client waits |
 | 7 | **closed on hardware** | silent client dropped at 30 s, second client served in 31.3 s after it |
 | 8 | **closed** | label verified on the temp DLL before the rename; boot-row and AUL failures now `exit 1`. `tools/test_shell.py` now exercises the label-mismatch and bad-boot-row aborts offline (a real mismatch on the TV is not forceable without breaking it) |
