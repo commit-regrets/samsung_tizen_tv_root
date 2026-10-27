@@ -202,6 +202,13 @@ def main() -> int:
     check("server only aims tv_sock at op5/op7", "in (5, 7)" in server)
     check("server renders only the deploy assignment lines",
           'r"(?m)^H=@HOST@$"' in server and 'r"(?m)^WANT=@WANT@$"' in server)
+    page = (ROOT / "server" / "payloads" / "browser_payload.js").read_text(
+        encoding="utf-8")
+    check("page announces the stub token in wire byte order",
+          "[arr[at], arr[at + 1], arr[at + 2], arr[at + 3]]" in page
+          and ('"00000000" + tok.toString(16)') not in page,
+          "big-endian announce vs little-endian stub bytes (2026-10-27)")
+
     check("deploy.sh keeps its literal NEED_RENDER guard",
           "*@HOST@*|*@WANT@*)" in deploy)
 

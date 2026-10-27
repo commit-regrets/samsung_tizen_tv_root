@@ -108,6 +108,14 @@ The TV came back on the network, so v39.2 got its first hardware run.
   were moved to `logs/beacons.log.testnoise-2026-10-26`. **There was no AUL
   churn on the TV.**
 
+- **The first live token run was refused - reversed bytes.** The page generated
+  the token, wrote it little-endian into the blob, but announced
+  `tok.toString(16)` (big-endian hex); the stub's load/store preserves the bytes,
+  so the server saw the reverse (`f1047934` vs announced `347904f1`) and refused
+  every stub. The page now announces the exact wire bytes (with a
+  `test_constants` check), so the announced hex is what PGDB carries. Hardware
+  validation was still pending at the end of this session.
+
 Still pending: one uninstall/`recover.sh` cycle (the undo path).
 
 ## 2026-10-26 (third pass) — second code review
