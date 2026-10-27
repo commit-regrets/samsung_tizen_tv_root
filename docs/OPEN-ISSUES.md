@@ -13,7 +13,8 @@ the 2 MiB `ulimit -f` redirect guard both verified. Backups intact in
 attempt 2 `self-patch` t=38, root t=39); `test_all.py --tv` passed 9/9 the same
 session. Only the uninstall/`recover.sh` cycle remains.
 
-The repo is green offline (`python tools/test_all.py`, 8/8). The first deploy
+The repo is green offline (`python tools/test_all.py`, 9/9 layers; `--tv`
+completes 10, live-validated on the v40 token path 2026-10-27). The first deploy
 attempt failed with `NEED_RENDER` because `server.py` replaced the template's
 own guard marker; fixed and re-deployed the same session (see `CHANGELOG.md`,
 2026-10-26 third pass). Lowmem/highmem are now measured (meminfo), which
@@ -39,9 +40,14 @@ corrects the old `0xE0000000` read-limit claim: see item 2 below.
 3. **31337 is an unauthenticated LAN root shell.** The allowlist is the only
    filter on the channel. The PC side now also gates the shell slot to peers that
    announced themselves, answers unknown HTTP methods with 405, caps the stub
-   queue and refuses cross-origin `/save`; a LAN peer can still pre-empt `PGDB`
-   pairing. Next: per-run token in the hello (page-injected, patched into the
-   stub like the callback). See `SECURITY.md`.
+   queue and refuses cross-origin `/save`. **The `PGDB` half is closed (v40,
+   live-validated 2026-10-27):** the pairing carries a per-run token (page
+   generated, announced via `POST /pair`, patched into the stub's `TOK1`
+   placeholder), and an unannounced or mismatched stub is refused before it can
+   join `TV_PEERS`. **Still open:** a forged `DSHROOT` beacon still joins
+   `TV_PEERS` and can forge `beacons.log` lines - that needs a payload-side
+   token (`rootchan.token` rendered by `deploy.sh`, read by `Beacon()`), i.e. a
+   payload change. See `SECURITY.md`.
 4. **Portability** — no second model/firmware has been tested. Follow
    `docs/PORTABILITY.md`; the payload now tries `video40/30/60`, but the browser
    gate (Chromium 120) and the physmap primitive are still unproven elsewhere.
@@ -52,7 +58,8 @@ corrects the old `0xE0000000` read-limit claim: see item 2 below.
    hardening beyond the buxton key (`/mnt/backup/OS_UPGRADE_FLAG` +
    `systemctl mask --runtime` for `swu-auto-upgrade.*`, `fw-update-service.*`,
    `fw-usb-update-service.*`, `was-background-update.*`); a portable DWARF offset
-   reader with a `--check` gate; a `sanitize_for_public.py`-style checker.
+   reader with a `--check` gate. (~~`sanitize_for_public.py`-style checker~~ —
+   done 2026-10-26: `tools/sanitize_for_public.py`.)
 6. **Public-release hygiene** — `LICENSE` (MIT for original work), `NOTICE.md`
    (third-party browser chain is not relicensed), logs and build output ignored,
    only the payload DLL and the physrpc shellcode blob tracked as binaries. The
