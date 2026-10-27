@@ -71,6 +71,31 @@ classification (no manifest behind it) is guidance, not ground truth. Anything
 you act on should be confirmed against this firmware's own registry row and
 `referencedBy` list first.
 
+## Dry run done (2026-10-27) — nothing executed
+
+The disable mechanism is confirmed: Vetro's adapter sends
+`pkgcmd -D -t app -n <app_id> --uid 5001` (activate = `-A`), and `pkgcmd`
+exists here and **parses `-D`** (probe with a nonexistent app: "Failed to get
+appinfo" — flag valid, no state touched). The 13 tracking packages reduce to
+**11 disable candidates** (the two privacy-choice UIs stay kept), each already
+mapped to its `mainapp_id`, disable command and undo command:
+[`debloat/qnx1d-disable-plan.md`](debloat/qnx1d-disable-plan.md).
+
+Live observations recorded during the dry run:
+
+- none of the 11 tracker processes was running at idle (ps, 228 processes) —
+  they are demand-started, so the effect of disabling is that they can no
+  longer be *launched* (notably `targeted-ad-service`, which has
+  `app_onboot=true`);
+- `aulctl is-active` says "Not found app info" for these service apps — the
+  readback oracle for this plan is the `package_app_info`/`package_info`
+  registry columns, not aulctl;
+- the registry currently has **zero** `package_disable='true'` rows — a clean
+  baseline, so any state change after the real run is attributable to us.
+
+The actual run is deliberately not executed: it is one approved command per
+package, following the apply protocol in the plan file.
+
 ## How a disable would work (NOT executed yet)
 
 The registry has the switches the debloater uses: `package_disable`,
