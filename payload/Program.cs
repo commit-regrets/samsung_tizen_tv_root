@@ -36,7 +36,7 @@ internal static class Program
     // resets on every boot by design: each boot gets a fresh set of attempts.
     const string TryFile = "/tmp/.dsh_try";
 
-    // kernel / task facts (measured on 24_PTM_QTV_T09, kernel 5.4.249)
+    // kernel / task facts (measured on QTV_T09, kernel 5.4.249)
     const uint PHYS_OFF = 0xA0000000;      // v = phys + PHYS_OFF  (0x20000000 -> 0xC0000000)
     const uint IMAGE_A = 0x40008000;
     const uint IMAGE_B = 0x20008000;

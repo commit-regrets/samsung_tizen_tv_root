@@ -40,7 +40,7 @@ session below.
   notes) and exits 1 on any private token — it is the pre-publication gate
   OPEN-ISSUES asked for, and currently reports 13 real hits. Seed list from
   this repo (TV/PC IPs, LAN/Wi-Fi/VPN prefixes, firmware/platform/DUID);
-  `10.0.30.` keeps its trailing dot so the pinned SDK `10.0.301` never
+  `198.51.100.30.` keeps its trailing dot so the pinned SDK `10.0.301` never
   matches. Covered offline by `tools/test_sanitize.py` (registered in
   `test_all.py`).
 - **`.gitattributes` EOL pin.** `*.bin` is now `binary` — the shellcode blob
@@ -615,10 +615,10 @@ verdict, what each verdict would and would not justify).
 ### root.ps1 / uninstall.ps1 — ICMP is no longer a liveness signal
 
 Deploying v38 was correctly skipped (the TV is off), but the check that
-informed it was wrong for an interesting reason: `ping 192.168.178.175`
+informed it was wrong for an interesting reason: `ping 192.0.2.175`
 reported **0% loss** while the PC was not even on the TV's LAN any more
-(Ethernet without IPv4, Wi-Fi on 10.0.30.x, NordVPN tunnel up) — the tunnel
-gateway (10.128.128.128) answers "Destination net unreachable" and Windows
+(Ethernet without IPv4, Wi-Fi on 198.51.100.30.x, NordVPN tunnel up) — the tunnel
+gateway (198.51.100.1) answers "Destination net unreachable" and Windows
 `ping` counts that as a reply (0% loss, exit 0). A proxy-ARP router can
 likewise answer for an offline set. Both failure worlds make ICMP useless
 here, and `root.ps1`/`uninstall.ps1` still trusted it:
@@ -638,7 +638,7 @@ here, and `root.ps1`/`uninstall.ps1` still trusted it:
   same exit-2 semantics as before, no false success.
 
 Docs: new trap 17 in `AGENTS.md` §8 and a "do not use ping" note in
-`docs/USAGE.md` → Talking to the TV, both recording the 10.128.128.128
+`docs/USAGE.md` → Talking to the TV, both recording the 198.51.100.1
 signature (0% loss + exit 0 while off-LAN) and the honest alternatives
 (TCP probes, fresh `DSHROOT` beacons, `arp -a` having no TV entry).
 

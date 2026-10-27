@@ -513,7 +513,7 @@ gateway, deploy/uninstall control flow, source↔blob↔page consistency). Then:
 17. **Ping is not evidence on this PC — probe TCP instead.** Windows `ping`
     counts ICMP *error* replies as replies: with the PC off the TV's LAN
     (Wi-Fi instead of Ethernet, or the NordVPN tunnel up), the tunnel gateway
-    (`10.128.128.128`) answers "Destination net unreachable" and `ping` still
+    (`198.51.100.1`) answers "Destination net unreachable" and `ping` still
     prints **0% loss and exits 0**; a proxy-ARP router can likewise answer for
     an offline set. This cost a wrong "TV looks half-alive" conclusion on
     2026-10-26. The toolkit's liveness checks are therefore TCP-only:

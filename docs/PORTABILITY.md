@@ -1,7 +1,7 @@
 # Portability — running this on a different Tizen 9 TV
 
 This toolkit was built against **one** unit: 2024 Neo QLED (QNX1D / QTV T09
-platform), firmware `T-PTMDDEUC 01400`, kernel 5.4.249 ARM32 (VMSPLIT_3G, no LPAE), Chromium
+platform), firmware `T-PTMxxxx 01400`, kernel 5.4.249 ARM32 (VMSPLIT_3G, no LPAE), Chromium
 120.0.6099.5. Everything model-specific below was *measured* on that unit.
 
 Network addresses are *not* in that list: the page rewrites the shellcode callback

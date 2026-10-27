@@ -7,7 +7,7 @@ browser, and the root is made persistent through a stock on-boot service app.
 | | |
 |---|---|
 | Test unit | 2024 Neo QLED, QNX1D series (QTV T09 platform) |
-| Firmware | `T-PTMDDEUC` (01400) |
+| Firmware | `T-PTMxxxx` (01400) |
 | Kernel | Linux 5.4.249, ARM32 (VMSPLIT_3G + HIGHMEM, no LPAE), `PAGE_OFFSET 0xC0000000`, `PHYS_OFFSET 0x20000000` |
 | Browser | Chromium 120.0.6099.5 (`SamsungBrowser/7.0`) |
 | Root | `uid=0`, `CapEff=0x3fffffffff` |

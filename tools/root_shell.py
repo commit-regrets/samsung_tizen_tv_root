@@ -67,7 +67,7 @@ except OSError as exc:
      standby - the remote power button is standby, not a boot).
   2. this PC on the TV's LAN with the VPN off: 'ipconfig' should show an IPv4
      on the TV's subnet; 'route print -4' must route it locally, not into a
-     tunnel gateway (10.128.128.128 = NordVPN here).
+     tunnel gateway (198.51.100.1 = NordVPN here).
   3. if beacons look fine and the route is local, the payload may hold or wait
      on /dev/video40 - a 'fail open video40' line in the log names it.
 
