@@ -28,6 +28,31 @@ entry is an incomplete change. `AGENTS.md` repeats this rule for agents.
   rewrites the block. After a deploy session: update `docs/state.json`, run
   `--fix`, done.
 
+## 2026-10-27 (verification session) — cold boot, kill -9, uninstall/recover
+
+The three owed hardware gates, run against the live set.
+
+- **v41 cold boot: 36 s.** Attempt 1 `fast-exit` at t=29, attempt 2
+  `direct-parent+2f0` at t=36, `SUCCESS`/`ROOTCHAN` t=36; every beacon carried
+  `tok=c1eadc03`.
+- **`kill -9` recovery: ~2 s.** New pid rooted via `self-patch`, `uid=0`, channel
+  serving again.
+- **Uninstall verified end-to-end.** `uninstall.sh`: IL back to stock
+  `f61f60dd..`, AOT `6c9bdcc4..`, `BOOT_ROW=removed remain=0`, `ALLOW=removed`.
+  After a mains cold boot: 31337 stayed closed, no beacons, stock 9197 back.
+- **Recover verified, and it exposed two real bugs in `recover.sh`.**
+  (1) It grepped `@HOST@/@WANT@` anywhere; the rendered template's guard line
+  legitimately contains them, so every rendered script was misread as unrendered
+  and then failed the same check. The check is now anchored to the assignment
+  lines and knows `@BEACON_TOKEN@` (which a static server cannot render).
+  (2) `sh "$SCRIPT_FILE"` is refused by Tizen UEB (`the file is NOT signed!!`);
+  the script is now fed through stdin (`cat file | sh`), the same path that
+  `curl ... | sh` always used. With both fixed, `recover.sh` with the PC URL
+  completed `DEPLOY_DONE`/`RECOVER_DONE` (token `814bce42`).
+  `auto_root.py` gained `--script-args` so the browser lane can pass that URL too.
+- `docs/state.json` (and therefore the generated AGENTS state row) now records
+  the cold boot, kill -9 and the closed uninstall/recover cycle.
+
 ## 2026-10-27 (unattended session) — v41 live, release pass, porting seeds
 
 Everything below was done with the TV unattended, through the live 31337

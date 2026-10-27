@@ -70,10 +70,22 @@ if ! curl -fsS -o "$SCRIPT_FILE" "$H/deploy.sh"; then
   echo "RECOVER=fail (cannot fetch $H/deploy.sh - is the PC server up and serving by IP?)"
   exit 1
 fi
-if grep -q '@WANT@\|@HOST@\|@SIZE@' "$SCRIPT_FILE"; then
-  # A plain static server served the template unrendered.  Rewrite ALL THREE
-  # markers from the payload that server actually serves: rewriting H= alone
-  # left @WANT@ in place, so deploy.sh exited NEED_RENDER (review 2026-10-26).
+# Only the ASSIGNMENT lines matter.  The rendered template's own guard line
+# still contains the literal @HOST@/@WANT@ (the renderer replaces assignments
+# only), so a substring grep here made every rendered script look unrendered
+# and then fail the same check (found on hardware 2026-10-27).
+if grep -Eq '^TOKEN=@BEACON_TOKEN@$' "$SCRIPT_FILE"; then
+  # A v41 token cannot be invented locally: the PC server must know it to admit
+  # the beacons.  A static server cannot render it, so refuse clearly.
+  echo "RECOVER=fail (deploy.sh is unrendered: the beacon token must come from server.py)"
+  rm -rf "$TMPD" 2>/dev/null
+  exit 1
+fi
+if grep -Eq '^(H=@HOST@|WANT=@WANT@|SIZE_WANT=@SIZE@)$' "$SCRIPT_FILE"; then
+  # A plain static server served the template unrendered.  Rewrite the three
+  # address/hash/size markers from the payload that server actually serves:
+  # rewriting H= alone left @WANT@ in place, so deploy.sh exited NEED_RENDER
+  # (review 2026-10-26).
   if ! curl -fsS -o "$TMPD/payload.dll" "$H/payload.dll"; then
     echo "RECOVER=fail (server did not render deploy.sh and payload.dll is not fetchable)"
     rm -rf "$TMPD" 2>/dev/null
@@ -89,14 +101,18 @@ if grep -q '@WANT@\|@HOST@\|@SIZE@' "$SCRIPT_FILE"; then
 else
   echo "RECOVER=deploy.sh (rendered by server.py)"
 fi
-if grep -q '@WANT@\|@HOST@\|@SIZE@' "$SCRIPT_FILE"; then
+if grep -Eq '^(H=@HOST@|WANT=@WANT@|SIZE_WANT=@SIZE@|TOKEN=@BEACON_TOKEN@)$' "$SCRIPT_FILE"; then
   echo "RECOVER=fail (template markers still present after the local rewrite)"
   rm -rf "$TMPD" 2>/dev/null
   exit 1
 fi
 echo "SCRIPT_MD5=$(md5sum "$SCRIPT_FILE" | cut -d' ' -f1)"
 
-sh "$SCRIPT_FILE" > "$TMPD/deploy.out" 2>&1
+# Feed the script through stdin, not as a /tmp file path: Tizen's UEB refuses
+# to execute an unsigned file ("[uep][bash] the file is NOT signed!!"), while
+# `cat file | sh` is exactly how the working `curl ... | sh` path runs it
+# (found on hardware 2026-10-27).
+(cat "$SCRIPT_FILE" | sh) > "$TMPD/deploy.out" 2>&1
 STATUS=$?
 cat "$TMPD/deploy.out"
 if [ "$STATUS" -ne 0 ] || ! grep -q DEPLOY_DONE "$TMPD/deploy.out"; then

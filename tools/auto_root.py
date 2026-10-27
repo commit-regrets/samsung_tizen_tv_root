@@ -11,6 +11,7 @@ old "serve the un-rewritten deploy.sh and get CURL_FAIL" trap is gone.
 
 Usage:
     python auto_root.py --host <PC-IP> [--script deploy.sh] [--wait 150]
+                        [--script-args "<args for the fetched script>"]
                         [--stub-wait 0]
 
 --stub-wait 0 (default) waits forever for a stub; a positive value gives up
@@ -87,6 +88,10 @@ def main():
     ap.add_argument("--host", default=DEFAULT_HOST, help="PC IP as seen by the TV")
     ap.add_argument("--script", default=DEFAULT_SCRIPT,
                     help="deploy script name on the server (default deploy.sh)")
+    ap.add_argument("--script-args", default="",
+                    help="arguments for the fetched script (e.g. the PC URL for "
+                         "recover.sh, which needs it when uninstall removed "
+                         "rootchan.host)")
     ap.add_argument("--wait", type=float, default=120.0,
                     help="seconds to wait for deploy output (default 120)")
     ap.add_argument("--stub-wait", type=float, default=0.0,
@@ -104,6 +109,10 @@ def main():
         print("[-] --host <pc-ip> is required (or set ROOT_HOST)", flush=True)
         return 2
     cmd = f"curl -s http://{args.host}/{args.script} | sh"
+    if args.script_args:
+        # Positional args go to the script via sh -s: recover.sh needs the PC
+        # URL when uninstall removed rootchan.host (it cannot guess it then).
+        cmd += " -s -- " + args.script_args
     page_url = f"http://{args.host}/{args.page}"
 
     print(f"[auto] waiting for TV stub on 127.0.0.1:9998 ... (deploy: {args.script})",

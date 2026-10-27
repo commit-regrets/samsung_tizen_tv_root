@@ -3,8 +3,8 @@
   "tv": {
     "payload_version": "v41",
     "deployed_date": "2026-10-27",
-    "beacon_token": "c1eadc03",
-    "notes": "A v41 cold boot and the uninstall/recover cycle are still owed; payload_backup.dll keeps v39.2 (010946ff...), stock mcs_orig.dll f61f60dd..."
+    "beacon_token": "814bce42",
+    "notes": "v41 cold boot verified 2026-10-27: attempt 1 fast-exit t=29, attempt 2 direct-parent t=36, ROOTCHAN t=36; kill -9 recovery ~2 s (new pid, uid 0); uninstall/recover cycle verified the same day - stock IL f61f60dd.., boot row removed remain=0, 31337 stayed closed after a cold boot, stock 9197 back; recover.sh with the PC URL restored v41 (token 814bce42). payload_backup.dll is now v41; stock mcs_orig.dll intact."
   },
   "memory": {
     "max_low_pfn": "0x50400",
