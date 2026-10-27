@@ -55,6 +55,13 @@ No GPU CVE, no kernel exploit, no signed module. The physmap is the interesting
 part; the stage-by-stage writeup with the measured constants is
 [`docs/EXPLOIT.md`](docs/EXPLOIT.md).
 
+## After rooting — debloat
+
+The package-inventory / disable-list work (QNX1D classification, apply and
+restore tooling, measured resource budget) lives in its own repository,
+`samsung-tv-debloat` (sibling folder / separate publication). It consumes
+this toolkit's root channel as its only dependency.
+
 ## Documentation
 
 | Document | Contents |
