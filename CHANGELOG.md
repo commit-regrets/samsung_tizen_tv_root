@@ -15,6 +15,33 @@ entry is an incomplete change. `AGENTS.md` repeats this rule for agents.
 
 ---
 
+## 2026-10-27 (publication prep) — sanitize the live credential, drop agent scaffolding
+
+Audit of the tree against a public push (the working tree was clean; the history
+is a separate problem, see `docs/PUBLISHING.md`).
+
+- **`sanitize_for_public.py` now detects per-deploy credentials by shape**, not
+  only the known-token list: `tok=<8 hex>` and `"beacon_token": "<8 hex>"`.
+  Before this, `--check` passed while the live beacon token sat in
+  `AGENTS.md`, `docs/OPEN-ISSUES.md` and `docs/state.json` — exactly the class
+  the tool exists to catch. `tok=deadbeef` (the documented forged-token
+  negative test) is explicitly allowed. `test_sanitize.py` covers both.
+- **The live/historical beacon and pairing tokens were placeholdered** out of
+  AGENTS (the generated row is regenerated from `state.json`), CHANGELOG,
+  OPEN-ISSUES and state.json. The tokens were dead after the last deploy, but a
+  public tree has no reason to carry any of them.
+- **`.zcode/agents/*` were tracked despite `.gitignore` saying `.zcode/` is
+  scaffolding** (six stale agent prompts, one still claiming "v37-on-TV /
+  v39.1-in-repo"). Removed from the index; the directory stays local.
+- `.gitignore`'s payload comment still described the v39.2 33,280-byte artifact
+  and omitted `SIZE_WANT`/`@BEACON_TOKEN@`; corrected.
+- **New `docs/PUBLISHING.md`** — the pre-flight gate plus the history-reset
+  procedure. The private history (`git log -S '<TV_IP>'`, and commit
+  messages with tokens) must not be pushed; publish an orphan commit or a
+  filter-repo rewrite.
+- Verified: `test_all.py` green (12 layers), `sanitize_for_public.py --check`
+  clean, `update_state.py --check` clean.
+
 ## 2026-10-27 (late) — docs-consistency gate: stale claims now fail the suite
 
 The two sweeps showed doc drift is enumerable: the same claim classes broke in
@@ -148,7 +175,7 @@ The three owed hardware gates, run against the live set.
 
 - **v41 cold boot: 36 s.** Attempt 1 `fast-exit` at t=29, attempt 2
   `direct-parent+2f0` at t=36, `SUCCESS`/`ROOTCHAN` t=36; every beacon carried
-  `tok=c1eadc03`.
+  `tok=<BEACON_TOKEN>`.
 - **`kill -9` recovery: ~2 s.** New pid rooted via `self-patch`, `uid=0`, channel
   serving again.
 - **Uninstall verified end-to-end.** `uninstall.sh`: IL back to stock
@@ -162,10 +189,10 @@ The three owed hardware gates, run against the live set.
   (2) `sh "$SCRIPT_FILE"` is refused by Tizen UEB (`the file is NOT signed!!`);
   the script is now fed through stdin (`cat file | sh`), the same path that
   `curl ... | sh` always used. With both fixed, `recover.sh` with the PC URL
-  completed `DEPLOY_DONE`/`RECOVER_DONE` (token `814bce42`).
+  completed `DEPLOY_DONE`/`RECOVER_DONE` (token `<TOKEN>`).
   `auto_root.py` gained `--script-args` so the browser lane can pass that URL too.
 - **Post-recovery cold boot: 49 s.** AUL launched late (first beacon at t=49), so
-  attempt 1 direct-patched with no fast-exit; token `814bce42`, v41 md5 unchanged.
+  attempt 1 direct-patched with no fast-exit; token `<TOKEN>`, v41 md5 unchanged.
   This is the second v41 cold boot (the first was 36 s with attempt 1 fast-exit),
   and it proves the boot row that `recover.sh` re-added actually fires.
 - `docs/state.json` (and therefore the generated AGENTS state row) now records
@@ -179,7 +206,7 @@ and the uninstall/recover cycle.
 
 - **v41 deployed and the beacon token is live.** The payload
   (`1ab4343e…`, 33,792 B) restart-rooted in ~1 s (`self-patch`); every beacon
-  now carries `tok=c1eadc03` and the server admits it. Live negative tests
+  now carries `tok=<BEACON_TOKEN>` and the server admits it. Live negative tests
   from the PC: a forged `tok=deadbeef` beacon is refused ("unknown beacon
   token"), a token-less one is logged but never admitted to the shell slot.
   First deploy beached token-less — `rootchan.token` landed 0600 root-owned
@@ -321,7 +348,7 @@ The TV came back on the network, so v39.2 got its first hardware run.
 - **The first live token run was refused - reversed bytes.** The page generated
   the token, wrote it little-endian into the blob, but announced
   `tok.toString(16)` (big-endian hex); the stub's load/store preserves the bytes,
-  so the server saw the reverse (`f1047934` vs announced `347904f1`) and refused
+  so the server saw the reverse (`<TOKEN>` vs announced `<TOKEN>`) and refused
   every stub. The page now announces the exact wire bytes (with a
   `test_constants` check), so the announced hex is what PGDB carries. Hardware
   validation was still pending at the end of this session.

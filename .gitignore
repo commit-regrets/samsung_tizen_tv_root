@@ -2,11 +2,12 @@
 #
 # Rule of thumb: source, docs, scripts and the shipped payload artifact are
 # tracked; anything generated at runtime, rebuilt, or host-specific is not.
-# `server/payload.dll` IS tracked on purpose - it is the 33,280-byte v39.2 artifact
-# the toolkit serves to the TV, so the repo runs without a .NET SDK
-# (byte-identical to payload/out/MultiControlService.dll).  deploy.sh itself is a
-# TEMPLATE (H=@HOST@, WANT=@WANT@) rendered by server.py, so no per-host copy
-# exists any more.
+# `server/payload.dll` IS tracked on purpose - it is the artifact the toolkit
+# serves to the TV (current version/hash in the AGENTS.md state row), so the
+# repo runs without a .NET SDK (byte-identical to
+# payload/out/MultiControlService.dll).  deploy.sh itself is a TEMPLATE
+# (H=@HOST@, WANT=@WANT@, SIZE_WANT=@SIZE@, @BEACON_TOKEN@) rendered by
+# server.py, so no per-host copy exists any more.
 
 # ---------------------------------------------------------------- runtime logs
 # server.py writes here; root.ps1/uninstall.ps1 redirect the server's stdout and

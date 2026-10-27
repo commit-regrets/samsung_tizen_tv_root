@@ -22,6 +22,7 @@ Review before publishing either way - this tool catches the known tokens only,
 not identifiers you may have written in prose it has never seen.
 """
 import shutil
+import re
 import sys
 from pathlib import Path
 
@@ -46,6 +47,17 @@ SKIP_DIRS = {".git", "__pycache__", ".venv", "node_modules",
              "server/logs", "logs", "payload/obj", "payload/out", "payload/bin",
              ".zcode"}
 SKIP_SUFFIX = {".pyc", ".dll", ".exe"}
+
+# Per-deploy 8-hex credentials the known-token list cannot anticipate.  Both
+# the v41 beacon token (`tok=` in beacons/docs, `beacon_token` in state.json)
+# and the v40 pairing token are generated at deploy time, so a list-only check
+# would pass a tree that still carries the live one (found 2026-10-27).
+TOKEN_RES = (
+    re.compile(r"\btok=([0-9a-f]{8})\b"),
+    re.compile(r'("beacon_token"\s*:\s*")([0-9a-f]{8})(")'),
+)
+# `tok=deadbeef` is the documented forged-token negative test, not a credential.
+TOKEN_ALLOW = {"deadbeef"}
 
 # The token list lives in this file and its fixtures, so --check would always
 # flag itself.  Not skipped in copy mode (a public copy has no need for the
@@ -79,13 +91,20 @@ def _read(path: Path):
 
 
 def _find(text: str):
-    """[(token, count)] for one file, longest tokens first."""
-    hits = []
+    """[(token, count)] for one file, known tokens first, then live-shaped ones."""
+    counts = {}
     for token, _ in SUBS:
         n = text.count(token)
         if n:
-            hits.append((token, n))
-    return hits
+            counts[token] = n
+    for rx in TOKEN_RES:
+        for m in rx.finditer(text):
+            value = m.group(2) if m.re is TOKEN_RES[1] else m.group(1)
+            if value in TOKEN_ALLOW:
+                continue
+            label = f"tok={value}" if m.re is TOKEN_RES[0] else f'beacon_token:"{value}"'
+            counts[label] = counts.get(label, 0) + 1
+    return list(counts.items())
 
 
 def do_copy(src: Path, dst: Path) -> int:
@@ -111,6 +130,16 @@ def do_copy(src: Path, dst: Path) -> int:
             if n:
                 counts[token] += n
                 text = text.replace(token, placeholder)
+        # per-deploy credentials: same shape, unknown value
+        text, n1 = re.subn(r"\btok=([0-9a-f]{8})\b",
+                           lambda m: "tok=deadbeef"
+                           if m.group(1) in TOKEN_ALLOW
+                           else "tok=<BEACON_TOKEN>", text)
+        text, n2 = re.subn(r'("beacon_token"\s*:\s*")([0-9a-f]{8})(")',
+                           lambda m: m.group(0) if m.group(2) in TOKEN_ALLOW
+                           else m.group(1) + "<BEACON_TOKEN>" + m.group(3), text)
+        if n1 or n2:
+            counts["<BEACON_TOKEN>"] = counts.get("<BEACON_TOKEN>", 0) + n1 + n2
         target.write_text(text, encoding="utf-8", newline="")
         copied += 1
 

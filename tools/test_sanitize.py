@@ -63,6 +63,8 @@ def main() -> int:
             " wifi " + TOKENS["wifi"] + "\nfw " + TOKENS["fw"] +
             " fw2 " + TOKENS["fw_short"] + "\nplat " + TOKENS["platform"] +
             " model " + TOKENS["model"] + " duid " + TOKENS["duid"] +
+            '\nper-deploy tok=abcd1234 and "beacon_token": "abcd1234"' +
+            " forged tok=deadbeef stays" +
             "\nsdk pin 10.0.301 stays\n", encoding="utf-8")
         binary = src / "server" / "payload.bin"
         payload = b"MZ" + struct.pack("<Q", 0xDEADBEEF) + bytes(range(256))
@@ -90,6 +92,9 @@ def main() -> int:
         for p in PLACE:
             check(f"placeholder present: {p}", p in out)
         check("sdk pin survives", "10.0.301" in out)
+        check("per-deploy token redacted",
+              "abcd1234" not in out and "<BEACON_TOKEN>" in out)
+        check("forged test token allowed", "tok=deadbeef" in out)
         check("binary passthrough byte-exact",
               (dst / "server" / "payload.bin").read_bytes() == payload)
         check("skipped trees not copied", not (dst / "server" / "logs").exists()

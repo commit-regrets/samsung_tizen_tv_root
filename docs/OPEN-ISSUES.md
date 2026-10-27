@@ -3,7 +3,7 @@
 ## Current state — 2026-10-27 (v41 verified: cold boots, kill -9, uninstall/recover)
 
 TV: **v41** (`1ab4343e…`, 33,792 B), rooted via 31337. Every beacon carries
-`tok=814bce42` (from `rootchan.token`); forged and token-less beacons are refused.
+`tok=<BEACON_TOKEN>` (from `rootchan.token`); forged and token-less beacons are refused.
 `id -u` = 0, `CapEff=0x3fffffffff`.
 **All hardware gates are closed (2026-10-27):** v41 cold boots at **36 s**
 (attempt 1 fast-exit t=29, attempt 2 direct-parent t=36) and **49 s** after the
