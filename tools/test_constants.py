@@ -234,6 +234,22 @@ def main() -> int:
     check("deploy.sh refuses an unrendered template", "NEED_RENDER" in deploy)
     check("deploy.sh has a rollback trap", "trap cleanup 0" in deploy and "ROLLBACK=1" in deploy)
 
+    # --- recover.sh: rendered-template and Tizen-UEB regressions (2026-10-27) --
+    check("recover.sh checks only assignment markers, not the guard line",
+          "grep -Eq '^(H=@HOST@|WANT=@WANT@|SIZE_WANT=@SIZE@)$'" in recover
+          and "grep -Eq '^(H=@HOST@|WANT=@WANT@|SIZE_WANT=@SIZE@|TOKEN=@BEACON_TOKEN@)$'" in recover
+          and "@WANT@\\|@HOST@" not in recover,
+          "substring grep misread every rendered deploy.sh as unrendered")
+    check("recover.sh refuses an unrendered v41 token",
+          "grep -Eq '^TOKEN=@BEACON_TOKEN@$'" in recover
+          and "beacon token must come from server.py" in recover)
+    check("recover.sh feeds deploy.sh through stdin (Tizen UEB)",
+          '(cat "$SCRIPT_FILE" | sh)' in recover
+          and 'sh "$SCRIPT_FILE"' not in recover,
+          "UEB refuses to execute unsigned files in /tmp")
+    check("auto_root can pass recover.sh its PC URL",
+          "--script-args" in auto_root and "-s -- " in auto_root)
+
     print()
     if FAILS:
         print(f"{FAILS} constant check(s) failed")

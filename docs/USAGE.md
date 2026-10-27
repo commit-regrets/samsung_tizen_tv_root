@@ -115,7 +115,7 @@ or, from a root shell on the TV, run `server/recover.sh` to reinstall the payloa
 end to end instead:
 
 ```sh
-curl -s http://<HOST_IP>/recover.sh | sh
+curl -s http://<HOST_IP>/recover.sh | sh -s http://<HOST_IP>
 ```
 
 ## Recovery
@@ -126,8 +126,13 @@ It takes the app's SMACK label with `/proc/self/attr/current`, then runs
 `deploy.sh`, which the app restarts to load:
 
 ```sh
-curl -s http://<HOST_IP>/recover.sh | sh
+curl -s http://<HOST_IP>/recover.sh | sh -s http://<HOST_IP>
 ```
+
+The PC URL is required: uninstall deletes `rootchan.host`, so there is nothing to
+fall back to. The script feeds the rendered `deploy.sh` through stdin because
+Tizen refuses to execute unsigned files in `/tmp` (UEB). Browser-lane equivalent:
+`python tools/auto_root.py --script recover.sh --script-args "http://<HOST_IP>"`.
 
 If the payload is missing *and* the browser is unusable, the last resort is
 `root.ps1` itself: it only needs one page load to get a stub.
