@@ -106,4 +106,4 @@ rediscover them:
 The per-finding record of the 2026-10-23..26 review passes (P0/P1/P2 tables,
 the five boot-tuning passes, environment notes) is archived in
 [`docs/REVIEW-HISTORY.md`](REVIEW-HISTORY.md); dated narrative in
-`CHANGELOG.md`.
+`CHANGELOG.md` (older passes: `docs/CHANGELOG-ARCHIVE.md`).

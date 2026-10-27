@@ -4,7 +4,8 @@ You are continuing a **Samsung Tizen 9 TV root** project. Read this file first,
 then `docs/EXPLOIT.md` (how it works), `docs/USAGE.md` (running it),
 `docs/LOGGUIDE.md` (every beacon and tool error decoded, with next steps),
 `docs/ROOT-METHODS.md` (what was found), `docs/FAILED.md` (do not repeat these)
-and `docs/SERVER-HOSTING.md` (the PC-side server). History lives in `CHANGELOG.md`,
+and `docs/SERVER-HOSTING.md` (the PC-side server). History lives in `CHANGELOG.md` (current generation) and
+`docs/CHANGELOG-ARCHIVE.md` (the v1..v37 lineage),
 and the current work list — triaged from an independent code review — is
 `docs/OPEN-ISSUES.md`: read it before changing anything, it says what is known
 broken, in what order to fix it, and how to prove each fix.
@@ -21,7 +22,7 @@ Division of labour:
 
 | File | What it holds |
 |---|---|
-| `CHANGELOG.md` | dated history: what changed and why |
+| `CHANGELOG.md` | dated history: what changed and why (v1..v37 lineage archived in `docs/CHANGELOG-ARCHIVE.md`) |
 | `docs/` | the *how*: exploit chain, usage, root methods, dead ends, portability |
 | this file | the *state now*: current status, procedures, verification, traps |
 
@@ -118,13 +119,14 @@ bytes at the cred (`head=`) — that splits a stale cred *pointer* from stale cr
 
 Verified independently: two cold boots after a power-cycle (43 s and 47 s from
 power-on, no PC involvement) and one full run from a stock TV through the one-click
-flow. The sequence of changes that got here is in `CHANGELOG.md`.
+flow. The sequence of changes that got here is in the changelog (recent passes in
+`CHANGELOG.md`, the v24-v33 tuning in `docs/CHANGELOG-ARCHIVE.md`).
 
 **Fallback if the payload is ever missing:** `python tools/tv_rootwatch.py` with the TV
 browser on the exploit page hands back a root shell on `127.0.0.1:9999`; run
 `server/recover.sh` from that shell to reinstall the payload.
 
-Payload lineage (v5 → v23, and what each version fixed) is in `CHANGELOG.md`; the label
+Payload lineage (v5 → v23, and what each version fixed) is in `docs/CHANGELOG-ARCHIVE.md`; the label
 regression that broke boot persistence is `docs/BOOT-REGRESSION-SMACK.md`.
 
 ### Channel hardening (v14, extended in v15/v16)
