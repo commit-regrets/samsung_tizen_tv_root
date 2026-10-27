@@ -50,8 +50,12 @@ The three owed hardware gates, run against the live set.
   `curl ... | sh` always used. With both fixed, `recover.sh` with the PC URL
   completed `DEPLOY_DONE`/`RECOVER_DONE` (token `814bce42`).
   `auto_root.py` gained `--script-args` so the browser lane can pass that URL too.
+- **Post-recovery cold boot: 49 s.** AUL launched late (first beacon at t=49), so
+  attempt 1 direct-patched with no fast-exit; token `814bce42`, v41 md5 unchanged.
+  This is the second v41 cold boot (the first was 36 s with attempt 1 fast-exit),
+  and it proves the boot row that `recover.sh` re-added actually fires.
 - `docs/state.json` (and therefore the generated AGENTS state row) now records
-  the cold boot, kill -9 and the closed uninstall/recover cycle.
+  both cold boots, kill -9 and the closed uninstall/recover cycle.
 
 ## 2026-10-27 (unattended session) — v41 live, release pass, porting seeds
 
