@@ -267,6 +267,9 @@ TV boot: com.samsung.tv.MultiControl-Service (dotnet-inhouse, app_onboot)
 | `tools/test_gateway.py` | gateway integration test (no TV): RSET, token pairing, forwarding, BUSY, /save cap |
 | `tools/sanitize_for_public.py` | public-release redaction: copy mode + `--check` gate (exits 1 on any private token) |
 | `tools/test_sanitize.py` | offline selftest for the sanitizer |
+| `tools/dwarf_offsets.py` | kernel struct offsets from a DWARF vmlinux; `--check` gates sim-vs-TV fingerprint (porting) |
+| `tools/listwalk.py` | layout-shift-proof task-list locator: validates list_heads by back-links, walks without knowing 0x23c (porting; self-test offline) |
+| `tools/test_listwalk.py` | offline gate for listwalk + the dwarf fingerprint |
 | `tools/test_shell.py` | deploy/uninstall dry tests under `sh` (no TV): backups, label, boot row |
 | `tools/test_stub.py` | live-stub protocol + clamp checks (fresh page load) |
 | `tools/test_logs.py` | offline: beacon-analyzer fixtures (log **and** the on-TV marker), tool error paths, ps1 parse guard |

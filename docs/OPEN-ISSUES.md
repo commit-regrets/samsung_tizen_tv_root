@@ -565,12 +565,16 @@ so the next session does not rediscover them:
   partials. Offline tests exist, but the refactors are riskier than their value
   until the hardware lane is available.
 - **Research-tree ports:** ~~the public-release sanitizer pipeline~~ (**done
-  2026-10-26**: `tools/sanitize_for_public.py`, copy + `--check` modes, covered
-  by `tools/test_sanitize.py`; the live `--check` run is the pre-publication
-  gate and currently reports 13 real hits), plus a DWARF type
-  reader to replace hard-coded `task_struct` offsets, `taskwalk.py` orphan
-  detection, a QEMU/softmmu physmap harness, and a C `cred_scan` utility. They
-  are the right next investment for porting, not for this firmware.
+  2026-10-26**: `tools/sanitize_for_public.py`; in-tree tokens replaced with
+  TEST-NET placeholders 2026-10-27, `--check` green), ~~a DWARF type reader~~
+  (**done 2026-10-27**: `tools/dwarf_offsets.py` with a `--check` fingerprint
+  gate - the sim vmlinux matches every TV-measured offset, `tasks` included),
+  ~~the layout-shift-proof list walk~~ (**done 2026-10-27**:
+  `tools/listwalk.py`, back-link-validated candidates plus a comm-tag walk
+  with no struct-offset assumption; offline-tested in `tools/test_listwalk.py`),
+  plus `taskwalk.py` orphan detection, a QEMU/softmmu physmap harness, and a
+  C `cred_scan` utility. The remaining three are the right next investment
+  for porting, not for this firmware.
 - **High-PA read test** and the `high_memory`/`max_low_pfn` read: the two
   falsifiable checks in `AGENTS.md` §11.
 - **Encoding hardening beyond stdout:** the three CLIs now use

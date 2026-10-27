@@ -18,7 +18,10 @@ Layers (see docs/TESTING.md):
                              source == blob == page SHELLCODE
   6. tools/test_logs.py      beacon analyzer (fixtures + the on-TV marker file),
                              the self-diagnosing tool error paths, PowerShell parse
-  7. tools/test_stub.py      (--tv) live stub protocol + the new clamps
+  7. tools/test_listwalk.py  layout-shift-proof list walk (sim) + the DWARF
+                             fingerprint gate (needs pyelftools + the sim
+                             vmlinux; skips without them)
+  8. tools/test_stub.py      (--tv) live stub protocol + the new clamps
 
 Exit code 0 means every layer passed (or was skipped for a documented reason).
 """
@@ -61,6 +64,8 @@ def main() -> int:
     results.append(("logs-and-errors", run("beacon analyzer + tool error paths + ps1 parse",
                                            [py, "tools/test_logs.py"])))
     results.append(("sanitize", run("public-release sanitizer", [py, "tools/test_sanitize.py"])))
+    results.append(("listwalk-dwarf", run("list-walk port + dwarf fingerprint",
+                                          [py, "tools/test_listwalk.py"])))
 
     # requires keystone+capstone; report the skip instead of failing a fresh clone
     try:

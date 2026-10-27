@@ -10,6 +10,46 @@ entry is an incomplete change. `AGENTS.md` repeats this rule for agents.
 
 ---
 
+## 2026-10-27 (unattended session) — v41 live, release pass, porting seeds
+
+Everything below was done with the TV unattended, through the live 31337
+channel; the only manual steps still owed are a cold boot on the next visit
+and the uninstall/recover cycle.
+
+- **v41 deployed and the beacon token is live.** The payload
+  (`1ab4343e…`, 33,792 B) restart-rooted in ~1 s (`self-patch`); every beacon
+  now carries `tok=c1eadc03` and the server admits it. Live negative tests
+  from the PC: a forged `tok=deadbeef` beacon is refused ("unknown beacon
+  token"), a token-less one is logged but never admitted to the shell slot.
+  First deploy beached token-less — `rootchan.token` landed 0600 root-owned
+  and the uid-5001 payload could not read it; deploy.sh now chmods 644 and the
+  fix was applied on the TV before the restart that proved the path.
+- **Kernel memory model corrected again (zoneinfo is ground truth).**
+  `/proc/zoneinfo`: Normal `start_pfn 0x20000`, HighMem `start_pfn 0x50400`
+  → `max_low_pfn = 0x50400`, `high_memory = VA 0xF0400000`. HighTotal
+  (303,104 pages) exceeds HighMem present (198,656): Samsung's `si_meminfo`
+  is vendor-adjusted, so the earlier meminfo-derived `0xE4E42000` boundary was
+  wrong. The observed 0xE0000000 read failures sit INSIDE the linear map —
+  the V4L2 node's DMA window (~512 MiB, matching the "past 0x46000000 hangs"
+  evidence) is now the prime suspect, not the CPU map.
+- **Item 11 closed: the tree passes `sanitize_for_public.py --check`.** The 13
+  real tokens (TV/PC IPs, LAN/Wi-Fi/VPN prefixes, firmware and internal
+  platform strings) replaced with RFC 5737/TEST-NET placeholders; a rebuild
+  proved the Program.cs edit comment-only (md5 unchanged, byte-identical to
+  the deployed artifact).
+- **Item 4 closed: `tools/dwarf_offsets.py`** (research-tree port). Reads
+  kernel struct member offsets from a DWARF vmlinux; `--check` is a
+  fingerprint gate (comm 0x400, cred 0x3f8, real_cred 0x3f4) and it PASSES on
+  the research sim build — independently reproducing `tasks +0x23c`,
+  `real_parent +0x2f0/0x2f4` and the rest of the measured layout. Porting a
+  second model is now: get a DWARF vmlinux, run `--check`, trust or re-measure.
+- **Item 5 closed: `tools/listwalk.py`** (research-tree port). Back-link
+  validated list-head candidates near init_task plus a comm-tag walk with no
+  struct-offset assumption — the layout-shift-proof locator for a second
+  model. Offline-tested (`tools/test_listwalk.py`, planted sim memory: valid
+  ring accepted, broken back-link and unlinked decoys rejected, non-aligned
+  task found); registered in `test_all.py` (now 10 offline layers).
+
 ## 2026-10-26 (deferred-work session) — pairing token, sanitizer, EOL pin
 
 Working the deferred list in `docs/OPEN-ISSUES.md` (token, research ports, EOL
