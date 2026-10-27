@@ -14,7 +14,7 @@ via `recover.sh <pc-url>` completed `DEPLOY_DONE`/`RECOVER_DONE` and the followi
 cold boot rooted again.
 Backups: `mcs_orig.dll` (stock), `mcs_ni_orig.dll`, `payload_backup.dll` = v41.
 
-The repo is green offline (`python tools/test_all.py`, 10/10) and
+The repo is green offline (`python tools/test_all.py`, 11/11 layers) and
 `sanitize_for_public.py --check` passes. The kernel memory boundary is now
 zoneinfo-derived (`max_low_pfn 0x50400` → `high_memory` VA `0xF0400000`); the
 meminfo-derived `0xE4E42000` was wrong (vendor-adjusted counters): see item 2.
@@ -56,8 +56,10 @@ meminfo-derived `0xE4E42000` was wrong (vendor-adjusted counters): see item 2.
    hardening beyond the buxton key (`/mnt/backup/OS_UPGRADE_FLAG` +
    `systemctl mask --runtime` for `swu-auto-upgrade.*`, `fw-update-service.*`,
    `fw-usb-update-service.*`, `was-background-update.*`); a portable DWARF offset
-   reader with a `--check` gate. (~~`sanitize_for_public.py`-style checker~~ —
-   done 2026-10-26: `tools/sanitize_for_public.py`.)
+   reader with a `--check` gate (~~done 2026-10-27: `tools/dwarf_offsets.py`~~)
+   and a ~~`sanitize_for_public.py`-style checker~~ (done 2026-10-26:
+   `tools/sanitize_for_public.py`); the layout-shift-proof list walk is also
+   ported (`tools/listwalk.py`).
 6. **Public-release hygiene** — `LICENSE` (MIT for original work), `NOTICE.md`
    (third-party browser chain is not relicensed), logs and build output ignored,
    only the payload DLL and the physrpc shellcode blob tracked as binaries. The
@@ -555,10 +557,13 @@ so the next session does not rediscover them:
   raw peer). The server refuses an unannounced/mismatched token and only then
   admits the peer to `TV_PEERS`; the gateway reconstitutes the 12-byte
   client-facing hello, so no RPC client changed. Covered by
-  `tools/test_gateway.py` (announce/mismatch/match). **Still open:** a forged
-  `DSHROOT` beacon still joins `TV_PEERS` — closing that (and `beacons.log`
-  forgery) needs the payload to know a token, i.e. a `rootchan.token` rendered
-  by `deploy.sh` and read by `Beacon()` (payload v41); see `SECURITY.md`.
+  `tools/test_gateway.py` (announce/mismatch/match). The **`DSHROOT` half is
+  also done (v41, 2026-10-27)**: `deploy.sh` renders a per-deploy token into
+  `share/rootchan.token`, `Beacon()` prefixes every beacon with `tok=`, and the
+  server refuses unknown tokens and never admits token-less ones (live-verified
+  both ways; the only residue is that a token-less beacon's *content* still
+  reaches `beacons.log`, kept deliberately so legacy payloads stay diagnosable).
+  See `SECURITY.md`.
 - **A `tools/` constants module.** The offsets/limits are duplicated across
   `Program.cs`, `sim_rpc.py`, `kernel_root.py`, `physmap.py`, `physrpc.S`, the
   page and `deploy.sh`; `test_constants.py` catches drift, but a shared Python
