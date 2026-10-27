@@ -3,10 +3,12 @@
 Audit of the toolkit in this repo. Scope: `root.ps1`, `uninstall.ps1`,
 `server/server.py`, `server/deploy.sh`, `server/uninstall.sh`, and `tools/*.py`.
 
-**State: validated end to end from a stock TV.** `uninstall.ps1` → reboot (the
+**State: validated end to end from a stock TV** (audit written 2026-10-23
+against the v13-era scripts; items were re-verified through v41 and later
+hardening lives in `CHANGELOG.md` — read the dates here as history).
+`uninstall.ps1` → reboot (the
 channel stayed closed) → `root.ps1` → reboot → channel up in **47 s**, `uid=0`, no
-PC and no browser. The sequence of changes behind that is in `CHANGELOG.md`; this
-document is about the scripts as they are now.
+PC and no browser.
 
 ## Fixed
 
@@ -39,21 +41,24 @@ document is about the scripts as they are now.
 | Stale RPC waiter consuming the next stub | **Fixed**: waiting clients are no longer evicted, and `physmap.reset_stub()` clears a wedged pairing without a restart. |
 | Slow HTTP client blocking the accept loop | **Mitigated**: 10 s timeout; still single-threaded. |
 | Task list corrupted while walking it | **Open**, but no longer on the critical path: root uses the cred-pattern scan, and the task locator uses `init.tasks.prev` immediately after a fork. |
-| Physmap node contention (browser vs payload) | **Resolved in v39**: exclusivity is per instance, so the payload cycles `video40`/`video30`/`video60` and closes its node after rooting; the browser stub uses `video30` (`docs/USAGE.md`). |
+| Physmap node contention (browser vs payload) | **Resolved in v39**: exclusivity is per instance; the payload **retries video40 on `EBUSY`** for the whole budget and advances to `video30`/`video60` only on `ENOENT`/`ENODEV` (never "cycle on busy" — review 2026-10-26), and closes its node after rooting; the browser stub uses `video30` (`docs/USAGE.md`). |
 
 ## Known limitations (accepted / documented)
 
 - **No authentication on the RPC gateway**; it binds `127.0.0.1` only. The TV root
-  channel binds `0.0.0.0:31337`, which is a LAN-wide root service. The payload
-  supports an allowlist (`shared/rootchan.allow`, one IP per line, written by
-  `deploy.sh`); treat the exposure as a decision to make, not a default to accept.
+  channel binds the TV's own LAN address (v16, route-derived — never
+  `0.0.0.0`), and is a LAN-wide root service for allowlisted peers. The payload
+  supports an allowlist (`share/rootchan.allow`, one IP per line, written by
+  `deploy.sh` **before** the DLL, failing closed); treat the exposure as a
+  decision to make, not a default to accept. The PC-side pairing/token gates
+  (v40/v41) are in `SECURITY.md`.
 - **Single-threaded HTTP accept loop.** Fine for one TV.
 - **Hardcoded firmware constants** (`init_task`, offsets, Image base) in the
   payload and tools. Re-measure on another model — see `docs/PORTABILITY.md`.
-- **Hardcoded hashes**: `deploy.sh` pins the payload md5 and size, so it refuses to
-  install a different build; `uninstall.sh` pins the *stock* IL/AOT md5s and refuses
-  to restore anything else. Both are deliberate. Update the deploy constants when
-  the payload changes.
+- **Hash gates**: ~~`deploy.sh` pins the payload md5 and size~~ (since v39 the
+  gate is **rendered per request** from the `payload.dll` actually served —
+  there is no constant to update); `uninstall.sh` pins the *stock* IL/AOT md5s
+  and refuses to restore anything else. Both are deliberate.
 - **Log rotation keeps one generation**; enough for a research tool, not a service.
 - **Runtime output is confined to `server/logs/`** and `/logs/**` is 404, so logs
   are never served.

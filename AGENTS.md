@@ -237,7 +237,9 @@ TV boot: com.samsung.tv.MultiControl-Service (dotnet-inhouse, app_onboot)
   - On Windows the base `python.exe` path was blocked by a firewall rule; the
     server was run under a renamed copy (`pysrv.exe`). Any interpreter the
     firewall permits works; `root.ps1` auto-detects one.
-- **.NET SDK 6+** only to rebuild the boot payload.
+- **.NET SDK** only to rebuild the boot payload - `payload/global.json` pins
+  10.0.x (`rollForward: latestPatch`); the net6.0 target builds under it
+  (the EOL warning is expected).
 - **keystone + capstone** (Python) only to rebuild `tools/physrpc.S` into
   shellcode.
 - No sdb, no Tizen Studio, no firmware images, no flashing.
@@ -610,7 +612,7 @@ that downloads it) and reboot. Things to preserve when editing `Program.cs`:
   After a payload change: copy `payload/out/MultiControlService.dll` over
   `server/payload.dll`; the deploy gate is rendered from that file, so there is
   no `WANT=` to update by hand.
-- **v41 hardening to preserve:** the device open retries **video40** on
+- **v39.x hardening to preserve (v41 additions at the end):** the device open retries **video40** on
   `EBUSY` for the whole budget and advances to `video30`/`video60` only on
   `ENOENT`/`ENODEV`, beaconing on state change plus one "still waiting" line per
   30 s (never per attempt, never at 1 s); `Run()` uses a unique temp file per

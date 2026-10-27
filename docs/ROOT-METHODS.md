@@ -106,13 +106,14 @@ usable from any LAN machine.
 - Commands run through `/bin/sh -c`; since v39 the budget is 120 s and the reply
   is capped at 1 MiB (a timed-out command is killed as a whole process tree and
   the channel keeps serving).
-- AUL restarts the app after a crash; measured recovery: **~12 s**, and the new
+- AUL restarts the app after a crash; measured recovery: **seconds (~2 s on
+  v41, 2026-10-27)**, and the new
   instance is root again.
 
-Binding `0.0.0.0` means anyone who can reach the port has root, so the payload also
+Anyone on the LAN who can reach the port has root, so the payload also
 supports an allowlist: if `/opt/usr/home/owner/share/rootchan.allow` exists (one IP
-per line, written by `deploy.sh`), peers not listed are rejected. With no allowlist
-file the channel is open to all.
+per line, written by `deploy.sh` **before** the DLL, failing closed), peers not
+listed are rejected. With no allowlist file the channel is open to all.
 
 ## What "permanent" means here
 

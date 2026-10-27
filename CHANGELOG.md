@@ -15,6 +15,39 @@ entry is an incomplete change. `AGENTS.md` repeats this rule for agents.
 
 ---
 
+## 2026-10-27 (late) — docs sweep completion: the six partially-read files done in full
+
+The earlier sweep had read eight docs fully and only grep/section-checked six.
+Those six are now read end to end and fixed:
+
+- **EXPLOIT.md had a real internal contradiction:** the address-space section
+  measured `high_memory = 0xF0400000` (zoneinfo) two paragraphs above a
+  "high-half" section that still claimed "those VAs are not translations of the
+  frames that were meant" and "still unmeasured: the exact high_memory value".
+  Rewritten to the current model: `0xE0000000` is inside the map, the failures
+  are the video40 DMA window, and the remaining falsifiable checks are the
+  deliberate high-PA read and the v38 verdict re-read. The stub hello
+  description now matches the v40 wire (`PGDB`+token before the device open,
+  client-facing 12-byte hello reconstituted).
+- **SCRIPT-REVIEW.md:** three stale claims from the v13-era audit - "cycles
+  video40/30/60" (now the EBUSY-retry semantics), "binds 0.0.0.0:31337" (v16
+  route-derived single address), and "hardcoded hashes / update the deploy
+  constants" (rendered per request since v39) - plus a date-context header.
+- **ROOT-METHODS.md:** "Binding 0.0.0.0 means..." contradicted the v16 bind two
+  lines above; recovery timing updated to ~2 s on v41.
+- **PORTABILITY.md:** the read-limit section said the cause was "still unproven
+  between pfn limit and cache visibility" - cache was ruled out in v28 and the
+  DMA window is the suspect against the measured boundary; "cycles three nodes"
+  fixed; deploy render includes TOKEN=.
+- **AGENTS.md:** §4 ".NET SDK 6+" now matches the global.json 10.0.x pin, and
+  §9's preserve-list header is "v39.x hardening (v41 additions at the end)"
+  instead of mislabeling the whole list v41.
+
+`AGENTS.md` (all 750 lines), `EXPLOIT.md`, `FAILED.md`, `ROOT-METHODS.md`,
+`PORTABILITY.md` and `SCRIPT-REVIEW.md` have now each had a full linear read;
+with the eight files from the previous pass, every doc in the repo has been
+read against the v41 state. Suite + sanitizer green.
+
 ## 2026-10-27 (night) — full docs sweep: every file checked against v41 state
 
 All 19 docs read one by one; EXPLOIT/FAILED/ROOT-METHODS/BOOT-REGRESSION/

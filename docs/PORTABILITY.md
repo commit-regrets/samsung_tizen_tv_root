@@ -82,6 +82,9 @@ This is why cold-boot attempt 1 is an allocation lottery here: the first process
 landed high, and no in-process wait changes the address. The payload's `Kptr`
 still accepts the full direct map (`>= 0xC0000000`) for **pointer shape**; the
 `high-alloc` gate (v33) is a **read-reliability** decision, not a validity bound.
+Since the zoneinfo measurement the boundary is known to sit *inside* the linear
+map (`high_memory` = VA `0xF0400000`), so the suspect is the video40 node's DMA
+window, not the CPU map — `docs/OPEN-ISSUES.md` item 2 has the current state.
 
 On a foreign unit, before trusting the root path:
 
@@ -90,9 +93,10 @@ On a foreign unit, before trusting the root path:
 2. If high reads are coherent there, the high gate is harmless but unnecessary.
 3. If high reads are junk like this unit, keep the gate and accept attempt 2;
    do not add waits (v31 proved they make the boot worse).
-4. The exact cause here — a video40 pfn-mapping limit versus a cache-visibility
-   effect — is still unproven. Do not generalise the `0xE0000000` split without
-   measuring it.
+4. The cache-visibility explanation was ruled out (v28); the current suspect is
+   the node's DMA window against a measured `high_memory` of VA `0xF0400000`
+   (`/proc/zoneinfo` — measure it on the new unit too), so do not generalise the
+   `0xE0000000` line: it is this unit's video40 read path, not a kernel bound.
 
 ## Port checklist — what to edit
 
@@ -101,7 +105,8 @@ values.
 
 | What | Where | Notes |
 |---|---|---|
-| V4L2 device node | `payload/Program.cs` (`Nodes[]`: `video40`, `video30`, `video60`), `tools/physrpc.S` (`/dev/video30`) | The stub's device path is in the assembled blob; rebuild it with `build_physrpc.py`, re-embed with `embed_physrpc.py`, and keep both `--check` modes green. The payload already cycles three nodes, so a set with a different numbering may need only an edit to `Nodes[]` |
+| V4L2 device node | `payload/Program.cs` (`Nodes[]`: `video40`, `video30`, `video60`), `tools/physrpc.S` (`/dev/video30`) | The stub's device path is in the assembled blob; rebuild it with `build_physrpc.py`, re-embed with `embed_physrpc.py`, and keep both `--check` modes green. The payload retries `Nodes[0]` on `EBUSY` and advances on `ENOENT`/`ENODEV`
+(never on busy), so a set with a different numbering may need only an edit to `Nodes[]` |
 | `PHYS_OFFSET`, Image base, `init_task` | `payload/Program.cs` top constants (`PHYS_OFF`, `IMAGE_A/B`) | Careful: `PHYS_OFF = 0xA0000000` is the **VA−PA delta** (`va = pa + PHYS_OFF`), not the kernel's `PHYS_OFFSET` (0x20000000 on this unit). `init_task` is found at run time by `LocateInit`; the Image signature must match |
 | Task/cred offsets | `payload/Program.cs` (`O_COMM`, `O_CRED`, `O_REAL`, task-list offsets) | Re-measure from GPL source + `.config` or a matching DWARF build |
 | VIPT alias period | `payload/Program.cs` `SlotStride` | 32 KiB here; if a new L1 way size differs, test 8/16/32 KiB |
@@ -109,7 +114,7 @@ values.
 | Carrier app | `server/deploy.sh` (`APPID`, `D`, `S`, `DB`), `server/uninstall.sh`, `server/recover.sh` | Must be `dotnet-inhouse`, `app_onboot`, writable `/opt`, and you must be able to carry its SMACK label |
 | Payload artifact + gate | `server/payload.dll` | Rebuild reproducibly (two builds); copy `payload/out/MultiControlService.dll` over it. `server/deploy.sh` is a template — `server.py` renders `WANT=`/`SIZE_WANT=` from that file, so there is no constant to edit |
 | Browser ROP constants | `server/payloads/browser_payload.js`, `server/lib/wasm_builder.js` | Tied to the Chromium/libchrome build; re-derive |
-| PC/TV addresses | runtime only | `server/deploy.sh` ships `H=@HOST@`; `server.py` renders it from the request's IPv4 `Host`; the page patches the shellcode callback (**IP and port**); the payload reads `rootchan.host` |
+| PC/TV addresses | runtime only | `server/deploy.sh` ships `H=@HOST@` and `TOKEN=@BEACON_TOKEN@`; `server.py` renders them from the request (IPv4 `Host`, fresh token); the page patches the shellcode callback (**IP and port**); the payload reads `rootchan.host` and `rootchan.token` |
 
 Build and deploy:
 
