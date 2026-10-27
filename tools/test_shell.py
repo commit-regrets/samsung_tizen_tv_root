@@ -169,13 +169,15 @@ def rewrite(script: Path, dest: Path, *, stock_il_md5: str, stock_ni_md5: str,
         text = re.sub(r"(?m)^NI_MD5=.*$", f"NI_MD5={stock_ni_md5}", text)
     text = re.sub(r"(?m)^H=.*$", f"H=http://{host}", text)
     if render:
-        # server.py renders these two from the payload.dll it actually serves;
-        # doing the same here means the harness exercises the real artifact hash
-        # instead of a hand-maintained constant (review finding: a stale gate).
+        # server.py renders these from the payload.dll it actually serves plus a
+        # fresh beacon token; doing the same here means the harness exercises the
+        # real artifact hash instead of a hand-maintained constant (review
+        # finding: a stale gate).  The token must be 8 hex chars (BAD_TOKEN guard).
         payload = PAYLOAD.read_bytes()
         text = re.sub(r"(?m)^WANT=.*$",
                       f"WANT={hashlib.md5(payload).hexdigest()}", text)
         text = re.sub(r"(?m)^SIZE_WANT=.*$", f"SIZE_WANT={len(payload)}", text)
+        text = re.sub(r"(?m)^TOKEN=.*$", "TOKEN=0f1e2d3c", text)
     text = text.replace("@ROOT@", "$TEST_ROOT")
     dest.write_text(text, encoding="ascii", newline="\n")
 

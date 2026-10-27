@@ -57,6 +57,7 @@ def main() -> int:
     run_root = (HERE / "run_root.py").read_text(encoding="utf-8")
     auto_root = (HERE / "auto_root.py").read_text(encoding="utf-8")
     write_root = (HERE / "write_root.py").read_text(encoding="utf-8")
+    uninstall = (ROOT / "server" / "uninstall.sh").read_text(encoding="utf-8")
 
     # --- the payload's own offsets -----------------------------------------
     want = {
@@ -210,7 +211,21 @@ def main() -> int:
           "big-endian announce vs little-endian stub bytes (2026-10-27)")
 
     check("deploy.sh keeps its literal NEED_RENDER guard",
-          "*@HOST@*|*@WANT@*)" in deploy)
+          "*@HOST@*|*@WANT@*|*@BEACON_TOKEN@*)" in deploy)
+
+    # --- v41 beacon token (shell-slot gate on DSHROOT) ----------------------
+    check("payload reads the deploy-rendered beacon token",
+          'TokenFile = Share + "/rootchan.token"' in prog
+          and '"DSHROOT tok=" + tok' in prog)
+    check("deploy.sh renders the beacon token and validates it",
+          "TOKEN=@BEACON_TOKEN@" in deploy and "rootchan.token" in deploy
+          and "BAD_TOKEN" in deploy)
+    check("server renders, stores and gates on the beacon token",
+          "TOKEN=@BEACON_TOKEN@$" in server and "BEACON_TOKENS" in server
+          and "secrets.token_hex(4)" in server
+          and "unknown beacon " in server and "NOT admitted" in server)
+    check("uninstall removes the beacon token file",
+          '"$S/rootchan.token"' in uninstall)
 
     # --- deploy is a template (structural fix) -----------------------------
     check("deploy.sh H/WANT/SIZE come from the server",

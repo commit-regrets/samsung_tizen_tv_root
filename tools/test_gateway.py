@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+import re
 import shutil
 import socket
 import struct
@@ -156,7 +157,7 @@ def main() -> int:
         # made the first hardware deploy refuse with NEED_RENDER (2026-10-26).
         failed += not check(
             "rendered deploy keeps its guard literal",
-            "*@HOST@*|*@WANT@*)" in text,
+            "*@HOST@*|*@WANT@*|*@BEACON_TOKEN@*)" in text,
             "the renderer rewrote the guard pattern")
         hline = next((ln for ln in text.splitlines() if ln.startswith("H=")), "")
         failed += not check("rendered H cannot trip its own guard",
@@ -325,6 +326,57 @@ def main() -> int:
                 wait_for_log("[shell] refused 127.0.0.2", timeout=4.0))
         except OSError as exc:
             print(f"SKIP: loopback alias 127.0.0.2 unavailable ({exc})", flush=True)
+
+        # 9) v41 beacon token: deploy.sh renders TOKEN=, the payload sends it as
+        #    `tok=` in every beacon, and only a matching beacon joins TV_PEERS.
+        #    A token-less beacon is still logged (the deploy window must not
+        #    blind the boot diagnostics) but never admitted; a wrong token is
+        #    refused outright.  Uses 127.0.0.3/4 loopback aliases.
+        try:
+            status, _, body = get(http_port, "/deploy.sh")
+            m = re.search(r"(?m)^TOKEN=([0-9a-f]{8})$", body.decode("latin-1"))
+            failed += not check("deploy.sh renders a beacon token", m is not None)
+            btok = m.group(1) if m else "00000000"
+            alias3 = socket.socket()
+            alias3.bind(("127.0.0.3", 0))
+            alias3.settimeout(3)
+            alias3.connect(("127.0.0.1", http_port))
+            alias3.sendall(b"DSHROOT tok=deadbeef t=5s start uid=5001 pid=999\n")
+            alias3.close()
+            failed += not check("wrong beacon token refused",
+                                wait_for_log("unknown beacon token deadbeef",
+                                             timeout=4.0))
+            silent3 = socket.socket()
+            silent3.bind(("127.0.0.3", 0))
+            silent3.settimeout(3)
+            silent3.connect(("127.0.0.1", http_port))
+            clients.append(silent3)
+            failed += not check(
+                "a wrong-token beacon does not join TV_PEERS",
+                wait_for_log("[shell] refused 127.0.0.3: not a TV peer",
+                             timeout=4.0))
+            alias4 = socket.socket()
+            alias4.bind(("127.0.0.4", 0))
+            alias4.settimeout(3)
+            alias4.connect(("127.0.0.1", http_port))
+            alias4.sendall(f"DSHROOT tok={btok} t=5s start uid=5001 pid=998\n".encode())
+            alias4.close()
+            silent4 = socket.socket()
+            silent4.bind(("127.0.0.4", 0))
+            silent4.settimeout(3)
+            silent4.connect(("127.0.0.1", http_port))
+            clients.append(silent4)
+            failed += not check(
+                "a valid beacon token admits the peer to the shell-slot gate",
+                wait_for_log("[shell] refused 127.0.0.4: a shell from",
+                             timeout=4.0))
+            blines = Path(scratch_logs) / "beacons.log"
+            got = blines.read_text(encoding="utf-8", errors="replace") if blines.exists() else ""
+            failed += not check("valid beacon logged with its token verbatim",
+                                f"tok={btok}" in got and "pid=998" in got)
+        except OSError as exc:
+            print(f"SKIP: loopback aliases 127.0.0.3/4 unavailable ({exc})",
+                  flush=True)
 
         after = prod_beacon.stat().st_size if prod_beacon.exists() else 0
         failed += not check("gateway test kept the production beacon log clean",

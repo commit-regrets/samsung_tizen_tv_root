@@ -30,6 +30,9 @@ HOSTF="$S/rootchan.host"
 DB=/opt/dbspace/user/5001/.appsvc.db
 WANT=@WANT@
 SIZE_WANT=@SIZE@
+# v41 beacon token: server-rendered per deploy; the payload sends it as `tok=`
+# in every beacon and the server gates the shell slot on it (see SECURITY.md).
+TOKEN=@BEACON_TOKEN@
 APPID=com.samsung.tv.MultiControl-Service
 # SMACK label the app runs under.  Files in bin/ carry "<label>::RO" and the app
 # (label "<label>") may read those.  A file created by US keeps OUR label - e.g.
@@ -84,11 +87,15 @@ fi
 
 # A template that was served statically still contains the markers: the md5 gate
 # would reject everything and the operator would blame the payload.
-case "$H$WANT" in
-  *@HOST@*|*@WANT@*)
+case "$H$WANT$TOKEN" in
+  *@HOST@*|*@WANT@*|*@BEACON_TOKEN@*)
     echo NEED_RENDER
-    echo "HINT: serve deploy.sh from server/server.py (renders @HOST@/@WANT@), not a static file server"
+    echo "HINT: serve deploy.sh from server/server.py (renders @HOST@/@WANT@/@BEACON_TOKEN@), not a static file server"
     exit 1 ;;
+esac
+case "$TOKEN" in
+  [0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]) ;;
+  *) echo BAD_TOKEN; echo "HINT: TOKEN=$TOKEN is not 8 hex chars"; exit 1 ;;
 esac
 if [ "$HIP" = "" ] || [ "$HIP" = "$H" ]; then
   echo BAD_HOST
@@ -200,6 +207,15 @@ echo "ALLOW=$HIP"
 # instead of a compiled-in default.
 printf '%s\n' "$HIP" > "$HOSTF" || { echo HOST_FILE_FAIL; exit 1; }
 echo "HOST_FILE=$HIP"
+# v41 beacon token, same ordering argument as the allowlist: written before the
+# DLL moves, so an interrupted deploy never leaves the server expecting a token
+# the payload does not know (the server then refuses unknown-tok beacons and
+# only logs token-less ones).  chmod 644: the deploy shell runs as root and the
+# file would land 0600, but the payload reads it as uid 5001 - the first v41
+# deploy beached token-less for exactly this reason (found live, 2026-10-27).
+printf '%s\n' "$TOKEN" > "$S/rootchan.token" || { echo TOKEN_FILE_FAIL; exit 1; }
+chmod 644 "$S/rootchan.token" 2>/dev/null
+echo "TOKEN_FILE=$TOKEN"
 
 # --- boot row first: harmless while the stock app is still in place ------------
 if ! sqlite3 "$DB" ".timeout 5000" "insert or replace into boot_sequence(package,appid,after,before,requires,conflicts,vconf,path_exists,args,background_launch,wait_until_ready,timeout) values('com.samsung.tv.MultiControl-Service','com.samsung.tv.MultiControl-Service','','','','','','','','false','true','10');"; then

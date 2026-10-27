@@ -114,7 +114,7 @@ fi
 # rootchan.allow goes LAST: it fails closed, and every step above can still exit
 # non-zero.  Deleting it earlier would leave the payload running but deaf to the
 # PC, forcing a browser-lane retry.
-rm -f "$S/payload_backup.dll" "$S/rootchan.host" /tmp/mcs_payload.dll
+rm -f "$S/payload_backup.dll" "$S/rootchan.host" "$S/rootchan.token" /tmp/mcs_payload.dll
 rm -f /tmp/v4.dll /tmp/v5.dll 2>/dev/null
 rm -f "$S/rootchan.allow"
 echo "ALLOW=removed"

@@ -16,6 +16,7 @@ import hashlib
 import os
 import queue
 import re
+import secrets
 import socket
 import struct
 import threading
@@ -80,6 +81,16 @@ TV_PEERS = set()
 # working channel beats a closed one on this box.  One slot: a fresh page load
 # replaces the token and stale stubs from the older page are refused.
 STUB_TOKEN = {"hex": None, "ts": 0.0}
+
+# v41 beacon tokens: deploy.sh is rendered with a fresh value per deploy and
+# writes it to the TV (`share/rootchan.token`); the payload then sends
+# `tok=<hex>` in every beacon.  The DSHROOT branch admits a beaconed peer to
+# TV_PEERS only on a matching token, so a forged beacon can no longer claim the
+# shell slot.  The last two renders stay valid so a stray GET of deploy.sh
+# cannot orphan the payload that is actually running.  Token-less beacons are
+# still LOGGED (the deploy window and a lost token file must not blind the
+# boot diagnostics) but never admitted; a wrong token is refused outright.
+BEACON_TOKENS = []
 
 state_lock = threading.Lock()
 tv_sock = None
@@ -213,7 +224,12 @@ def deploy_script(host_header: str):
                   "WANT=" + hashlib.md5(data).hexdigest(), text, count=1)
     text = re.sub(r"(?m)^SIZE_WANT=@SIZE@$",
                   "SIZE_WANT=" + str(len(data)), text, count=1)
-    if re.search(r"(?m)^(H=@HOST@|WANT=@WANT@|SIZE_WANT=@SIZE@)$", text):
+    tok = secrets.token_hex(4)
+    text = re.sub(r"(?m)^TOKEN=@BEACON_TOKEN@$", f"TOKEN={tok}", text, count=1)
+    BEACON_TOKENS.append(tok)
+    del BEACON_TOKENS[:-2]     # the last two renders stay valid (see above)
+    if re.search(r"(?m)^(H=@HOST@|WANT=@WANT@|SIZE_WANT=@SIZE@|TOKEN=@BEACON_TOKEN@)$",
+                 text):
         print("[http] deploy template markers not where expected", flush=True)
         return None
     return text.encode()
@@ -820,17 +836,41 @@ def http_server():
                 _queue_stub(conn)
                 continue
             if first[:7] == b"DSHROOT":
-                # app payload beacon: log it, but never let it take the shell slot
+                # app payload beacon: log it, but never let it take the shell slot.
+                # v41: `DSHROOT tok=<hex> ...` - the token comes from the last
+                # deploy render and gates TV_PEERS admission.  beacons.log keeps
+                # the line verbatim (tok= included), so token-less (forged or
+                # legacy) lines stay identifiable to the operator.
                 try:
                     data = conn.recv(BEACON_MAX + 1)
-                    with state_lock:
-                        TV_PEERS.add(peer)
                     if len(data) > BEACON_MAX:
                         print(f"[beacon] oversized line from {peer} "
                               f"({len(data)}B) truncated", flush=True)
                         data = data[:BEACON_MAX]
-                    print(f"[beacon] {data[:300]!r}", flush=True)
-                    _append_beacon_line(data.decode("latin-1").strip())
+                    text = data.decode("latin-1").strip()
+                    print(f"[beacon] {text[:300]}", flush=True)
+                    m = re.match(r"DSHROOT tok=([0-9a-fA-F]{8})\s", text)
+                    if m:
+                        tok = m.group(1).lower()
+                        with state_lock:
+                            known = tok in BEACON_TOKENS
+                        if known:
+                            with state_lock:
+                                TV_PEERS.add(peer)
+                            _append_beacon_line(text)
+                        else:
+                            print(f"[beacon] refused {peer}: unknown beacon "
+                                  f"token {tok}", flush=True)
+                    else:
+                        with state_lock:
+                            announced = bool(BEACON_TOKENS)
+                        if announced:
+                            print(f"[beacon] {peer} sent no token - logged but "
+                                  f"NOT admitted to the shell slot", flush=True)
+                        else:
+                            with state_lock:
+                                TV_PEERS.add(peer)
+                        _append_beacon_line(text)
                 except OSError:
                     pass
                 conn.close()

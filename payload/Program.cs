@@ -26,6 +26,10 @@ internal static class Program
     // honest outcome until deploy.sh has run.
     const string Host = "192.0.2.1";
     const string HostFile = Share + "/rootchan.host";
+    // v41 beacon token: deploy.sh renders a per-deploy value here; Beacon()
+    // sends it as `tok=<hex>` so the server can gate the shell slot on it.  A
+    // hand-built payload (no deploy) has no file and beacons without tok=.
+    const string TokenFile = Share + "/rootchan.token";
     // One IP per line; if the file exists, only those peers may use port 31337.
     const string AllowFile = Share + "/rootchan.allow";
     // Attempt counter for the fast-exit retry loop (v9).  /tmp is tmpfs, so it
@@ -112,6 +116,28 @@ internal static class Program
         catch { return "?"; }
     }
 
+    static string _beaconTok;
+    static bool _beaconTokRead;
+
+    // Read once per process; the file is written by deploy.sh before the app
+    // restarts, so it never changes under a running payload.  Lenient here
+    // (server validates the format): any 8-char trimmed line is used as-is,
+    // anything else counts as absent and beacons go out without tok=.
+    static string BeaconToken()
+    {
+        if (!_beaconTokRead)
+        {
+            _beaconTokRead = true;
+            try
+            {
+                string t = File.ReadAllText(TokenFile).Trim();
+                if (t.Length == 8) _beaconTok = t;
+            }
+            catch { }
+        }
+        return _beaconTok;
+    }
+
     static string Beacon(string msg)
     {
         string line = "t=" + UptimeSec() + "s " + msg;
@@ -119,13 +145,17 @@ internal static class Program
         {
             using (var c = new TcpClient())
             {
-                // Never block the boot path on TCP.  A stale host (PC off, or the
-                // address recorded on the TV now belongs to another subnet) costs
+                // Never block the boot path on TCP.  A stale host (PC off, or
+                // the address recorded on the TV now belongs to another subnet) costs
                 // SYN retries inside a ~40 s boot budget; 500 ms is enough on a
                 // live LAN and the local marker below is the durable record.
                 if (c.ConnectAsync(HostAddr(), 80).Wait(500))
                 {
-                    byte[] b = Encoding.UTF8.GetBytes("DSHROOT " + line + "\n");
+                    string tok = BeaconToken();
+                    string wire = tok != null
+                        ? "DSHROOT tok=" + tok + " " + line + "\n"
+                        : "DSHROOT " + line + "\n";
+                    byte[] b = Encoding.UTF8.GetBytes(wire);
                     c.GetStream().Write(b, 0, b.Length);
                     c.GetStream().Flush();
                 }
