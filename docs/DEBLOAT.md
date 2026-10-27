@@ -167,6 +167,32 @@ The registry has the switches the debloater uses: `package_disable`,
 Deleting (`pkgmgr uninstall`) is out of scope for the first pass: disable is
 reversible, uninstall on a preloaded/system package may not be.
 
+## External context — cleanyourtv's Samsung/Tizen reconnaissance
+
+[cleanyourtv](https://github.com/Gathin23/cleanyourtv) is Android-TV-only (ADB +
+`pm disable-user` + a native launcher), and its `docs/devices/samsung-tizen.md`
+scopes why: four Samsung sets (AU8000 2021, DU7000 2024 **Tizen 9 / T09 platform
+— same platform family as this unit**, NU7405 2018, Q67BA 2022) all answer
+retail firmware with no ADB and no shell. Two facts from it are directly
+relevant here:
+
+- **External confirmation of our root's value:** even with Developer Mode ON on
+  the Tizen 9 DU7000, SDB connected on 26101 but reported
+  `sdbd_rootperm:disabled`, `rootonoff_support:disabled`,
+  `intershell_support:disabled` — developer mode is *not* root, matching our
+  own `FAILED.md` findings (`sdb` whitelist-only, root capability
+  unimplemented). Our physmap root is the differentiator, not developer mode.
+- **Expectation setting:** a signed, separately installed Tizen 9 web app could
+  be full-screen, D-pad navigable, launch apps and show HDMI (public
+  `tv.window` privilege) — but the physical Home button always returned to
+  Samsung Home. No Home takeover without root; post-root UX layers (Vetro-style
+  dashboards) are the realistic shape, which is what `DEBLOAT.md` plans.
+
+Also worth borrowing when we build the apply tooling: their list-file
+discipline — one package per line, `#` comments, every entry validated as a
+bare package name before it reaches a shell command (#165, injection safety),
+and restore driven from the *same list* so undo and apply can never diverge.
+
 ## Vetro on this TV
 
 The long-term idea is to drive [Vetro](https://github.com/andrearicci93/vetro)'s
