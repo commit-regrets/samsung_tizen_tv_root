@@ -85,7 +85,7 @@ was tested on the live unit; "do not retry" means it was measured, not assumed.
 - **`fork()` copies the cred.** Patching a forked child does not change the
   parent's uid. Find the parent through the child's `real_parent` and patch
   *that*. Two payload generations failed exactly here.
-- **Kernel pointer range.** The linear map (VMSPLIT_3G, no LPAE) covers lowmem only (`0xC0000000..high_memory`, measured to end at ~`0xE4E42000` (MemTotal 1,816,840 kB, LowTotal 604,424 kB));
+- **Kernel pointer range.** The linear map (VMSPLIT_3G, no LPAE) covers lowmem only (`0xC0000000..high_memory`, measured to end at `0xF0400000` (zoneinfo `max_low_pfn 0x50400`; meminfo is vendor-adjusted));
   task/cred addresses above `0xE0000000` are normal. A `<0xE0000000` sanity
   check makes the parent scan fail with "no parent".
 - **Post-fork managed code.** A string marshal or allocation in the child after

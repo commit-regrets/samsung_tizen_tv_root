@@ -1,53 +1,46 @@
 # Open issues — current state, pending work, and closed history
 
-## Current state — 2026-10-26 (TV on v39.2, deployed and rooted)
+## Current state — 2026-10-27 (TV on v41, beacon token live)
 
-TV: **v39.2** (`010946ff…`, 33,280 B), rooted via 31337; deployed 2026-10-26
-22:48 over the existing v37 channel. Evidence from that session: `deploy.sh`
-rendered and reached `COPY=ok`/`DEPLOY_DONE`; the app restart rooted in ~6 s
-(attempt 1 `fast-exit` t=86013, attempt 2 `self-patch` t=86021); `id -u` = 0,
-`CapEff=0x3fffffffff`; installed md5 `010946ff…`; the 120 s `Run()` timeout and
-the 2 MiB `ulimit -f` redirect guard both verified. Backups intact in
-`/opt/usr/home/owner/share`: `mcs_orig.dll` (stock, md5 `f61f60dd…`),
-`mcs_ni_orig.dll`, `payload_backup.dll` = v37 `968e1154…`. **Cold boot on v39.2 verified 2026-10-26 22:55** (attempt 1 high-exit t=29,
-attempt 2 `self-patch` t=38, root t=39); `test_all.py --tv` passed 9/9 the same
-session. Only the uninstall/`recover.sh` cycle remains.
+TV: **v41** (`1ab4343e…`, 33,792 B), rooted via 31337; deployed 2026-10-27 over the
+v39.2 channel and restart-rooted in ~1 s (`self-patch`). Every beacon carries
+`tok=c1eadc03` (from `rootchan.token`); live negative tests from the PC: forged
+`tok=deadbeef` was refused (`unknown beacon token`), a token-less start was logged
+but never admitted to the shell slot. `id -u` = 0, `CapEff=0x3fffffffff`, installed
+md5 `1ab4343e…`. The v39.2 cold boot (39 s, attempt 2) and `--tv` (10/10) are done.
+Backups: `mcs_orig.dll` (stock), `mcs_ni_orig.dll`, `payload_backup.dll` = the
+previous build. **Remaining: a v41 cold boot and one uninstall/`recover.sh` cycle.**
 
-The repo is green offline (`python tools/test_all.py`, 9/9 layers; `--tv`
-completes 10, live-validated on the v40 token path 2026-10-27). The first deploy
-attempt failed with `NEED_RENDER` because `server.py` replaced the template's
-own guard marker; fixed and re-deployed the same session (see `CHANGELOG.md`,
-2026-10-26 third pass). Lowmem/highmem are now measured (meminfo), which
-corrects the old `0xE0000000` read-limit claim: see item 2 below.
+The repo is green offline (`python tools/test_all.py`, 10/10) and
+`sanitize_for_public.py --check` passes. The kernel memory boundary is now
+zoneinfo-derived (`max_low_pfn 0x50400` → `high_memory` VA `0xF0400000`); the
+meminfo-derived `0xE4E42000` was wrong (vendor-adjusted counters): see item 2.
 
 **Pending / next, in order:**
 
-1. **~~Deploy v39.2~~ — done 2026-10-26.** Rendered + `COPY=ok`/`DEPLOY_DONE`;
-   restart-root in ~6 s; `id -u`=0; installed md5 `010946ff…`. Remaining: one uninstall/`recover.sh` cycle to prove the undo path against the
-   now-confirmed stock backups. Cold boot (39 s, attempt 2) and `--tv` (9/9) are
-   both done.
-2. **High-half read mechanism — zone sizes measured; exact variable pending.**
+1. **~~Deploy v41~~ — done 2026-10-27.** Restart-rooted in ~1 s; beacon token live
+   (`tok=c1eadc03`), forged and token-less beacons refused; installed md5
+   `1ab4343e…`. Remaining: one **v41 cold boot** and one uninstall/`recover.sh`
+   cycle against the confirmed stock backups.
+2. **High-half read mechanism — boundary corrected by zoneinfo; DMA window suspect.**
    Reads at/above `0xE0000000` were unreliable (0/21 high creds, 0/81 high task
-   pointers), but that line was a *prediction*: live `meminfo` (2026-10-26) is
-   `MemTotal 1,816,840 kB`, `LowTotal 604,424 kB`, `HighTotal 1,212,416 kB`, so
-   lowmem ends at phys `0x44E42000` and `high_memory` is ~VA `0xE4E42000`.
-   `0xE0000000` is therefore *inside* the linear map; re-read the v38 `high-scan`
-   verdicts (`linear`/`elsewhere`/`comm-only`/`miss`/`cred-miss`) against that
-   corrected boundary, not against 0xE0000000. Still to measure: the
-   `high_memory` variable itself (anchor the build→running delta on `init_task`;
-   require `high_memory == 0xA0000000 + max_low_pfn*0x1000`), and one deliberate
-   high-PA read to settle `recon/tvphys.py:251-253`.
+   pointers), but that line is *inside* the linear map: `/proc/zoneinfo` (2026-10-27)
+   has Normal `start_pfn 0x20000`, HighMem `start_pfn 0x50400`, so `max_low_pfn =
+   0x50400` and `high_memory` is **VA `0xF0400000`**. `meminfo` is vendor-adjusted
+   (HighTotal 303,104 pages > HighMem present 198,656), so the earlier
+   `0xE4E42000` estimate was wrong. Prime suspect now: the video40 DMA window
+   (~512 MiB, matching "reads past 0x46000000 hang"), not the CPU map. One
+   deliberate high-PA read and a re-read of the v38 `high-scan` verdicts against
+   `0xF0400000` are still worth doing; neither blocks attempt 2.
 3. **31337 is an unauthenticated LAN root shell.** The allowlist is the only
-   filter on the channel. The PC side now also gates the shell slot to peers that
-   announced themselves, answers unknown HTTP methods with 405, caps the stub
-   queue and refuses cross-origin `/save`. **The `PGDB` half is closed (v40,
-   live-validated 2026-10-27):** the pairing carries a per-run token (page
-   generated, announced via `POST /pair`, patched into the stub's `TOK1`
-   placeholder), and an unannounced or mismatched stub is refused before it can
-   join `TV_PEERS`. **Still open:** a forged `DSHROOT` beacon still joins
-   `TV_PEERS` and can forge `beacons.log` lines - that needs a payload-side
-   token (`rootchan.token` rendered by `deploy.sh`, read by `Beacon()`), i.e. a
-   payload change. See `SECURITY.md`.
+   filter on the channel. The PC side gates the shell slot to peers that announced
+   themselves, answers unknown HTTP methods with 405, caps the stub queue and
+   refuses cross-origin `/save`. **Both halves are now token-gated:** the `PGDB`
+   handshake carries a per-run token (v40, live 2026-10-27), and the payload
+   prefixes every beacon with `tok=` from the deploy-rendered `rootchan.token`
+   (v41, live 2026-10-27); the server refuses unknown tokens and never admits a
+   token-less beacon to the shell slot. Residual: a LAN peer on the allowlist can
+   still reach 31337. Keep the set off untrusted networks; see `SECURITY.md`.
 4. **Portability** — no second model/firmware has been tested. Follow
    `docs/PORTABILITY.md`; the payload now tries `video40/30/60`, but the browser
    gate (Chromium 120) and the physmap primitive are still unproven elsewhere.

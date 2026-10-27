@@ -139,7 +139,7 @@ Run these once per payload change (`AGENTS.md` §7 has the canonical list):
 2. `python tools/root_shell.py "grep CapEff /proc/self/status" <tv-ip>` →
    `0000003fffffffff`.
 3. `python tools/root_shell.py "md5sum <bin>/MultiControlService.dll" <tv-ip>` →
-   the md5 of `server/payload.dll` (v39.2: `010946ff…`, 33,280 B). The deploy gate
+   the md5 of `server/payload.dll` (v41: `1ab4343e…`, 33,792 B). The deploy gate
    is rendered from that file, so there is no constant in the scripts to compare.
 4. Cold boot (mains unplug, not the remote) with the browser closed → 31337 is
    back within ~60–90 s; `logs/beacons.log` shows `DSHROOT` chain.

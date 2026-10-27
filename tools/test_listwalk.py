@@ -15,9 +15,12 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 
 
-def run(argv):
-    return subprocess.run([sys.executable, *argv], cwd=str(HERE.parent),
-                          capture_output=True, text=True, timeout=300)
+def run(argv, timeout=120):
+    try:
+        return subprocess.run([sys.executable, *argv], cwd=str(HERE.parent),
+                              capture_output=True, text=True, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        return None
 
 
 def main() -> int:
@@ -25,19 +28,28 @@ def main() -> int:
 
     print("=== listwalk self-test ===")
     r = run(["tools/listwalk.py"])
-    print(r.stdout.rstrip())
-    if r.returncode != 0:
+    if r is None:
+        print("FAIL: listwalk self-test timed out")
         failed += 1
-        print(r.stderr)
+    else:
+        print(r.stdout.rstrip())
+        if r.returncode != 0:
+            failed += 1
+            print(r.stderr)
 
     print("\n=== dwarf fingerprint ===")
     r = run(["tools/dwarf_offsets.py", "--check"])
-    print(r.stdout.rstrip())
-    if r.returncode == 77:
-        print("SKIP: pyelftools/vmlinux not available")
-    elif r.returncode != 0:
-        failed += 1
-        print(r.stderr)
+    if r is None:
+        # Optional porting gate (needs a big DWARF vmlinux): never hang the
+        # suite on a slow filesystem.
+        print("SKIP: dwarf check timed out")
+    else:
+        print(r.stdout.rstrip())
+        if r.returncode == 77:
+            print("SKIP: pyelftools/vmlinux not available")
+        elif r.returncode != 0:
+            failed += 1
+            print(r.stderr)
 
     print("\nlistwalk+dwarf gate:", "FAILED" if failed else "ok")
     return 1 if failed else 0

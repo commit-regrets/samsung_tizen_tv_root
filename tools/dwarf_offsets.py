@@ -52,16 +52,17 @@ def die_name(die):
 
 def struct_offsets(dwarfinfo, wanted):
     """{struct: {member: offset}} for the first DW_TAG_structure_type of each
-    wanted name (the main definition wins: CUs are walked definition-first)."""
+    wanted name.
+
+    Kernel DWARF declares its structs at the CU top level (verified on the sim
+    vmlinux: task_struct in CU 1, task_smack/smack_known in CU 365), so walking
+    only direct children is enough - and it turns --check from minutes (every
+    DIE of a 123 MB vmlinux) into well under a second.  Stop as soon as every
+    wanted struct is found.
+    """
     found = {}
     for cu in dwarfinfo.iter_CUs():
-        stack = [cu.get_top_DIE()]
-        while stack:
-            die = stack.pop()
-            try:
-                stack.extend(die.iter_children())
-            except Exception:
-                pass
+        for die in cu.get_top_DIE().iter_children():
             if die.tag != "DW_TAG_structure_type":
                 continue
             nm = die_name(die)
@@ -80,6 +81,8 @@ def struct_offsets(dwarfinfo, wanted):
                 pass
             if members:
                 found[nm] = members
+        if len(found) == len(wanted):
+            break
     return found
 
 

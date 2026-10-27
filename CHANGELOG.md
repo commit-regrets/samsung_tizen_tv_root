@@ -50,6 +50,15 @@ and the uninstall/recover cycle.
   ring accepted, broken back-link and unlinked decoys rejected, non-aligned
   task found); registered in `test_all.py` (now 10 offline layers).
 
+- **Verification of this batch found two issues, both fixed here.** (1)
+  `dwarf_offsets.py` walked every DIE of the 123 MB sim vmlinux, so `--check`
+  hung (>3 min) and `test_listwalk.py` failed by subprocess timeout; it now scans
+  CU top-level children and stops once all wanted structs are found (`--check` in
+  2 s, fingerprint MATCH), and the gate treats a DWARF timeout as SKIP so it can
+  never hang the suite. (2) The state docs still said v39.2 and the meminfo-derived
+  memory boundary; AGENTS/README/OPEN-ISSUES/EXPLOIT/FAILED now say v41 and the
+  zoneinfo boundary (`high_memory` VA `0xF0400000`).
+
 ## 2026-10-26 (deferred-work session) — pairing token, sanitizer, EOL pin
 
 Working the deferred list in `docs/OPEN-ISSUES.md` (token, research ports, EOL
