@@ -48,6 +48,25 @@ Two of these are **not** disable candidates despite the role: the two privacy
 choice screens (`coba.privacy_app`, `tv6pbVMQFF`) are the UI that *lets the
 normal user* set ad preferences — Vetro's own catalog force-keeps them.
 
+### ACR coverage — the full pipeline is in the tracking list
+
+The on-screen content-recognition stack maps end to end onto six of the 13:
+`content-grab-service` (captures frames of the current picture) →
+`contents-recognition-dbmgr` + `nvision-analysis-dbmgr` (recognition database
+and on-screen image-analysis model manager) → `canalysis-service` (content
+analysis daemon) + `cis-api-service-app` (content-information API, explicitly
+"ACR" in its Vetro purpose) → `pisa-service` (personalised content/ads
+consuming the results). At idle on 2026-10-27, `canalysis-service` (5.3 MB),
+`cis-api-service-app` (6.5 MB) and `pisa-service` (21.8 MB) were **running** —
+ACR is not purely demand-started.
+
+One name trap checked and cleared: `com.samsung.tv.iacr` (a 157 KB native
+`capp` added on Tizen 9, absent from Vetro's Q80A data, classified keep by
+default) is **not** ACR despite the name — its binary strings identify an
+"IACR service" maintaining `appmapdata`/`appmetadata` (application
+mapping/metadata), with no recognition/frames/canalysis markers, no
+dependency rows against the ACR services, and no process at idle. Keep stands.
+
 ## Method (reproduce it)
 
 ```sh
