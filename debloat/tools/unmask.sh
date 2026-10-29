@@ -1,7 +1,7 @@
 #!/bin/sh
 # unmask.sh - remove the /run mask symlinks created by mask.sh (undo).
-# Same list.  (The permanent /opt sentinel files used by vendor unit
-# conditions are NOT touched by this tool.)
+# Same list.  (The /opt sentinel files used by vendor unit conditions are
+# NOT touched by this tool.)
 #   tools/unmask.sh lists/services-units.txt
 set -u
 
@@ -16,7 +16,7 @@ while IFS= read -r line || [ -n "$line" ]; do
   [ -n "$u" ] || continue
   case "$u" in *[!A-Za-z0-9@._-]*) echo "REFUSE (not a bare unit): $u"; fail=$((fail+1)); continue ;; esac
   n=$((n+1))
-  if [ ! -L "$RUNDIR/$u" ]; then
+  if [ ! -L "$RUNDIR/$u" ] && [ ! -f "$RUNDIR/$u" ]; then
     echo "not-masked: $u"
     absent=$((absent+1))
     continue

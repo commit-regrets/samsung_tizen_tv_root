@@ -1,6 +1,10 @@
 # QNX1D disable plan — DRY RUN (nothing executed)
 
 Generated 2026-10-27 from docs/debloat/qnx1d-inventory.json.
+SUPERSEDED for day-to-day use by lists/*.txt (tier1/tier2a) and the
+`--global` switch (the --uid form below does not persist; kept for the
+record). The live lists are in `../../lists/` (now under
+`samsung_tv_root/debloat/lists/`).
 Mechanism: `pkgcmd -D/-A -t app -n <app_id> --global` (root). That writes
 `package_app_info.app_disable` in `/opt/dbspace/.pkgmgr_parser.db`.
 `--uid` does not write the row (session-only). A second `--global` on an
@@ -12,17 +16,17 @@ Protected (excluded from this plan):
 
 | # | app_id | purpose | current onboot/autorestart | disable command | undo command |
 |---|---|---|---|---|---|
-| 1 | adplatform.ADPlayer | Advertising player. | (see package_app_info) | `pkgcmd -D -t app -n adplatform.ADPlayer --uid 5001` | `pkgcmd -A -t app -n adplatform.ADPlayer --uid 5001` |
-| 2 | com.samsung.tizen.samsung-analytics | Collects and uploads Samsung usage analytics. | (see package_app_info) | `pkgcmd -D -t app -n com.samsung.tizen.samsung-analytics --uid 5001` | `pkgcmd -A -t app -n com.samsung.tizen.samsung-analytics --uid 5001` |
-| 3 | com.samsung.tv.ad-web-framework | Shows web-based advertising, for example in Samsung TV Plus. | (see package_app_info) | `pkgcmd -D -t app -n com.samsung.tv.ad-web-framework --uid 5001` | `pkgcmd -A -t app -n com.samsung.tv.ad-web-framework --uid 5001` |
-| 4 | com.samsung.tv.adplayer | Advertising player. | (see package_app_info) | `pkgcmd -D -t app -n com.samsung.tv.adplayer --uid 5001` | `pkgcmd -A -t app -n com.samsung.tv.adplayer --uid 5001` |
-| 5 | com.samsung.tv.canalysis-service | Content analysis daemon used by viewing-information services. | (see package_app_info) | `pkgcmd -D -t app -n com.samsung.tv.canalysis-service --uid 5001` | `pkgcmd -A -t app -n com.samsung.tv.canalysis-service --uid 5001` |
-| 6 | com.samsung.tv.cis-api-service-app | API service for content information (ACR). | (see package_app_info) | `pkgcmd -D -t app -n com.samsung.tv.cis-api-service-app --uid 5001` | `pkgcmd -A -t app -n com.samsung.tv.cis-api-service-app --uid 5001` |
-| 7 | com.samsung.tv.contents-recognition-dbmgr | Database for on-screen content recognition. | (see package_app_info) | `pkgcmd -D -t app -n com.samsung.tv.contents-recognition-dbmgr --uid 5001` | `pkgcmd -A -t app -n com.samsung.tv.contents-recognition-dbmgr --uid 5001` |
-| 8 | com.samsung.tv.nvision-analysis-dbmgr | Model manager for on-screen image analysis. | (see package_app_info) | `pkgcmd -D -t app -n com.samsung.tv.nvision-analysis-dbmgr --uid 5001` | `pkgcmd -A -t app -n com.samsung.tv.nvision-analysis-dbmgr --uid 5001` |
-| 9 | com.samsung.tv.pisa-service | Personalised content and advertising service for Smart Hub. | (see package_app_info) | `pkgcmd -D -t app -n com.samsung.tv.pisa-service --uid 5001` | `pkgcmd -A -t app -n com.samsung.tv.pisa-service --uid 5001` |
-| 10 | com.samsung.tv.targeted-ad-service | Selects targeted advertising. | (see package_app_info) | `pkgcmd -D -t app -n com.samsung.tv.targeted-ad-service --uid 5001` | `pkgcmd -A -t app -n com.samsung.tv.targeted-ad-service --uid 5001` |
-| 11 | content-grab-service | Captures frames of the current picture for content services. | (see package_app_info) | `pkgcmd -D -t app -n content-grab-service --uid 5001` | `pkgcmd -A -t app -n content-grab-service --uid 5001` |
+| 1 | adplatform.ADPlayer | Advertising player. | (see package_app_info) | `pkgcmd -D -t app -n adplatform.ADPlayer --global` | `pkgcmd -A -t app -n adplatform.ADPlayer --global` |
+| 2 | com.samsung.tizen.samsung-analytics | Collects and uploads Samsung usage analytics. | (see package_app_info) | `pkgcmd -D -t app -n com.samsung.tizen.samsung-analytics --global` | `pkgcmd -A -t app -n com.samsung.tizen.samsung-analytics --global` |
+| 3 | com.samsung.tv.ad-web-framework | Shows web-based advertising, for example in Samsung TV Plus. | (see package_app_info) | `pkgcmd -D -t app -n com.samsung.tv.ad-web-framework --global` | `pkgcmd -A -t app -n com.samsung.tv.ad-web-framework --global` |
+| 4 | com.samsung.tv.adplayer | Advertising player. | (see package_app_info) | `pkgcmd -D -t app -n com.samsung.tv.adplayer --global` | `pkgcmd -A -t app -n com.samsung.tv.adplayer --global` |
+| 5 | com.samsung.tv.canalysis-service | Content analysis daemon used by viewing-information services. | (see package_app_info) | `pkgcmd -D -t app -n com.samsung.tv.canalysis-service --global` | `pkgcmd -A -t app -n com.samsung.tv.canalysis-service --global` |
+| 6 | com.samsung.tv.cis-api-service-app | API service for content information (ACR). | (see package_app_info) | `pkgcmd -D -t app -n com.samsung.tv.cis-api-service-app --global` | `pkgcmd -A -t app -n com.samsung.tv.cis-api-service-app --global` |
+| 7 | com.samsung.tv.contents-recognition-dbmgr | Database for on-screen content recognition. | (see package_app_info) | `pkgcmd -D -t app -n com.samsung.tv.contents-recognition-dbmgr --global` | `pkgcmd -A -t app -n com.samsung.tv.contents-recognition-dbmgr --global` |
+| 8 | com.samsung.tv.nvision-analysis-dbmgr | Model manager for on-screen image analysis. | (see package_app_info) | `pkgcmd -D -t app -n com.samsung.tv.nvision-analysis-dbmgr --global` | `pkgcmd -A -t app -n com.samsung.tv.nvision-analysis-dbmgr --global` |
+| 9 | com.samsung.tv.pisa-service | Personalised content and advertising service for Smart Hub. | (see package_app_info) | `pkgcmd -D -t app -n com.samsung.tv.pisa-service --global` | `pkgcmd -A -t app -n com.samsung.tv.pisa-service --global` |
+| 10 | com.samsung.tv.targeted-ad-service | Selects targeted advertising. | (see package_app_info) | `pkgcmd -D -t app -n com.samsung.tv.targeted-ad-service --global` | `pkgcmd -A -t app -n com.samsung.tv.targeted-ad-service --global` |
+| 11 | content-grab-service | Captures frames of the current picture for content services. | (see package_app_info) | `pkgcmd -D -t app -n content-grab-service --global` | `pkgcmd -A -t app -n content-grab-service --global` |
 
 ## Apply protocol (when approved — not yet executed)
 
@@ -46,36 +50,36 @@ keep set: 30 reference nothing we keep. Skipped as coupled: `org.tizen.ep-hotel-
 
 | # | app_id | purpose | disable | undo |
 |---|---|---|---|---|
-| 1 | com.samsung.ep-plateau-agent | com.samsung.ep-plateau-agent | `pkgcmd -D -t app -n com.samsung.ep-plateau-agent --uid 5001` | `pkgcmd -A -t app -n com.samsung.ep-plateau-agent --uid 5001` |
-| 2 | com.samsung.ep-plateau-agent-service | com.samsung.ep-plateau-agent-service | `pkgcmd -D -t app -n com.samsung.ep-plateau-agent-service --uid 5001` | `pkgcmd -A -t app -n com.samsung.ep-plateau-agent-service --uid 5001` |
-| 3 | com.samsung.ep-plateau-info | com.samsung.ep-plateau-info | `pkgcmd -D -t app -n com.samsung.ep-plateau-info --uid 5001` | `pkgcmd -A -t app -n com.samsung.ep-plateau-info --uid 5001` |
-| 4 | com.samsung.ep-tbmapp-launcher | com.samsung.ep-tbmapp-launcher | `pkgcmd -D -t app -n com.samsung.ep-tbmapp-launcher --uid 5001` | `pkgcmd -A -t app -n com.samsung.ep-tbmapp-launcher --uid 5001` |
-| 5 | com.samsung.ep.coba.hotel | CoBA Hotel Component | `pkgcmd -D -t app -n com.samsung.ep.coba.hotel --uid 5001` | `pkgcmd -A -t app -n com.samsung.ep.coba.hotel --uid 5001` |
-| 6 | com.samsung.ep.hotel-popup | com.samsung.ep.hotel-popup | `pkgcmd -D -t app -n com.samsung.ep.hotel-popup --uid 5001` | `pkgcmd -A -t app -n com.samsung.ep.hotel-popup --uid 5001` |
-| 7 | com.samsung.ep.hotel-quicksetting-editor | com.samsung.ep.hotel-quicksetting-editor | `pkgcmd -D -t app -n com.samsung.ep.hotel-quicksetting-editor --uid 5001` | `pkgcmd -A -t app -n com.samsung.ep.hotel-quicksetting-editor --uid 5001` |
-| 8 | com.samsung.ep.hotel.uigadgets | com.samsung.ep.hotel.uigadgets | `pkgcmd -D -t app -n com.samsung.ep.hotel.uigadgets --uid 5001` | `pkgcmd -A -t app -n com.samsung.ep.hotel.uigadgets --uid 5001` |
-| 9 | com.samsung.hitcomp | hitcomp | `pkgcmd -D -t app -n com.samsung.hitcomp --uid 5001` | `pkgcmd -A -t app -n com.samsung.hitcomp --uid 5001` |
-| 10 | com.samsung.tv.coba.plateauhome | com.samsung.tv.coba.plateauhome | `pkgcmd -D -t app -n com.samsung.tv.coba.plateauhome --uid 5001` | `pkgcmd -A -t app -n com.samsung.tv.coba.plateauhome --uid 5001` |
-| 11 | com.samsung.tv.demo-player | com.samsung.tv.demo-player | `pkgcmd -D -t app -n com.samsung.tv.demo-player --uid 5001` | `pkgcmd -A -t app -n com.samsung.tv.demo-player --uid 5001` |
-| 12 | ep-hotel-protocol | ep-hotel-protocol | `pkgcmd -D -t app -n ep-hotel-protocol --uid 5001` | `pkgcmd -A -t app -n ep-hotel-protocol --uid 5001` |
-| 13 | ep-log-manager | ep-log-manager | `pkgcmd -D -t app -n ep-log-manager --uid 5001` | `pkgcmd -A -t app -n ep-log-manager --uid 5001` |
-| 14 | org.tizen.AgingApp | AgingApp | `pkgcmd -D -t app -n org.tizen.AgingApp --uid 5001` | `pkgcmd -A -t app -n org.tizen.AgingApp --uid 5001` |
-| 15 | org.tizen.UsbSyncDisplay | UsbSyncDisplay | `pkgcmd -D -t app -n org.tizen.UsbSyncDisplay --uid 5001` | `pkgcmd -A -t app -n org.tizen.UsbSyncDisplay --uid 5001` |
-| 16 | org.tizen.automation-alert | automation-alert | `pkgcmd -D -t app -n org.tizen.automation-alert --uid 5001` | `pkgcmd -A -t app -n org.tizen.automation-alert --uid 5001` |
-| 17 | org.tizen.automation-app | automation-app | `pkgcmd -D -t app -n org.tizen.automation-app --uid 5001` | `pkgcmd -A -t app -n org.tizen.automation-app --uid 5001` |
-| 18 | org.tizen.automation-viewer | automation-viewer | `pkgcmd -D -t app -n org.tizen.automation-viewer --uid 5001` | `pkgcmd -A -t app -n org.tizen.automation-viewer --uid 5001` |
-| 19 | org.tizen.cloning | cloning | `pkgcmd -D -t app -n org.tizen.cloning --uid 5001` | `pkgcmd -A -t app -n org.tizen.cloning --uid 5001` |
-| 20 | org.tizen.ep-hotel-alarm | EP Hotel Alarm | `pkgcmd -D -t app -n org.tizen.ep-hotel-alarm --uid 5001` | `pkgcmd -A -t app -n org.tizen.ep-hotel-alarm --uid 5001` |
-| 21 | org.tizen.ep-hotel-channellist | Channel-list Application | `pkgcmd -D -t app -n org.tizen.ep-hotel-channellist --uid 5001` | `pkgcmd -A -t app -n org.tizen.ep-hotel-channellist --uid 5001` |
-| 22 | org.tizen.ep-hotel-popup-ui | ep-hotel-popup-ui | `pkgcmd -D -t app -n org.tizen.ep-hotel-popup-ui --uid 5001` | `pkgcmd -A -t app -n org.tizen.ep-hotel-popup-ui --uid 5001` |
-| 23 | org.tizen.ep-hotel-protocolui | ephotel-protocolui | `pkgcmd -D -t app -n org.tizen.ep-hotel-protocolui --uid 5001` | `pkgcmd -A -t app -n org.tizen.ep-hotel-protocolui --uid 5001` |
-| 24 | org.tizen.ep-hotel-security | ep-hotel-security | `pkgcmd -D -t app -n org.tizen.ep-hotel-security --uid 5001` | `pkgcmd -A -t app -n org.tizen.ep-hotel-security --uid 5001` |
-| 25 | org.tizen.ep-system-manager | ep-system-manager | `pkgcmd -D -t app -n org.tizen.ep-system-manager --uid 5001` | `pkgcmd -A -t app -n org.tizen.ep-system-manager --uid 5001` |
-| 26 | org.tizen.ephotel-cloning | hotelcloning | `pkgcmd -D -t app -n org.tizen.ephotel-cloning --uid 5001` | `pkgcmd -A -t app -n org.tizen.ephotel-cloning --uid 5001` |
-| 27 | org.tizen.factory-analysis-viewer | org.tizen.factory-analysis-viewer | `pkgcmd -D -t app -n org.tizen.factory-analysis-viewer --uid 5001` | `pkgcmd -A -t app -n org.tizen.factory-analysis-viewer --uid 5001` |
-| 28 | org.tizen.remote-service-logging-debug-menu | Remote Service Debug Menu | `pkgcmd -D -t app -n org.tizen.remote-service-logging-debug-menu --uid 5001` | `pkgcmd -A -t app -n org.tizen.remote-service-logging-debug-menu --uid 5001` |
-| 29 | org.tizen.rscm-screensaver | Remote Shop Content Management | `pkgcmd -D -t app -n org.tizen.rscm-screensaver --uid 5001` | `pkgcmd -A -t app -n org.tizen.rscm-screensaver --uid 5001` |
-| 30 | org.tizen.widget_viewer_sdk | Widget Viewer for SDK | `pkgcmd -D -t app -n org.tizen.widget_viewer_sdk --uid 5001` | `pkgcmd -A -t app -n org.tizen.widget_viewer_sdk --uid 5001` |
+| 1 | com.samsung.ep-plateau-agent | com.samsung.ep-plateau-agent | `pkgcmd -D -t app -n com.samsung.ep-plateau-agent --global` | `pkgcmd -A -t app -n com.samsung.ep-plateau-agent --global` |
+| 2 | com.samsung.ep-plateau-agent-service | com.samsung.ep-plateau-agent-service | `pkgcmd -D -t app -n com.samsung.ep-plateau-agent-service --global` | `pkgcmd -A -t app -n com.samsung.ep-plateau-agent-service --global` |
+| 3 | com.samsung.ep-plateau-info | com.samsung.ep-plateau-info | `pkgcmd -D -t app -n com.samsung.ep-plateau-info --global` | `pkgcmd -A -t app -n com.samsung.ep-plateau-info --global` |
+| 4 | com.samsung.ep-tbmapp-launcher | com.samsung.ep-tbmapp-launcher | `pkgcmd -D -t app -n com.samsung.ep-tbmapp-launcher --global` | `pkgcmd -A -t app -n com.samsung.ep-tbmapp-launcher --global` |
+| 5 | com.samsung.ep.coba.hotel | CoBA Hotel Component | `pkgcmd -D -t app -n com.samsung.ep.coba.hotel --global` | `pkgcmd -A -t app -n com.samsung.ep.coba.hotel --global` |
+| 6 | com.samsung.ep.hotel-popup | com.samsung.ep.hotel-popup | `pkgcmd -D -t app -n com.samsung.ep.hotel-popup --global` | `pkgcmd -A -t app -n com.samsung.ep.hotel-popup --global` |
+| 7 | com.samsung.ep.hotel-quicksetting-editor | com.samsung.ep.hotel-quicksetting-editor | `pkgcmd -D -t app -n com.samsung.ep.hotel-quicksetting-editor --global` | `pkgcmd -A -t app -n com.samsung.ep.hotel-quicksetting-editor --global` |
+| 8 | com.samsung.ep.hotel.uigadgets | com.samsung.ep.hotel.uigadgets | `pkgcmd -D -t app -n com.samsung.ep.hotel.uigadgets --global` | `pkgcmd -A -t app -n com.samsung.ep.hotel.uigadgets --global` |
+| 9 | com.samsung.hitcomp | hitcomp | `pkgcmd -D -t app -n com.samsung.hitcomp --global` | `pkgcmd -A -t app -n com.samsung.hitcomp --global` |
+| 10 | com.samsung.tv.coba.plateauhome | com.samsung.tv.coba.plateauhome | `pkgcmd -D -t app -n com.samsung.tv.coba.plateauhome --global` | `pkgcmd -A -t app -n com.samsung.tv.coba.plateauhome --global` |
+| 11 | com.samsung.tv.demo-player | com.samsung.tv.demo-player | `pkgcmd -D -t app -n com.samsung.tv.demo-player --global` | `pkgcmd -A -t app -n com.samsung.tv.demo-player --global` |
+| 12 | ep-hotel-protocol | ep-hotel-protocol | `pkgcmd -D -t app -n ep-hotel-protocol --global` | `pkgcmd -A -t app -n ep-hotel-protocol --global` |
+| 13 | ep-log-manager | ep-log-manager | `pkgcmd -D -t app -n ep-log-manager --global` | `pkgcmd -A -t app -n ep-log-manager --global` |
+| 14 | org.tizen.AgingApp | AgingApp | `pkgcmd -D -t app -n org.tizen.AgingApp --global` | `pkgcmd -A -t app -n org.tizen.AgingApp --global` |
+| 15 | org.tizen.UsbSyncDisplay | UsbSyncDisplay | `pkgcmd -D -t app -n org.tizen.UsbSyncDisplay --global` | `pkgcmd -A -t app -n org.tizen.UsbSyncDisplay --global` |
+| 16 | org.tizen.automation-alert | automation-alert | `pkgcmd -D -t app -n org.tizen.automation-alert --global` | `pkgcmd -A -t app -n org.tizen.automation-alert --global` |
+| 17 | org.tizen.automation-app | automation-app | `pkgcmd -D -t app -n org.tizen.automation-app --global` | `pkgcmd -A -t app -n org.tizen.automation-app --global` |
+| 18 | org.tizen.automation-viewer | automation-viewer | `pkgcmd -D -t app -n org.tizen.automation-viewer --global` | `pkgcmd -A -t app -n org.tizen.automation-viewer --global` |
+| 19 | org.tizen.cloning | cloning | `pkgcmd -D -t app -n org.tizen.cloning --global` | `pkgcmd -A -t app -n org.tizen.cloning --global` |
+| 20 | org.tizen.ep-hotel-alarm | EP Hotel Alarm | `pkgcmd -D -t app -n org.tizen.ep-hotel-alarm --global` | `pkgcmd -A -t app -n org.tizen.ep-hotel-alarm --global` |
+| 21 | org.tizen.ep-hotel-channellist | Channel-list Application | `pkgcmd -D -t app -n org.tizen.ep-hotel-channellist --global` | `pkgcmd -A -t app -n org.tizen.ep-hotel-channellist --global` |
+| 22 | org.tizen.ep-hotel-popup-ui | ep-hotel-popup-ui | `pkgcmd -D -t app -n org.tizen.ep-hotel-popup-ui --global` | `pkgcmd -A -t app -n org.tizen.ep-hotel-popup-ui --global` |
+| 23 | org.tizen.ep-hotel-protocolui | ephotel-protocolui | `pkgcmd -D -t app -n org.tizen.ep-hotel-protocolui --global` | `pkgcmd -A -t app -n org.tizen.ep-hotel-protocolui --global` |
+| 24 | org.tizen.ep-hotel-security | ep-hotel-security | `pkgcmd -D -t app -n org.tizen.ep-hotel-security --global` | `pkgcmd -A -t app -n org.tizen.ep-hotel-security --global` |
+| 25 | org.tizen.ep-system-manager | ep-system-manager | `pkgcmd -D -t app -n org.tizen.ep-system-manager --global` | `pkgcmd -A -t app -n org.tizen.ep-system-manager --global` |
+| 26 | org.tizen.ephotel-cloning | hotelcloning | `pkgcmd -D -t app -n org.tizen.ephotel-cloning --global` | `pkgcmd -A -t app -n org.tizen.ephotel-cloning --global` |
+| 27 | org.tizen.factory-analysis-viewer | org.tizen.factory-analysis-viewer | `pkgcmd -D -t app -n org.tizen.factory-analysis-viewer --global` | `pkgcmd -A -t app -n org.tizen.factory-analysis-viewer --global` |
+| 28 | org.tizen.remote-service-logging-debug-menu | Remote Service Debug Menu | `pkgcmd -D -t app -n org.tizen.remote-service-logging-debug-menu --global` | `pkgcmd -A -t app -n org.tizen.remote-service-logging-debug-menu --global` |
+| 29 | org.tizen.rscm-screensaver | Remote Shop Content Management | `pkgcmd -D -t app -n org.tizen.rscm-screensaver --global` | `pkgcmd -A -t app -n org.tizen.rscm-screensaver --global` |
+| 30 | org.tizen.widget_viewer_sdk | Widget Viewer for SDK | `pkgcmd -D -t app -n org.tizen.widget_viewer_sdk --global` | `pkgcmd -A -t app -n org.tizen.widget_viewer_sdk --global` |
 
 ## Batch 3 — optional menu (awaiting owner selection)
 

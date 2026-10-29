@@ -11,9 +11,12 @@ Why it is the base for the apply layer, ahead of Vetro:
 - **Same platform, same firmware string.** Its 41-app `pkgcmd -D` list
   (`tv/opt-etc/cc-disabled-apps.txt`) and 33-program bind-mount list
   (`parseinfo.sh`) are merge candidates for our inventory, not porting
-  projects. It independently confirms our disable mechanism down to the same
-  quirk we probed (`pkgcmd -D` without `--global`, "Failed to get appinfo"
-  otherwise).
+  projects. It independently confirms our disable mechanism. One correction this
+  project contributed back: the "Failed to get appinfo" that tcc treats as
+  a reason to avoid `--global` is what a REPEAT `--global` prints once the
+  row is already true (exit 25) — `--global` is the persistent form
+  (writes `package_app_info.app_disable`, cold-boot verified) and plain
+  `pkgcmd -D` is the session-only one.
 - **It consumes an external root** (no root method provided — by design),
   which is exactly this repo's contract. Its `tools/` wrap the root shell
   (`tvcmd.sh`, base64 chunked `push.sh`/`pull.sh` with md5 checks) and its

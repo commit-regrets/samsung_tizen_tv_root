@@ -5,11 +5,12 @@ inventories, disable lists with per-line undo, and a measured
 resource budget. Disable only — never uninstall — so everything reverses
 from the same list.
 
-**Contract:** this repo needs exactly one thing from the outside — a root
-shell on the TV speaking the toolkit's 31337 line protocol. That shell is
-provided by [samsung_tv_root](https://github.com/) (the rooting research
-toolkit); this repo never roots anything itself and has no opinion about
-how the root was obtained.
+**Contract:** this folder needs exactly one thing — a root shell on the TV
+speaking the 31337 line protocol. That shell is provided by the rooting
+toolkit in this same repository (`root.ps1` / `tools/root_shell.py`); this
+folder never roots anything itself and has no opinion about how the root
+was obtained. The payload (v42, pending) will re-assert the service mask
+list from the root-owned policy path at every boot.
 
 ## Layout
 
@@ -27,10 +28,10 @@ tools/                 merge (registry dump + catalog -> inventory),
 ## Quick start (after rooting)
 
 ```sh
-# on the PC, from the ROOTING toolkit (its tools/root_shell.py drives the
-# 31337 channel; this repo has no TV transport of its own).  Serve this
-# directory (any static server), then per list:
-python <root-toolkit>/tools/root_shell.py "curl -s http://<pc>:8080/tools/apply.sh -o /tmp/a.sh && curl -s http://<pc>:8080/lists/<list>.txt -o /tmp/l.txt && cat /tmp/a.sh | sh -s /tmp/l.txt" <tv-ip>
+# on the PC, from the repo root (tools/root_shell.py drives the 31337
+# channel).  Serve the debloat folder with any static server, then per list:
+python -m http.server 8090 -d debloat/
+python tools/root_shell.py "curl -s http://<pc>:8090/tools/apply.sh -o /tmp/a.sh && curl -s http://<pc>:8090/lists/tier1-tracking.txt -o /tmp/l.txt && cat /tmp/a.sh | sh -s /tmp/l.txt" <tv-ip>
 # NOTE: UEP blocks `sh /tmp/file` - the `cat file | sh` pipe form is required.
 # The dry run is the same command with APPLY=0 in front of sh.
 ```

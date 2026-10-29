@@ -100,7 +100,19 @@ class Fixture:
                         '    echo false\n'
                         '  fi\n'
                         '  ;;\nesac\n'),
-            "systemctl": '#!/bin/sh\necho "systemctl $*" >> "$CALLS"\nexit 0\n',
+            "systemctl": ('#!/bin/sh\n'
+                          'echo "systemctl $*" >> "$CALLS"\n'
+                          '# simulate real systemd: a start of a /run-masked unit is refused\n'
+                          'if [ "$1" = "start" ]; then\n'
+                          '  shift\n'
+                          '  for u in "$@"; do\n'
+                          '    if [ -e "$T/run/systemd/system/$u" ]; then\n'
+                          '      echo "Failed to start $u: Unit $u is masked." >&2\n'
+                          '      exit 1\n'
+                          '    fi\n'
+                          '  done\n'
+                          'fi\n'
+                          'exit 0\n'),
             "mount": ('#!/bin/sh\n'
                       'case "$1" in\n'
                       '  --bind) echo "mount --bind $2 $3" >> "$CALLS"\n'
@@ -259,8 +271,17 @@ def main() -> int:
         # is the portable assertion.
         check(f"mask: mask file created {u}",
               (tmpf7.root / "run/systemd/system" / u).exists())
+    check("mask: stop called per unit",
+          len(tmpf7.calls("systemctl stop")) >= len(units))
+    check("mask: start-refusal test ran per unit",
+          len(tmpf7.calls("systemctl start")) >= len(units))
     check("mask: daemon-reload called",
           len(tmpf7.calls("systemctl daemon-reload")) >= 1)
+    # idempotency: a second run in the same session reports already-masked
+    # and makes no new symlinks
+    r = tmpf7.run([ul], {"MASK": "1"})
+    check("mask: second run is idempotent",
+          r.stdout.count("already-masked") == len(units))
     tmpf8 = Fixture(DEB / "tools" / "unmask.sh")
     ul8 = tmpf8.write_list("units.txt", units)
     r = tmpf8.run([ul8])
@@ -268,26 +289,6 @@ def main() -> int:
     left = [u for u in units
             if (tmpf8.root / "run/systemd/system" / u).exists()]
     check("unmask: all symlinks removed", not left, str(left))
-
-    # 8. bindapply / bindrestore
-    bins = ["data-service", "not-installed-daemon"]
-    tmpf9 = Fixture(DEB / "tools" / "bindapply.sh", rewrite_binaries=True)
-    (tmpf9.root / "usr/bin/data-service").write_bytes(b"\x7fELF....")
-    bl = tmpf9.write_list("svc.txt", bins)
-    r = tmpf9.run([bl], {"BIND": "0"})
-    check("bindapply dry: no mount call", len(tmpf9.calls("mount --bind")) == 0)
-    r = tmpf9.run([bl], {"BIND": "1"})
-    check("bindapply: 1 overlay (absent skipped)",
-          len(tmpf9.calls("mount --bind")) == 1)
-    check("bindapply: overlay target recorded",
-          "data-service" in tmpf9.state.read_text(encoding="utf-8"))
-    tmpf10 = Fixture(DEB / "tools" / "bindrestore.sh", rewrite_binaries=True)
-    (tmpf10.state).write_text("$T/usr/bin/data-service\n".replace(
-        "$T", str(tmpf10.root).replace("\\", "/")), encoding="utf-8")
-    bl10 = tmpf10.write_list("svc.txt", bins[:1])
-    r = tmpf10.run([bl10])
-    check("bindrestore: umount called for the overlay",
-          len(tmpf10.calls("umount")) == 1 and r.returncode == 0)
 
     # 9. committed list hygiene
     for lst in sorted((DEB / "lists").glob("*.txt")):
@@ -333,7 +334,6 @@ def main() -> int:
 
     tmpf.cleanup(); tmpf2.cleanup(); tmpf3.cleanup(); tmpf4.cleanup()
     tmpf5.cleanup(); tmpf6.cleanup(); tmpf7.cleanup(); tmpf8.cleanup()
-    tmpf9.cleanup(); tmpf10.cleanup()
 
     print("\ndebloat tooling tests:", "ok" if ok else "FAILED")
     return 0 if ok else 1

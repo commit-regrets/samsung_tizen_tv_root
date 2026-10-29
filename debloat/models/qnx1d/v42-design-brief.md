@@ -190,6 +190,24 @@ channel did not answer):
 
 Do not implement v42 until both checks are recorded here.
 
+## UPDATE (2026-10-29 late) — both gates CLOSED, v42 cleared
+
+- **Q5 done:** the `/usr/lib/systemd/system` harvest found 9 more units
+  with vendor `/opt` switches (airplay-service-2, googlecast-service,
+  samsunghealth trio, remote-shop-care-hub, sct-packet-dump,
+  lightweight-web-engine-update + mcf-agent flag). They are OWNER-CHOICE
+  features — recorded in `lists/services-units.txt` era notes and the
+  optional menu, NOT applied. journald/* matched the grep and is
+  untouchable.
+- **Q3 done:** reverse-dependency gate ran live (`tools/q3deps.sh`): 5
+  hard `Requires=` couplings, all documented and accepted (one real
+  feature loss: DLNA via vd_dmr depends on register-device — owner
+  trade-off, recorded in the list header).
+- **SWU mapping done:** SWUCoreTV / SWUService / SWUVerifierTV have no
+  units (launchpad); bt-monitor = bluetooth-monitor.service (added to the
+  mask list).
+- **v42 is cleared for implementation** per the confirmed design above.
+
 
 ## Q3 GATE RESULT (2026-10-29 22:0x UTC, live)
 

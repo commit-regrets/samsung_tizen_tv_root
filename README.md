@@ -58,9 +58,10 @@ part; the stage-by-stage writeup with the measured constants is
 ## After rooting — debloat
 
 The package-inventory / disable-list work (QNX1D classification, apply and
-restore tooling, measured resource budget) lives in its own repository,
-`samsung-tv-debloat` (sibling folder / separate publication). It consumes
-this toolkit's root channel as its only dependency.
+restore tooling, measured resource budget) lives in this repository under
+[`debloat/`](debloat/README.md). It consumes this toolkit's root channel as
+its only dependency, and `root.ps1` offers it at root time (opt-in). The
+former sibling repository was merged here in full and no longer exists.
 
 ## Documentation
 

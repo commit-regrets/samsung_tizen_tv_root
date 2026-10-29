@@ -36,9 +36,6 @@ DB=/opt/dbspace/.pkgmgr_parser.db
 DENY="com.samsung.tv.coba.adagent com.samsung.tv.coba.privacy_app tv6pbVMQFF
 com.samsung.tv.MultiControl-Service vetrotvapp"
 
-u=$(stat -c %u "$OWNER_HOME" 2>/dev/null)
-case "$u" in ""|*[!0-9]*) echo "VETRO-UID-NOT-RESOLVED"; exit 1;; esac
-[ "$u" -gt 0 ] || { echo "VETRO-UID-INVALID"; exit 1; }
 
 mkdir -p "$SHARE" 2>/dev/null
 if [ "$APPLY" = "1" ]; then
@@ -57,6 +54,7 @@ while IFS= read -r line || [ -n "$line" ]; do
   esac
   denied=0
   for d in $DENY; do [ "$id" = "$d" ] && denied=1; done
+case "$id" in vetrotvapp*) denied=1 ;; esac
   if [ "$denied" = "1" ]; then echo "REFUSE (denylist): $id"; fail=$((fail+1)); continue; fi
 
   n=$((n+1))
@@ -72,9 +70,9 @@ while IFS= read -r line || [ -n "$line" ]; do
     echo "disabled[$n]: $id"
     ok=$((ok+1))
   else
-    echo "FAILED[$n]: $id flag=${flag:-missing} (undo line already recorded)"
+    echo "FAILED[$n]: $id flag=${flag:-missing} (undo line already recorded; stopping per discipline #2)"
     tail -2 /tmp/pkgcmd-apply.out
-    fail=$((fail+1))
+    exit 1
   fi
 done < "${LIST:--}"
 

@@ -13,6 +13,9 @@
 # RESOLVED 2026-10-29 (see the holdout block at the bottom); still
 # unit-less: SWUVerifierTV, p2p-asm-UI.
 # pushd is socket-activated: mask the socket too.
+# OWNER TRADE-OFF: masking register-device.service takes down vd_dmr
+# (DLNA media renderer, port 9197) — casting from phones breaks. Remove
+# that one mask if DLNA is needed.
 data-service.service
 org.tizen.tv.sp-kpi.service
 devicetracker.service

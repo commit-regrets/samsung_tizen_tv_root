@@ -15,6 +15,47 @@ entry is an incomplete change. `AGENTS.md` repeats this rule for agents.
 
 ---
 
+## 2026-10-29 (late) — debloat/ completed in-repo; sibling repo retired
+
+The independent review of the merged debloat folder found the move
+incomplete and several scripts not matching their claims. All fixed:
+
+- **Parent pointers**: README now points at `debloat/` in this repository;
+  debloat/README no longer describes itself as a separate repo or curls a
+  sibling URL (documented flow: any static server, e.g.
+  `python -m http.server 8090 -d debloat/`).
+- **mask.sh rewritten to match its claims**: mask + `systemctl stop` +
+  start-refusal test per unit (a masked unit keeps running until stopped);
+  idempotent (already-masked units counted, same-boot re-apply safe);
+  dry-run counters fixed.
+- **apply.sh**: stops at the first unexpected failure (discipline #2);
+  dead owner-uid resolution removed (`--global` needs no uid);
+  `vetrotvapp*` denied by prefix.
+- **q3deps.sh**: dots in unit names escaped (was over-matching), searches
+  `/prd/usr/lib/systemd/system` and `*.path` too.
+- **bindapply.sh/bindrestore.sh deleted** — runtime bind-mounts are
+  falsified on this firmware (respawner bypass, run log round 1) and
+  bindrestore could not see its own overlays (`/proc/mounts` blind).
+  `lists/services-bind.txt` stays as the kill-pass binary list; the
+  technique lives in the run log + AGENTS rule 13.
+- **Working mechanism landed as tooling**: `tools/mask.sh` uses `/run`
+  masks + start-refusal tests — 17/17 masked in the live session, 13/13
+  held through respawn. Durable suppression = v42.
+- **New test layer** `tools/test_debloat.py` (14 offline layers now):
+  apply/restore/mask/unmask under a POSIX sh with rewritten paths and
+  stubbed pkgcmd/sqlite3/systemctl/mount — dry-run, undo ordering,
+  denylist, injection refusal, failure paths, /run mask lifecycle +
+  idempotency, list hygiene, merge determinism (exactly the 2 documented
+  Vetro-catalog overrides may flip).
+- **Docs one story**: AGENTS current state matches rule 11 (cold-boot
+  durability confirmed); disable-plan rows corrected to `--global`;
+  REFERENCES records that "Failed to get appinfo" is the
+  already-disabled signal, not a reason to avoid `--global`; the DLNA
+  trade-off lives in the list header; the v42 brief records both gates
+  closed (Q5 harvest + Q3 couplings) and is cleared for implementation.
+- **Sibling repo retired** (clean tree at e29336e, parity verified by the
+  reviewer; content fully merged into debloat/).
+
 ## 2026-10-29 — first live debloat run through the toolkit channel
 
 The samsung-tv-debloat project (separate repo, sibling folder) ran its first

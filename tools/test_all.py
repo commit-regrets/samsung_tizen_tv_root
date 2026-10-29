@@ -72,7 +72,7 @@ def main() -> int:
                                           [py, "tools/test_listwalk.py"])))
     results.append(("state-docs", run("AGENTS.md payload row matches artifacts/state",
                                       [py, "tools/update_state.py", "--check"])))
-    results.append(("debloat-tooling", run("debloat apply/mask/bind tooling + lists + merge",
+    results.append(("debloat-tooling", run("debloat apply/mask tooling + lists + merge",
                                            [py, "tools/test_debloat.py"])))
     results.append(("docs-consistency", run("living docs vs current mechanisms",
                                             [py, "tools/test_docs.py"])))

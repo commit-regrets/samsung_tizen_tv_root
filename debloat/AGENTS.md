@@ -71,7 +71,8 @@ All TV reads/writes go through that channel (PC-side helpers:
    hid behind pisa). One-shot `/bin/true` bind-mounts pin launchpad-held
    binaries.
 11. **`--uid` disables do not survive a reboot** (mains cycle 2026-10-29:
-   all 11 were back). **`--global` does write a store:**
+   all 11 were back). **`--global` does write a durable store — cold-boot
+   verified 2026-10-29 (all 11 rows survived a mains cycle):**
    `/opt/dbspace/.pkgmgr_parser.db` `package_app_info.app_disable`. The
    user DB and `package_app_info_for_uid` stay empty. A repeat `--global`
    exits 25 with "Failed to get appinfo" while the row stays true — that
