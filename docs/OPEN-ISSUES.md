@@ -72,6 +72,32 @@ meminfo-derived `0xE4E42000` was wrong (vendor-adjusted counters): see item 2.
    publish time: blank `beacon_token` in `docs/state.json` (`--fix`) or leave
    it - it is LAN-local and rotates on every deploy.
 
+## New falsifiable checks — from the tizen-tv-control-center cross-reference
+
+An independent S90D project (EU, **T-PTMDDEUC** — the same firmware family as
+this unit) runs root commands **over SDB** with Developer Mode enabled, and
+replaces `/opt/etc/parseinfo.sh` wholesale as its persistence boot hook. Both
+conflict with our recorded findings and are cheap to settle now that we hold
+root (no Developer Mode needed to flip the switch ourselves):
+
+1. **SDB root-exec on our unit.** Our `FAILED.md` closed `sdbd root:on`
+   (capability 10005 unimplemented) — measured with Developer Mode OFF. The
+   S90D project uses Developer Mode + SDB + a community root tool on the same
+   firmware family. Check: enable Developer Mode via the buxton keys we found
+   (`db/sdk/develop/{mode,ip}`) from the root shell, `sdb connect`, and re-run
+   the sdbd probes. If it opens, SDB becomes a redundant transport (their
+   chunked base64 push/pull mirrors our `write_root`).
+2. **`parseinfo.sh` as a second persistence hook.** Our `FAILED.md` says
+   editing it broke the boot service (UEP-signed file). Their S90D replaced it
+   wholesale with an unsigned script and it runs as root at boot. Check:
+   re-inspect our stock file's UEP appendix vs theirs, and whether the boot
+   runner executes an unsigned replacement (test with a no-op echo appended,
+   observe `/proc/target_version`, revert immediately).
+
+Both outcomes are useful: either our dead-end record gains a
+Developer-Mode-ON correction, or we gain a second root transport and a simpler
+persistence hook — on the same firmware family either way.
+
 ## Deliberately deferred
 
 Reviewed and consciously not done - listed so the next session does not
