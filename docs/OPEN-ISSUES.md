@@ -14,7 +14,8 @@ via `recover.sh <pc-url>` completed `DEPLOY_DONE`/`RECOVER_DONE` and the followi
 cold boot rooted again.
 Backups: `mcs_orig.dll` (stock), `mcs_ni_orig.dll`, `payload_backup.dll` = v41.
 
-The repo is green offline (`python tools/test_all.py`, 11/11 layers) and
+The repo is green offline (`python tools/test_all.py`, 13/13 layers incl. the
+debloat tooling layer) and
 `sanitize_for_public.py --check` passes. The kernel memory boundary is now
 zoneinfo-derived (`max_low_pfn 0x50400` → `high_memory` VA `0xF0400000`); the
 meminfo-derived `0xE4E42000` was wrong (vendor-adjusted counters): see item 2.
@@ -50,7 +51,19 @@ meminfo-derived `0xE4E42000` was wrong (vendor-adjusted counters): see item 2.
    `docs/PORTABILITY.md`; the payload now tries `video40/30/60`, but the browser
    gate (Chromium 120) and the physmap primitive are still unproven elsewhere.
    Record each unit's results there.
-5. **Reference-derived follow-ups, in value order:** a per-run task tag
+5. **Debloat / v42 — durable service suppression.** 20 apps are durably
+   disabled (`pkgcmd --global`) and 23 systemd units are `/run`-masked, but the
+   masks die at reboot; v42 must re-assert them from the payload. Design is
+   reviewed and cleared (`debloat/models/qnx1d/v42-design-brief.md`); not
+   implemented. **Two live checks first, both cheap:** (a) after the next mains
+   cycle read back all 20 `app_disable='true'` rows (only the 11 tier-1 rows
+   have had a post-boot readback - the 9 tier-2a rows are inferred from the same
+   store); (b) decide `bluetooth-monitor.service` — it is a commented candidate
+   because it was never masked live and the brief says never disable Bluetooth:
+   mask it once by hand, confirm the BLE remote/audio still work, then move it
+   into `debloat/lists/services-units.txt`. Placement/state:
+   `debloat/AGENTS.md`.
+6. **Reference-derived follow-ups, in value order:** a per-run task tag
    (`PHYSRPT`+pid) plus a pid/tgid and `real_cred == cred` check to retire the
    stale-task family for good; OTA hardening beyond the buxton key
    (`/mnt/backup/OS_UPGRADE_FLAG` + `systemctl mask --runtime` for
@@ -58,8 +71,10 @@ meminfo-derived `0xE4E42000` was wrong (vendor-adjusted counters): see item 2.
    `was-background-update.*`).  (Done: the DWARF offset reader, the
    layout-shift-proof list walk, the sanitizer - see `tools/` and
    `docs/REFERENCE-MATERIALS.md` for the download sources they assume.)
-6. **Public-release hygiene** — `LICENSE` (MIT for original work), `NOTICE.md`
-   (third-party browser chain is not relicensed), logs and build output ignored,
+7. **Public-release hygiene** — `LICENSE` (MIT for original work), `NOTICE.md`
+   (third-party browser chain is not relicensed; the vendored Vetro catalog
+   under `debloat/third_party/vetro/` is MIT and now listed there), logs and
+   build output ignored,
    only the payload DLL and the physrpc shellcode blob tracked as binaries. The
    baked addresses are now TEST-NET placeholders (`192.0.2.1`);
    `tools/sanitize_for_public.py --check` is green in-tree (2026-10-27) and

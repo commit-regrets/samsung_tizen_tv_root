@@ -124,6 +124,36 @@ rendered deploy markers, the rollback trap. This is the layer that catches the
 failure the other tests cannot see: a green simulator modelling a payload that
 has drifted.
 
+## 4c. Debloat tooling — `tools/test_debloat.py`
+
+Runs the TV-side debloat scripts (`debloat/tools/apply.sh`, `restore.sh`,
+`mask.sh`, `unmask.sh`) under a POSIX `sh` with their absolute TV paths
+rewritten into a temp tree and stubs for `pkgcmd`, `sqlite3`, `systemctl` and
+`dbus-send`, so the assertions are on behaviour (which command ran, in what
+order, with what exit code), not on output prose:
+
+- every script refuses to run without a list **file** argument (exit 2, no TV
+  command) — the old `${LIST:--}` default was a literal file named `-`, so a
+  no-arg or piped run printed `0 of 0` and exited 0;
+- `apply.sh`: dry run is a gate (a refused entry fails it), list order, undo
+  line before the disable, the canalysis/pisa sentinels (planted, stopped,
+  recorded in the undo log, and an unplantable sentinel aborts), denylist,
+  injection refusal, sqlite-false stops the batch;
+- `restore.sh`: `-A --global` per id, sentinel removal, stop-at-first-failure;
+- `mask.sh`: `daemon-reload` before any `stop`/`start`, no start of a unit
+  whose mask is ours only, `MISSING` unit names fail the run, all-missing
+  exits 2, and the kill pass kills the process whose `/proc/<pid>/exe` is the
+  listed binary (POSIX only — the fixture points `PROCDIR` at a fake tree);
+- list hygiene (bare ids, no denylist entry, the 23-unit lock) and `merge.js`
+  determinism: regenerating the inventory from the committed registry dump may
+  flip only the two documented overrides, with matching counts and summary.
+
+`sh` is required; on Windows the layer finds Git Bash
+(`C:/Program Files/Git/bin/sh.exe`) even when it is not on `PATH`, and only
+reports `SKIP` (exit 77, shown as `SKIP` — not `PASS` — by `test_all.py`) when
+there is no `sh` at all.
+Part of `tools/test_all.py` (layer `debloat-tooling`).
+
 ## 5. Live stub protocol — `tools/test_stub.py`
 
 Needs the TV browser on the exploit page (a fresh load = a fresh stub) and the

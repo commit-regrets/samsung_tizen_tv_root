@@ -1,10 +1,10 @@
 # QNX1D disable plan — DRY RUN (nothing executed)
 
-Generated 2026-10-27 from docs/debloat/qnx1d-inventory.json.
-SUPERSEDED for day-to-day use by lists/*.txt (tier1/tier2a) and the
-`--global` switch (the --uid form below does not persist; kept for the
-record). The live lists are in `../../lists/` (now under
-`samsung_tv_root/debloat/lists/`).
+Generated 2026-10-27 from `models/qnx1d/qnx1d-inventory.json` (the file was
+then under a `docs/debloat/` path in the sibling repo; it moved here).
+SUPERSEDED for day-to-day use by `lists/*.txt` (tier1/tier2a) and the
+`--global` switch (the `--uid` form below does not persist; kept for the
+record). The live lists are in `debloat/lists/`.
 Mechanism: `pkgcmd -D/-A -t app -n <app_id> --global` (root). That writes
 `package_app_info.app_disable` in `/opt/dbspace/.pkgmgr_parser.db`.
 `--uid` does not write the row (session-only). A second `--global` on an
@@ -28,7 +28,7 @@ Protected (excluded from this plan):
 | 10 | com.samsung.tv.targeted-ad-service | Selects targeted advertising. | (see package_app_info) | `pkgcmd -D -t app -n com.samsung.tv.targeted-ad-service --global` | `pkgcmd -A -t app -n com.samsung.tv.targeted-ad-service --global` |
 | 11 | content-grab-service | Captures frames of the current picture for content services. | (see package_app_info) | `pkgcmd -D -t app -n content-grab-service --global` | `pkgcmd -A -t app -n content-grab-service --global` |
 
-## Apply protocol (when approved — not yet executed)
+## Apply protocol (this dry run was approved and executed 2026-10-29)
 
 1. One package at a time; run disable, then read back:
    sqlite3 package_info.package_disable / package_app_info state for that app;
@@ -39,7 +39,7 @@ Protected (excluded from this plan):
 5. Full pass ends with: payload health check + a reboot (channel must
    return on its own), then re-run this plan file as a diff of states.
 
-Note: none of these 13 services was running at idle (ps, 2026-10-27) —
+Note: none of these 11 services was running at idle (ps, 2026-10-27) —
 they are demand-started; targeted-ad-service carries app_onboot=true,
 so the practical effect to verify after disabling is boot-time, not CPU.
 
@@ -85,7 +85,7 @@ keep set: 30 reference nothing we keep. Skipped as coupled: `org.tizen.ep-hotel-
 
 Nothing here is pre-planned: these are user-facing features. The full
 menu with purposes and reverse-dependencies is in
-`docs/debloat/qnx1d-optional-menu.md`. Area defaults proposed:
+`models/qnx1d/qnx1d-optional-menu.md`. Area defaults proposed:
 
 - **voice** — disable ONLY if the voice remote/mic features are never used (23 pkgs; kills Bixby/Alexa/wakeup engines; the remote mic button stops working)
 - **ambient** — safe to disable on a non-Art-Mode household (14 pkgs)

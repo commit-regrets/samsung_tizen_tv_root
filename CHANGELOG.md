@@ -15,6 +15,122 @@ entry is an incomplete change. `AGENTS.md` repeats this rule for agents.
 
 ---
 
+## 2026-10-30 — review pass: list contract, mask evidence, 23-unit truth, docs
+
+A third independent review of `debloat/` (after the two 2026-10-30 fix
+rounds) found three things that would bite on the next live run, and a set of
+doc claims the earlier "all stale docs reconciled" commit had missed.
+
+- **The list is a file argument now — every script.** `apply.sh`,
+  `restore.sh`, `mask.sh` and `unmask.sh` all read the list with
+  `done < "${LIST:--}"`; `-` is a *literal filename*, not stdin. A no-arg run
+  therefore printed `0 of 0` and exited **0**, and the documented
+  `cat lists/x.txt | sh restore.sh` form silently activated nothing
+  (reproduced). All four now require an existing list file (exit 2 with a
+  usage line) and exit 2 when the list yields no valid ids. The stdin form is
+  not "fixed" but removed on purpose: the usual invocation is
+  `cat script | sh -s <list>`, so stdin already carries the script.
+- **The dry run is a gate.** `APPLY=0` exits 1 on a refused entry (it used to
+  exit 0), so the discipline-1 dry run can actually stop a bad batch.
+  `screen-analysis-dbmgr` joined the `apply.sh` denylist: tcc measured
+  picture-processing breakage, and it was only excluded by a list comment.
+- **`mask.sh` no longer accepts a unit that does not exist.** A listed name
+  with no unit file is `MISSING`, gets no `/run` symlink, and fails the run —
+  v42 replays this list at every boot, so a typo would otherwise be reported
+  "masked" while the service kept running. The start-refusal is now evidence:
+  it runs only after a good `daemon-reload` **and** only when the `/run` mask
+  is ours, so a failed symlink can never start the service it was meant to
+  suppress (15/15 → 23/23 counters reworked: `missing-units=`,
+  `kill-refused=`, `absent-binaries=` added, `bad` no longer doubles as the
+  kill-pass error count).
+- **Kill pass is testable.** `PROCDIR` (default `/proc`) lets the test point
+  the pass at a fake tree; the pass also skips and counts binaries this unit
+  does not ship (3 of 25 on QNX1D) instead of treating them as killed.
+- **`bluetooth-monitor.service` demoted to a commented candidate.** It was
+  added to the mask list *after* the only verified run, was never masked
+  live, was not in the Q3 reverse-dependency gate, and the brief says never
+  disable Bluetooth. The list is **23** again (what was measured), and
+  everything that said 22/23/24 now agrees. `bt-monitor` stays on the kill
+  list (it already was in round 4), so only "block restart" is withheld.
+- **Claims scoped to the evidence.** `README`/`AGENTS` no longer call all 20
+  disabled packages "cold-boot verified": the 11 tier-1 rows are, the 9
+  tier-2a rows were read back after their run but not after a boot (both texts
+  say so, and `docs/OPEN-ISSUES.md` carries the readback as pending).
+- **The quick start can reach the TV.** `debloat/README.md` told you to run
+  `python -m http.server 8090`; this PC's firewall has inbound Block rules for
+  `python.exe` and Allow rules for `pysrv.exe`, so the TV could never fetch
+  the script (the parent `AGENTS.md` documents exactly this trap). It now uses
+  `pysrv.exe -m http.server` on Windows and notes why.
+- **Tests.** `tools/test_debloat.py` grew the coverage the fixes needed: the
+  no-arg/piped-list contract on all four scripts, the dry-run gate, sentinel
+  planting/stopping/removal and an unplantable sentinel aborting, `MISSING`
+  units, unmakeable masks (zero starts), and the kill pass (a real POSIX kill
+  of a process whose `/proc/<pid>/exe` is the listed binary; the platform
+  guard is printed as SKIP because Git Bash cannot resolve native symlinks).
+  The fixture now materialises unit files and rewrites `/prd`, `/usr/bin`,
+  `/lib/systemd/system` and `/etc/systemd/system` in one pass (the old
+  `rewrite_binaries` flag was never passed and would have mangled `/prd`).
+  Merge determinism also asserts the package count and that the summary
+  differs only by the two documented overrides (`zip()` used to truncate
+  silently). Git Bash is found at its standard install path instead of
+  skipping the whole layer, and `test_all.py` prints `SKIP` (not `PASS`) for
+  a skipped layer.
+- **Docs drift fixed where the docs gate cannot see it** (`test_docs.py`
+  covers parent docs only): `lists/services-bind.txt` now says it is the kill
+  list, not a bind-mount list; `docs/REFERENCES.md` drops the falsified
+  bind-mount recommendation, the wrong inventory filename and the placeholder
+  URL; `qnx1d-disable-plan.md` paths/counts/status; `resource-math.md` is
+  titled as what it is (pre-run upper bounds) instead of a duplicated
+  "measured" title; the v42 brief points the Q5 vendor switches at the
+  optional menu (where they are) instead of "services-units.txt era notes".
+  `NOTICE.md` lists the vendored Vetro (MIT) files and stops claiming
+  "everything else is original"; parent `AGENTS.md` gains the `debloat/` +
+  `test_debloat.py` rows and the v42 item in §11; `docs/TESTING.md` documents
+  the new layer (4c); `docs/OPEN-ISSUES.md` gets the debloat/v42 item.
+
+## 2026-10-30 — apply/mask holes: sentinels, reload-safe refusal, kill pass
+
+The script-level bug hunt found apply/mask incomplete against the live
+run: canalysis/pisa units ignore `app_disable`, a failed daemon-reload
+plus start-refusal would start the service, mask.sh never killed
+launchpad copies, undo said `sh $file` (UEP), and a failed apply skipped
+picture-guard. Fixed:
+
+- **apply.sh** plants the two vendor sentinels (and stops those units)
+  when canalysis/pisa are disabled; undo log is under `/opt/usr/data/`
+  with `cat file | sh`; sqlite uses `.timeout 5000`; denylist now
+  includes `org.tizen.menu`, `home.sidebar`, and `unified-drm-*`;
+  picture-guard runs on the sqlite-false abort too.
+- **restore.sh** skips whitespace-only lines, stops at the first flag
+  failure, removes the matching sentinels, sqlite timeout.
+- **mask.sh** does not `systemctl start` unless daemon-reload succeeded;
+  symlink failures and a failed reload fail the script; optional bind
+  list kills `/usr/bin/<name>` (and `/prd/usr/bin/<name>`) leftovers;
+  tests lock reload-before-stop and "reload fail ⇒ zero starts".
+
+## 2026-10-30 — third review: unit count, Vetro license link, apply failure test
+
+The re-review found bluetooth-monitor on the mask list while every count
+still said 13/22/23, a broken `THIRD_PARTY_NOTICES.md` link, and an apply
+failure test that reused another fixture's list path (exit 2 "list not
+found" plus `0 == 0` calls) so it could not catch a real sqlite-false
+stop. Fixed:
+
+- **Mask list is 24**: `lists/services-units.txt`, README, AGENTS, and
+  the v42 brief/acceptance now agree. Round-4 run log stays 23/23 (what
+  was measured); bluetooth-monitor was added after that run and after
+  the Q3 reverse-dep gate (noted, not rewritten as if it had been there).
+- **Vetro license**: debloat README/AGENTS point at
+  `debloat/third_party/vetro/LICENSE` (that file exists; parent
+  `NOTICE.md` does not mention Vetro).
+- **apply failure test**: writes its own list, asserts exit != 0, a
+  single `pkgcmd -D` (discipline #2 stop-at-first), and undo lines in
+  the undo log file (undo is script text, not a live `pkgcmd -A`).
+- **Count lock**: `test_debloat.py` requires 24 entries including
+  `bluetooth-monitor.service`.
+- v42 list-gaps no longer call bt-monitor unresolved; the dangling
+  "do not implement line below" parenthetical is gone.
+
 ## 2026-10-29 (late) — second review fixes: mask ordering, docs one story
 
 The re-review of the previous fix batch found the mask.sh rewrite landed

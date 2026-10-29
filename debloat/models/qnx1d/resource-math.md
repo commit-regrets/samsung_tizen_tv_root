@@ -1,4 +1,11 @@
-# QNX1D resource math — measured, not estimated (2026-10-27) — measured, not estimated (2026-10-27)
+# QNX1D resource math — sum-RSS upper bounds (2026-10-27, pre-run baseline)
+
+**Status: upper bounds, not a measured budget.** Everything below is
+sum-of-RSS from the pre-debloat dump; the "realistic" column is an estimate.
+The measured numbers are the per-process A/B diffs in the run logs (tier 1
+freed ~25.9 MB of distinct processes;
+`run-2026-10-29-tier1.md`), and the services layer's ~192 MB is sum-RSS
+across 21 running processes, also an upper bound.
 
 Method: per-process `VmRSS` + `readlink /proc/<pid>/exe` dumped over the root
 channel (408 processes at idle), each process attributed to its owning package
@@ -35,6 +42,9 @@ pages once shared libraries are accounted):
 Against `MemAvailable 319 MB`, the aggressive-minus-media scenario roughly
 doubles the idle headroom. Non-RAM gains: no analytics/ad demand-starts during
 viewing, fewer background wakeups and uploads, and (for `app_onboot` members
-like `targeted-ad-service`) less boot-time work. The A/B dump after the real
-run replaces the 40–60% guess with a measured number.
+like `targeted-ad-service`) less boot-time work. For the measured result use
+the run-log A/B diffs (per-process VmRSS + `/proc/<pid>/exe`, attributed per
+package) — `after-tier1.txt` and `after-services-overlay.txt` are the dumps,
+`run-2026-10-29-tier1.md` is the diff. The 40–60% figure stays an estimate
+and the dumps carry no share-page adjustment.
 

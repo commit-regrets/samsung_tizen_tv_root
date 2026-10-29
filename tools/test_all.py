@@ -23,8 +23,10 @@ Layers (see docs/TESTING.md):
                              vmlinux; skips without them)
   8. tools/test_docs.py      living docs vs current mechanisms (banned stale
                              claims, required tokens, artifact-number hygiene)
-  8b. tools/test_debloat.py  debloat tooling: apply/mask/bind scripts under
-                             stubs, list hygiene, merge determinism
+  4c. tools/test_debloat.py  debloat tooling: apply/restore/mask/unmask under
+                             sh with stubs, list-argument contract, list
+                             hygiene, merge determinism (details in
+                             docs/TESTING.md)
   9. tools/test_stub.py      (--tv) live stub protocol + the new clamps
 
 Exit code 0 means every layer passed (or was skipped for a documented reason).
@@ -44,15 +46,15 @@ def run(label, argv, *, timeout=300):
                            timeout=timeout)
     except subprocess.TimeoutExpired:
         print(f"TIMEOUT after {timeout}s: {' '.join(argv)}")
-        return False
+        return "fail"
     out = (r.stdout or "") + (r.stderr or "")
     print(out.rstrip(), flush=True)
     if r.returncode == 77:
         print(f"--- {label}: SKIP")
-        return True
+        return "skip"
     ok = r.returncode == 0
     print(f"--- {label}: {'ok' if ok else 'FAILED'} (exit {r.returncode})")
-    return ok
+    return "ok" if ok else "fail"
 
 
 def main() -> int:
@@ -103,9 +105,13 @@ def main() -> int:
         print("\n=== live stub ===\nSKIP: pass --tv to run it against a paired stub")
 
     print("\n=== summary ===")
-    failed = [name for name, ok in results if not ok]
-    for name, ok in results:
-        print(f"  {'PASS' if ok else 'FAIL'}  {name}")
+    failed = [name for name, status in results if status == "fail"]
+    skipped = [name for name, status in results if status == "skip"]
+    for name, status in results:
+        print(f"  {status.upper():5s} {name}")
+    if skipped:
+        print(f"\n{len(skipped)} layer(s) SKIPPED (not run - not a pass): "
+              f"{', '.join(skipped)}")
     if failed:
         print(f"\n{len(failed)} layer(s) failed: {', '.join(failed)}")
         return 1

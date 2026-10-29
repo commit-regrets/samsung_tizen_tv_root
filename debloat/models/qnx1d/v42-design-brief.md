@@ -28,13 +28,17 @@ design, or is there a better mechanism we missed?
   `.../pisa-service` — those two vendor unit files contain
   `ConditionPathExists` checks against exactly those paths. Cold-boot
   proven. These two are done permanently.
-- **22 systemd units identified and /run-masked (session-only)**:
-  `lists/services-units.txt` (17 from the `/usr/bin` binary mapping, incl.
-  `pushd.socket`; 5 more from `systemctl status <pid>` resolution:
+- **23 systemd units** on `lists/services-units.txt` (session-only /run
+  masks): the original 22 (17 from the `/usr/bin` binary mapping, incl.
+  `pushd.socket`; 5 from `systemctl status <pid>`:
   `org.tizen.tv.automation-service.service` [spawns TIFADaemon_L],
   `org.tizen.tv.factory-service.service` [spawns TIFSDaemon],
   `scs-agent.service`, `swu-auto-upgrade.service`,
-  `emergency-log-transmitter.service`).
+  `emergency-log-transmitter.service`) plus
+  `com.samsung.tv.cis-api-service-app.service`. Round 4 live-masked all 23.
+  `bluetooth-monitor.service` is a COMMENTED candidate, not active: it was
+  added after the verified run, never masked live, is not in the Q3 gate,
+  and rule "never disable Bluetooth" applies — verify by hand first.
 - Live run log with the full falsification trail:
   `models/qnx1d/run-2026-10-29-services-bind.md`.
 
@@ -91,14 +95,14 @@ Q1. **Is there an earlier/safer boot vector than the payload?**
    the units — services would never run at all (better than the payload's
    ~30–40 s late window). Weigh: risk of breaking boot vs. a 30 s service
    window.
-Q2. **When do the 22 units actually start relative to the payload?**
+Q2. **When do the listed units actually start relative to the payload?**
    Check `systemctl show -p ExecMainStartTimestamp <unit>` after a boot vs.
    the payload's first beacon time. If the units start after the payload,
    the payload could mask BEFORE first start (even cleaner: no kill pass
    needed).
 Q3. **Does masking break dependencies?** Any unit that `Requires=`/`BindsTo=`
    a masked unit would fail. Check `systemctl list-dependencies` reverse
-   edges for the 22 units, especially `automation-service`/`factory-service`
+   edges for the listed units, especially `automation-service`/`factory-service`
    (both 'static' — something pulls them in).
 Q4. **Is the payload's boot timing inside systemd's namespace semantics?**
    Round-1 forensics showed runtime bind-mounts bypassed by respawners
@@ -122,8 +126,8 @@ Q6. **Payload discipline (AGENTS.md §9 of samsung_tv_root)**: the new step
 ## Acceptance criteria for v42 (when built)
 
 After a mains power-cycle, within ~90 s of power-on:
-- all 22 units masked (`is-enabled` = masked-runtime) and inactive;
-- zero processes with exe under the 22 units' binaries;
+- all 23 listed units masked (`is-enabled` = masked-runtime) and inactive;
+- zero processes with exe under the listed units' binaries;
 - the 20 `--global` app rows still true;
 - channel answering with `id -u` = 0; beacon shows the mask result.
 Revert path: remove the list file from /opt → reboot → stock behavior.
@@ -158,7 +162,7 @@ Per-question verdicts:
   as mask → stop a running unit → block restart. Keep the stop+kill pass.
   Payload bind-mounts would fail like round 1 (namespaces already exist).
 - **Q3 dependency check: was a GATE — CLOSED (see the Q3 GATE RESULT section below).** Reverse
-  list-dependencies required for all 22 units, especially
+  list-dependencies required for the listed units, especially
   `org.tizen.tv.automation-service` (static) and `factory-service` (ran
   while "disabled") before any payload writes the list.
 - **Q4: answered** — /run symlinks are files, not mounts; held through
@@ -172,46 +176,43 @@ Per-question verdicts:
 **List gaps found by the review (fixed in lists/services-units.txt):**
 `com.samsung.tv.cis-api-service-app.service` added (launchpad + Restart=
 on-failure every 90 s — masking it is how the churn stops; the app row
-alone does not). Pending unit mapping: `SWUCoreTV`, `SWUService`,
-`bt-monitor` (running in the bind dump, unit names unresolved). The stale
-"no units"/"/opt masks" claims in the list header and AGENTS.md are
-corrected.
+alone does not). `bt-monitor` = `bluetooth-monitor.service` (candidate,
+commented — not `bt-service`). Still unit-less (launchpad, no systemd
+unit): `SWUCoreTV`, `SWUService`, `SWUVerifierTV`.
 
-**Acceptance criteria amended:** "zero processes under the 22 binaries
+**Acceptance criteria amended:** "zero processes under the listed binaries
 within ~90 s" holds only after the kill pass, and only for the units
 actually on the list after Q5 + the SWU mapping.
 
-**Remaining live checks before anyone touches Program.cs** (set was off;
-channel did not answer):
-1. `/usr/lib/systemd/system` grep for `ConditionPathExists.*=/opt` (Q5).
-2. Reverse dependencies for all 22 units (Q3), and
-   `systemctl status <pid>` mapping for `SWUCoreTV` / `SWUService` /
-   `bt-monitor` / `cis-api-service-app`.
+**Remaining live checks** — all done (see UPDATE below). The pre-UPDATE
+checklist (Q5 grep, Q3 reverse-deps, SWU/bt-monitor mapping) is closed.
 
 ## UPDATE (2026-10-29 late) — both gates CLOSED, v42 cleared
-(The "do not implement" line below is superseded by this update.)
 
 - **Q5 done:** the `/usr/lib/systemd/system` harvest found 9 more units
   with vendor `/opt` switches (airplay-service-2, googlecast-service,
   samsunghealth trio, remote-shop-care-hub, sct-packet-dump,
   lightweight-web-engine-update + mcf-agent flag). They are OWNER-CHOICE
-  features — recorded in `lists/services-units.txt` era notes and the
-  optional menu, NOT applied. journald/* matched the grep and is
-  untouchable.
+  features — recorded in `models/qnx1d/qnx1d-optional-menu.md` (the
+  "Vendor /opt off-switches" section; they are NOT in
+  `lists/services-units.txt`), NOT applied. journald/* matched the grep and
+  is untouchable.
 - **Q3 done:** reverse-dependency gate ran live (`tools/q3deps.sh`): 5
   hard `Requires=` couplings, all documented and accepted (one real
   feature loss: DLNA via vd_dmr depends on register-device — owner
   trade-off, recorded in the list header).
 - **SWU mapping done:** SWUCoreTV / SWUService / SWUVerifierTV have no
-  units (launchpad); bt-monitor = bluetooth-monitor.service (added to the
-  mask list).
+  units (launchpad); bt-monitor = bluetooth-monitor.service (commented
+  candidate — never masked live, see the list).
 - **v42 is cleared for implementation** per the confirmed design above.
 
 
 ## Q3 GATE RESULT (2026-10-29 22:0x UTC, live)
 
-Reverse-dependency gate over the 23-entry mask list (`tools/q3deps.sh`,
-run on the TV): **5 hard couplings, all `Requires=`, zero soft-only**:
+Reverse-dependency gate over the then-23-entry mask list (`tools/q3deps.sh`,
+run on the TV): **5 hard couplings, all `Requires=`, zero soft-only**.
+`bluetooth-monitor.service` is a commented candidate (never masked live) and
+is therefore not covered by this gate.
 
 | Masked unit | Hard dependent | Consequence of masking | Verdict |
 |---|---|---|---|

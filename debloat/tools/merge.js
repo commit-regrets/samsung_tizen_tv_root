@@ -1,7 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const Path = path;
-// Vendored from Vetro 0.2.3+ (MIT) - see third_party/vetro/ and THIRD_PARTY_NOTICES.md
+// Vendored from Vetro 0.2.3+ (MIT) - see third_party/vetro/LICENSE
 const catalog = require('../third_party/vetro/app-catalog.js');
 // Usage: node tools/merge.js [registry-dump.txt] [out-inventory.json]
 //   defaults: models/qnx1d/registry-dump.txt -> models/qnx1d/qnx1d-inventory.json

@@ -6,16 +6,16 @@
 # Derived from the /usr/bin binaries in lists/services-bind.txt mapped to
 # their units via systemctl list-unit-files + systemctl status <pid>
 # (2026-10-29).
-# Unit mapping: bt-monitor = bluetooth-monitor.service (added below).
-# Still pending (launchpad-launched, no units): SWUCoreTV, SWUService,
-# SWUVerifierTV.
-# Binaries with no systemd unit at all (app-framework launched, respawn
-# regardless): SCSAgent, TIFADaemon_L, TIFSDaemon, SWUAutoUpgrade were
-# RESOLVED 2026-10-29 (see the holdout block at the bottom); still
-# unit-less: SWUVerifierTV, p2p-asm-UI.
+# 23 entries, locked by tools/test_debloat.py.  This is the list that was
+# actually masked live: round 4, 2026-10-29 (23/23 masked, 0 respawned in
+# the 8 s check).  mask.sh now refuses a name with no unit file, so this
+# file doubles as the v42 mask list - do not add a name that has not been
+# verified with `systemctl list-unit-files | grep <name>`.
+# Binaries with NO systemd unit at all (launchpad/app-framework launched,
+# respawn regardless): SWUCoreTV, SWUService, SWUVerifierTV, p2p-asm-UI.
 # pushd is socket-activated: mask the socket too.
 # OWNER TRADE-OFF: masking register-device.service takes down vd_dmr
-# (DLNA media renderer, port 9197) — casting from phones breaks. Remove
+# (DLNA media renderer, port 9197) - casting from phones breaks. Remove
 # that one mask if DLNA is needed.
 data-service.service
 org.tizen.tv.sp-kpi.service
@@ -35,13 +35,24 @@ fw-update-service.service
 fw-update-init-download.service
 fw-update-service.path
 
-# Holdout daemons (binary name != unit name; resolved via systemctl status <pid>):
-#   TIFADaemon_L  <- org.tizen.tv.automation-service.service
-#   TIFSDaemon    <- org.tizen.tv.factory-service.service
+# Holdout daemons (binary name != unit name; resolved via systemctl status
+# <pid>, 2026-10-29):
+#   TIFADaemon_L          <- org.tizen.tv.automation-service.service (static)
+#   TIFSDaemon            <- org.tizen.tv.factory-service.service (disabled preset, ran anyway)
+#   SCSAgent              <- scs-agent.service (enabled)
+#   SWUAutoUpgrade        <- swu-auto-upgrade.service (disabled preset, ran anyway)
+#   emergencyLogTransmitter <- emergency-log-transmitter.service (disabled, bootseq wants links)
 org.tizen.tv.automation-service.service
 org.tizen.tv.factory-service.service
 scs-agent.service
 swu-auto-upgrade.service
 emergency-log-transmitter.service
 com.samsung.tv.cis-api-service-app.service
-bluetooth-monitor.service
+
+# CANDIDATE - deliberately NOT active (review 2026-10-30).  `bt-monitor`
+# is bluetooth-monitor.service (not bt-service), but it was added after the
+# verified round-4 run, has never been masked live, was not in the Q3
+# reverse-dependency gate, and the v42 brief says never disable Bluetooth.
+# Verify `systemctl stop bluetooth-monitor.service` leaves the BLE remote
+# and audio working, mask it by hand once, and only then move it up.
+# bluetooth-monitor.service

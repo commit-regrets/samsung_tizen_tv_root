@@ -282,6 +282,8 @@ TV boot: com.samsung.tv.MultiControl-Service (dotnet-inhouse, app_onboot)
 | `tools/test_logs.py` | offline: beacon-analyzer fixtures (log **and** the on-TV marker), tool error paths, ps1 parse guard |
 | `tools/test_constants.py` | cross-checks the same offsets/limits/node names across `Program.cs`, `sim_rpc.py`, `kernel_root.py`, `physmap.py`, `physrpc.S`, the page and `deploy.sh` |
 | `tools/test_all.py` | runs every layer above; `--tv` adds the live stub |
+| `tools/test_debloat.py` | offline gate for `debloat/` (apply/restore/mask/unmask under `sh` with stubbed `pkgcmd`/`systemctl`/`dbus-send`, list hygiene, merge determinism); finds Git Bash even off PATH, so it no longer reports SKIP-as-PASS |
+| `debloat/` | debloat subtree (own `AGENTS.md`): per-model inventory, disable lists, TV-side tools. Needs only this toolkit's root channel — see [`debloat/README.md`](debloat/README.md) |
 | `payload/Program.cs` | boot payload source (v41; TV runs v41 since 2026-10-27) |
 | `payload/global.json` | pins SDK 10.0.301 (rollForward latestPatch): a different SDK can change the artifact md5 |
 | `payload/BootPayload.csproj` | net6.0 project, assembly `MultiControlService` |
@@ -660,6 +662,18 @@ that downloads it) and reboot. Things to preserve when editing `Program.cs`:
 
 ## 11. Open work
 
+- **v42: durable service-mask re-assertion (debloat).** Design reviewed and
+  cleared (`debloat/models/qnx1d/v42-design-brief.md`); **not implemented**. The
+  payload gains one background step after SUCCESS-R00T (same shape as
+  `AutoUpdateOff()`, never in front of `RootChannel()`): read the 23-unit mask
+  list shipped on `/opt`, write the `/run` masks, one `systemctl daemon-reload`,
+  stop each unit, kill leftover `/usr/bin/<name>` processes, beacon a summary,
+  fail open on a missing list. Before touching `Program.cs`: one cold-boot
+  readback of all 20 disabled app rows (only the 11 tier-1 rows have had one),
+  and — only if wanted — one live `bluetooth-monitor.service` mask to decide
+  whether it graduates from candidate to active. Owner-facing state:
+  [`debloat/AGENTS.md`](debloat/AGENTS.md); placement and diagnostics:
+  [`debloat/README.md`](debloat/README.md).
 - ~~Bind 31337 to a single address~~ — **done in v16**: the listener binds the TV address derived from the route to the recorded PC (re-derived every 30 s, `Any` fallback with a beacon if there is no route), so it is off Wi-Fi Direct/tethering while staying portable. `/proc/net/tcp` shows the TV's own address on 31337, not `00000000:7A69`.
 - **High-half read mechanism — boundary corrected by zoneinfo; DMA window suspect.**
   `/proc/zoneinfo` has Normal `start_pfn 0x20000`, HighMem `start_pfn 0x50400`,

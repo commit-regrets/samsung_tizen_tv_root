@@ -1,7 +1,15 @@
-# Tier S - system services: bind-mount /bin/true over /usr/bin/<name> at boot
-# (from tcc parseinfo.sh v4; /usr is read-only, disable-by-mount is reversible via umount)
-# NOTE: blocks SWU*/fw-update* = firmware auto-update stays off (intended; see toolkit trap 10).
-# Apply is BOOT-PERSISTENT only via the boot payload - a one-shot mount dies at reboot.
+# Tier S - the /usr/bin binaries behind the service units on
+# lists/services-units.txt.  NOT a bind-mount list any more: runtime
+# bind-mounting was falsified on this firmware (2026-10-29: 19/25 respawned
+# through the overlay, /proc/<pid>/exe showed the original code; see
+# models/qnx1d/run-2026-10-29-services-bind.md round 1) and bindapply.sh /
+# bindrestore.sh were deleted.
+# Current use: the KILL LIST for tools/mask.sh pass 3 - after masking and
+# stopping the units, launchpad still runs some copies, so mask.sh kills
+# every process whose /proc/<pid>/exe is /usr/bin/<name> here.
+# NOTE: covers SWU*/fw-update* = firmware auto-update stays off (intended;
+# see the toolkit trap 10).  Session-only; a masked unit cannot respawn.
+# Binaries this unit does not ship (3 of 25) are skipped and counted.
 
 data-service
 sp-kpi

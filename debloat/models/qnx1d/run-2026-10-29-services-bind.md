@@ -123,8 +123,11 @@ Post-mains-cycle state: /run masks gone (tmpfs), all services back. This
 run re-applied the complete layer and validated the v42 shape end to end
 by hand:
 
-1. `mask.sh` MASK=1 over `services-units.txt` (now 23 units incl.
+1. `mask.sh` MASK=1 over `services-units.txt` (then 23 units incl.
    `cis-api-service-app`): **23/23 masked, 0 failed.**
+   (2026-10-30: `bluetooth-monitor.service` was briefly added and then
+   demoted to a commented candidate — never masked live; the committed list
+   is 23, the same 23 measured here.)
 2. Kill pass over `services-bind.txt`: **19 processes killed** (the
    services had all restarted after the reboot, as expected).
 3. 8 s respawn check: **alive_after8s = 0.** First time the ENTIRE
