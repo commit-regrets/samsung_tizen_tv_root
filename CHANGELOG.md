@@ -19,8 +19,8 @@ entry is an incomplete change. `AGENTS.md` repeats this rule for agents.
 
 The samsung-tv-debloat project (separate repo, sibling folder) ran its first
 real disable batch through this toolkit's root channel: 11 tracking/ad
-packages disabled, 39.1 MB of running ACR/ad processes killed, undo log on
-the TV. The run validated the toolkit-as-enabler role and surfaced two
+packages disabled, ~25.9 MB of running ACR/ad processes freed (distinct
+processes), undo log on the TV. The run validated the toolkit-as-enabler role and surfaced two
 findings recorded there: UEP blocks script files exactly as `FAILED.md`
 documents (`cat | sh` workaround), and the toolkit's HTTP server doubles as
 the file-push path for TV-side scripts (temporary files under `server/`,
