@@ -157,7 +157,7 @@ Per-question verdicts:
   units are WantedBy multi-user/basic/starter, so they start first. Design
   as mask → stop a running unit → block restart. Keep the stop+kill pass.
   Payload bind-mounts would fail like round 1 (namespaces already exist).
-- **Q3 dependency check: still a GATE** — not answered. Reverse
+- **Q3 dependency check: was a GATE — CLOSED (see the Q3 GATE RESULT section below).** Reverse
   list-dependencies required for all 22 units, especially
   `org.tizen.tv.automation-service` (static) and `factory-service` (ran
   while "disabled") before any payload writes the list.

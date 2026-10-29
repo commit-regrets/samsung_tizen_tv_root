@@ -32,11 +32,13 @@ All TV reads/writes go through that channel (PC-side helpers:
   session-only, dies at reboot by design; 0 respawned in the verified
   round-4 run, ~190 MB idle RSS affected. Durable = v42 (payload re-writes
 
-  masks at boot; not started). **Open:** 4 unit-less daemons (`SCSAgent`,
-  `TIFADaemon_L`, `TIFSDaemon`, `SWUAutoUpgrade`) respawn — app-framework
-  launched, forensics pending; `cis-api-service-app` churns every 90 s
-  (launchpad, Restart=on-failure, no sentinel in its unit); tier 2b needs
-  the Control Center layer; batch 3 awaits owner picks.
+  masks at boot; not started). **Open:** tier 2b needs the Control Center
+  layer; batch 3 awaits owner picks; the four former "unit-less" holdouts
+  are resolved and on the mask list (TIFADaemon_L <- automation-service,
+  TIFSDaemon <- factory-service, SCSAgent <- scs-agent.service,
+  SWUAutoUpgrade <- swu-auto-upgrade.service); `cis-api-service-app` churn
+  stops in masked sessions (its unit is on the list); SWUCoreTV/SWUService/
+  SWUVerifierTV are launchpad-launched with no units (forensics pending).
 - Measured idle-RSS budget: see `models/qnx1d/resource-math.md` (A/B method:
   re-run the per-process VmRSS dump after any apply and diff).
 
@@ -99,9 +101,12 @@ All TV reads/writes go through that channel (PC-side helpers:
    `is-enabled` = masked-runtime, start refused, 13/13 held.) `/run` masks
    are session-only (tmpfs) — durable suppression = the boot payload
    re-writes them each boot (v42). The 21 services held ~192 MB sum-RSS at
-   idle — the biggest remaining debloat prize. Four daemons have no units
-   (SCSAgent, TIFADaemon_L, TIFSDaemon, SWUAutoUpgrade — app-framework
-   launched) and respawn regardless; verify masks by `is-enabled`, and
+   idle — the biggest remaining debloat prize. Binary name != unit name:
+   map with `systemctl status <pid>` (TIFADaemon_L <- automation-service,
+   TIFSDaemon <- factory-service, SCSAgent <- scs-agent.service,
+   SWUAutoUpgrade <- swu-auto-upgrade.service — all on the mask list);
+   SWUCoreTV/SWUService/SWUVerifierTV are launchpad-launched with no units
+   and respawn regardless; verify masks by `is-enabled`, and
    never by mount listings or `/opt` file existence.
 
 ## Model data

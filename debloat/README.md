@@ -88,7 +88,7 @@ disabling it, and prints a summary with a per-package failure count.
 Run only on hardware you own. Disabling the wrong package can degrade TV
 features; every list here says which entries are coupled to kept components.
 The root channel that enables this is a LAN backdoor — keep the TV on a
-network you control. See `SECURITY.md`.
+network you control. See `../SECURITY.md`.
 
 ## Attribution
 

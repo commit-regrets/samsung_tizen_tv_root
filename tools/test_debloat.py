@@ -308,7 +308,7 @@ def main() -> int:
     before = len(tmpf7.calls("systemctl stop"))
     r = tmpf7.run([ul], {"MASK": "1"})
     check("mask: second run is idempotent (already counted)",
-          r.stdout.count("already-masked") == 0 or True)  # counted per pass-1
+          r.stdout.count("already-masked") == len(units))
     check("mask: second run STILL stops every unit",
           len(tmpf7.calls("systemctl stop")) - before >= len(units))
     # a second run must STILL stop a running unit (idempotency does not

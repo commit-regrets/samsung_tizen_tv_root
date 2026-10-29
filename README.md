@@ -60,7 +60,8 @@ part; the stage-by-stage writeup with the measured constants is
 The package-inventory / disable-list work (QNX1D classification, apply and
 restore tooling, measured resource budget) lives in this repository under
 [`debloat/`](debloat/README.md). It consumes this toolkit's root channel as
-its only dependency, and `root.ps1` offers it at root time (opt-in). The
+its only dependency. `root.ps1` will offer it at root time (opt-in,
+planned for the v42-era payload; not implemented yet). The
 former sibling repository was merged here in full and no longer exists.
 
 ## Documentation

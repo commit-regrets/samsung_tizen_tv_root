@@ -44,3 +44,4 @@ scs-agent.service
 swu-auto-upgrade.service
 emergency-log-transmitter.service
 com.samsung.tv.cis-api-service-app.service
+bluetooth-monitor.service

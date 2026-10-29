@@ -36,6 +36,7 @@ while IFS= read -r line || [ -n "$line" ]; do
   case "$u" in *[!A-Za-z0-9@._-]*) echo "REFUSE (not a bare unit): $u"; bad=$((bad+1)); continue ;; esac
   if [ -e "$RUNDIR/$u" ] || [ -L "$RUNDIR/$u" ]; then
     already=$((already+1))
+    echo "already-masked: $u"
     continue
   fi
   if [ "$MASK" != "1" ]; then
