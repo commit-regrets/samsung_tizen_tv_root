@@ -126,6 +126,20 @@ class Fixture:
             "umount": '#!/bin/sh\necho "umount $*" >> "$CALLS"\nsed "\\|$1|d" "$MOUNTS" 2>/dev/null > "$MOUNTS.n"; mv "$MOUNTS.n" "$MOUNTS"\nexit 0\n',
             "id": '#!/bin/sh\necho 0\n',
             "stat": '#!/bin/sh\necho 5001\n',
+            # dbus-send: simulate avocd - SetNewHome int32:0 clears new_home;
+            # CheckAutoMotionPlus reports int32 1 after it, int32 0 before.
+            "dbus-send": ('#!/bin/sh\n'
+                          'echo "dbus-send $*" >> "$CALLS"\n'
+                          'case "$*" in\n'
+                          '  *SetNewHome*) echo "new_home=0" > "$FLAGS.newhome"\n'
+                          '                echo "   int32 0"\n'
+                          '                exit 0;;\n'
+                          '  *CheckAutoMotionPlus*)\n'
+                          '    if [ -f "$FLAGS.newhome" ]; then echo "   int32 1";\n'
+                          '    else echo "   int32 0"; fi\n'
+                          '    exit 0;;\n'
+                          'esac\n'
+                          'exit 1\n'),
         }.items():
             s = self.stubs / name
             s.write_text(body.replace("$CALLS", str(self.log))
@@ -217,6 +231,11 @@ def main() -> int:
     # undo-before-disable: the log file's first -A line precedes the first -D call
     check("apply real: all disables are -D --global",
           all(" -D " in l and " --global" in l for l in pkg))
+    check("apply real: picture-guard ran (SetNewHome + verified available)",
+          "picture-guard: new_home=0" in r.stdout
+          and "(CheckAutoMotionPlus=1" in r.stdout)
+    check("apply real: SetNewHome recorded",
+          len(tmpf.calls("SetNewHome")) == 1)
 
     # 3. denylist refused
     tmpf2 = Fixture(DEB / "tools" / "apply.sh")
@@ -280,6 +299,9 @@ def main() -> int:
           len(tmpf7.calls("systemctl start")) >= len(units))
     check("mask: daemon-reload called",
           len(tmpf7.calls("systemctl daemon-reload")) >= 1)
+    check("mask: picture-guard ran (SetNewHome + verified available)",
+          "picture-guard: new_home=0" in r.stdout
+          and "(CheckAutoMotionPlus=1" in r.stdout)
     # idempotency: a second run in the same session reports already-masked
     # and makes no new symlinks
     before = len(tmpf7.calls("systemctl stop"))

@@ -79,6 +79,25 @@ while IFS= read -r line || [ -n "$line" ]; do
   fi
 done < "${LIST:--}"
 
+# ---- finalize: avocd new_home flag (picture-settings grey-out guard) ----
+# Stopping/killing services can race Samsung Home's flag reset and leave
+# motion processing forced off (Picture Mode / Brightness greyed out).
+# Resetting it is what Home itself does when it hides - safe, memory-only.
+# See models/qnx1d/run-2026-10-29-services-bind.md round 5.
+# AVOCD=0 skips this (e.g. while diagnosing avocd itself).
+if [ "$MASK" = "1" ] && [ "${AVOCD:-1}" = "1" ] && command -v dbus-send >/dev/null 2>&1; then
+  if dbus-send --system --print-reply --dest=org.tizen.tv.avoc /org/tizen/tv/avoc \
+      org.tizen.tv.avoc.AvOutputControl.SetNewHome int32:0 >/dev/null 2>&1; then
+    st=$(dbus-send --system --print-reply --dest=org.tizen.tv.avoc /org/tizen/tv/avoc \
+      org.tizen.tv.avoc.AvOutputControl.CheckAutoMotionPlus 2>/dev/null \
+      | awk '/int32/{print $NF}')
+    echo "picture-guard: new_home=0 (CheckAutoMotionPlus=${st:-?}; 1 = picture settings available)"
+    [ "$st" = "1" ] || echo "picture-guard: WARNING - still forced off; rerun SetNewHome or use the 30 s loop (tcc ch. 6)"
+  else
+    echo "picture-guard: dbus call failed - skipped (run the SetNewHome command manually)"
+  fi
+fi
+
 echo
 if [ "$MASK" = "1" ]; then
   echo "summary: newly-masked=$new already=$already stopped=$stopped refusal-ok=$refused no-unit-or-bad=$((skip+bad)) start-failures=$fail"
