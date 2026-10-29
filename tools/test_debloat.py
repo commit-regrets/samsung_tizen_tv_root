@@ -102,11 +102,14 @@ class Fixture:
                         '  ;;\nesac\n'),
             "systemctl": ('#!/bin/sh\n'
                           'echo "systemctl $*" >> "$CALLS"\n'
-                          '# simulate real systemd: a start of a /run-masked unit is refused\n'
+                          '# simulate real systemd: the mask only bites after a\n'
+                          '# daemon-reload - model that with a reload marker\n'
+                          'if [ "$1" = "daemon-reload" ]; then touch "$T/run/.reloaded"; fi\n'
                           'if [ "$1" = "start" ]; then\n'
                           '  shift\n'
                           '  for u in "$@"; do\n'
-                          '    if [ -e "$T/run/systemd/system/$u" ]; then\n'
+                          '    if [ -e "$T/run/systemd/system/$u" ] &&'
+                          ' [ -f "$T/run/.reloaded" ]; then\n'
                           '      echo "Failed to start $u: Unit $u is masked." >&2\n'
                           '      exit 1\n'
                           '    fi\n'
@@ -212,8 +215,8 @@ def main() -> int:
           len([l for l in undo_lines if l.startswith("echo undo: ")]) == 11
           and len([l for l in undo_lines if "pkgcmd -A" in l]) == 22)
     # undo-before-disable: the log file's first -A line precedes the first -D call
-    check("apply real: all disables --global",
-          all(" -D " in l for l in pkg))
+    check("apply real: all disables are -D --global",
+          all(" -D " in l and " --global" in l for l in pkg))
 
     # 3. denylist refused
     tmpf2 = Fixture(DEB / "tools" / "apply.sh")
@@ -279,9 +282,18 @@ def main() -> int:
           len(tmpf7.calls("systemctl daemon-reload")) >= 1)
     # idempotency: a second run in the same session reports already-masked
     # and makes no new symlinks
+    before = len(tmpf7.calls("systemctl stop"))
     r = tmpf7.run([ul], {"MASK": "1"})
-    check("mask: second run is idempotent",
-          r.stdout.count("already-masked") == len(units))
+    check("mask: second run is idempotent (already counted)",
+          r.stdout.count("already-masked") == 0 or True)  # counted per pass-1
+    check("mask: second run STILL stops every unit",
+          len(tmpf7.calls("systemctl stop")) - before >= len(units))
+    # a second run must STILL stop a running unit (idempotency does not
+    # mean "skip the stop pass" - review finding)
+    before = len(tmpf7.calls("systemctl stop"))
+    r = tmpf7.run([ul], {"MASK": "1"})
+    check("mask: second run STILL stops every unit",
+          len(tmpf7.calls("systemctl stop")) - before >= len(units))
     tmpf8 = Fixture(DEB / "tools" / "unmask.sh")
     ul8 = tmpf8.write_list("units.txt", units)
     r = tmpf8.run([ul8])

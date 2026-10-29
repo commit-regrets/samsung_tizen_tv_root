@@ -24,14 +24,14 @@ All TV reads/writes go through that channel (PC-side helpers:
 - **Disable store found:** `pkgcmd -D -t app -n <id> --global` writes
   `package_app_info.app_disable='true'` in `/opt/dbspace/.pkgmgr_parser.db`
   and the launcher then reports "not available". `--uid` (what tier 1 used
-  first) returns ok and writes nothing. Cold-boot readback of the `--global`
-  rows is still open — do not mains-cycle from the payload (`systemctl
-  --force reboot`); ask the owner to pull power, then re-read the 11 flags
-  and the process table.
-- **Services layer suppressed live (2026-10-29 evening)**: 17 systemd units
-  masked via `/run` symlinks (`tools/mask.sh`) — session-only, dies at
-  reboot by design; 13/13 unit-backed services held through an 8 s respawn
-  check, ~190 MB idle RSS affected. Durable = v42 (payload re-writes the
+  first) returns ok and writes nothing. Cold-boot readback CONFIRMED
+  2026-10-29: all 11 `--global` rows survived a mains cycle.
+- **Services layer suppressed live (2026-10-29 evening + re-asserted
+  after the cold boot)**: 23 systemd units masked via `/run` symlinks
+  (`tools/mask.sh` — masks, reload, stop, refusal test; idempotent) —
+  session-only, dies at reboot by design; 0 respawned in the verified
+  round-4 run, ~190 MB idle RSS affected. Durable = v42 (payload re-writes
+
   masks at boot; not started). **Open:** 4 unit-less daemons (`SCSAgent`,
   `TIFADaemon_L`, `TIFSDaemon`, `SWUAutoUpgrade`) respawn — app-framework
   launched, forensics pending; `cis-api-service-app` churns every 90 s

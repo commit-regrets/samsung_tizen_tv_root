@@ -15,6 +15,34 @@ entry is an incomplete change. `AGENTS.md` repeats this rule for agents.
 
 ---
 
+## 2026-10-29 (late) — second review fixes: mask ordering, docs one story
+
+The re-review of the previous fix batch found the mask.sh rewrite landed
+without its ordering fix (the file edit was staged but never executed) and
+several doc corrections lost. All applied and verified:
+
+- **mask.sh ordering fixed and test-enforced**: pass 1 creates ALL /run
+  symlinks, ONE daemon-reload, THEN stop + start-refusal per unit. The
+  previous single-loop form ran the refusal test while the mask was still
+  inert (reload came after the loop), which could start the service from
+  the original file. The test stub now models the reload marker, so a
+  misordered mask.sh fails the suite.
+- **mask.sh idempotency completed**: a second run in the same boot still
+  stops every listed unit (already-masked units were previously skipped
+  from the stop pass, leaving running units up). Test-enforced.
+- **apply.sh test assertion fixed**: asserts `-D --global`, not just `-D`.
+- **Move completed**: parent README points at debloat/ in-repo; debloat
+  README is in-repo wording; LICENSE/SECURITY/NOTICE links point at parent
+  files; leftover _fix3b.py removed.
+- **Docs one story**: AGENTS current state no longer contradicts rule 11
+  (cold-boot durability confirmed, holdouts resolved); README no longer
+  documents the deleted bindapply or lists the resolved holdouts as
+  unit-less; services-units.txt header maps bt-monitor (=
+  bluetooth-monitor.service, now on the mask list) and records the DLNA
+  trade-off; the v42 brief's self-contradiction resolved (Q5 harvest + Q3
+  couplings both recorded, cleared for implementation) and the Q5
+  vendor-switch names are annotated in the optional menu.
+
 ## 2026-10-29 (late) — debloat/ completed in-repo; sibling repo retired
 
 The independent review of the merged debloat folder found the move

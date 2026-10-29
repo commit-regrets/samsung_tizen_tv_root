@@ -199,3 +199,26 @@ entries with keep-side references are flagged COUPLED — check before disabling
 | org.tizen.video-player-tv | MultiMedia Video Player Application | COUPLED: dmr_service_app,org.tizen.AVControl,org.tizen.tv-viewer |
 | rJeHak5zRg.Spotify | rJeHak5zRg | - |
 | xvvl3S1bvH.TizenBrewStandalone | xvvl3S1bvH | - |
+
+## Vendor /opt off-switches (free durable kills, Q5 harvest 2026-10-29)
+
+These units contain `ConditionPathExists=!/opt/usr/share/systemd/system/<name>`
+— touching the named file durably blocks the unit with no payload support
+(same mechanism as canalysis/pisa). Owner choice:
+
+- `com.samsung.tv.airplay-service-2` → touch
+  `/opt/usr/share/systemd/system/com.samsung.tv.airplay-service-2`
+  (AirPlay; also mask the app per the sharing tier)
+- `com.samsung.tv.googlecast-service` → touch
+  `/opt/usr/share/systemd/system/com.samsung.tv.googlecast-service`
+  (Chromecast)
+- `samsunghealth-service-tv` (+ eventd + path-activation — one file blocks
+  all three) → touch
+  `/opt/usr/share/systemd/system/samsunghealth-service-tv` (Samsung Health)
+
+Positive-condition units (run ONLY if a flag exists — already off unless
+the flag is created): `lightweight-web-engine-update`
+(`lwe_update.img`), `mcf-agent-service` (`mcf-agent-launch` — exists,
+but mcf is adjacent to the MultiControl framework: do not remove without
+an owner decision), `remote-shop-care-hub` and `sct-packet-dump` (flags
+absent — already off).

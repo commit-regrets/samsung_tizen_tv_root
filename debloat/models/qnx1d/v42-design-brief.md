@@ -188,9 +188,8 @@ channel did not answer):
    `systemctl status <pid>` mapping for `SWUCoreTV` / `SWUService` /
    `bt-monitor` / `cis-api-service-app`.
 
-Do not implement v42 until both checks are recorded here.
-
 ## UPDATE (2026-10-29 late) — both gates CLOSED, v42 cleared
+(The "do not implement" line below is superseded by this update.)
 
 - **Q5 done:** the `/usr/lib/systemd/system` harvest found 9 more units
   with vendor `/opt` switches (airplay-service-2, googlecast-service,

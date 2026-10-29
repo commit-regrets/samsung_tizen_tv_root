@@ -52,9 +52,11 @@ disabling it, and prints a summary with a per-package failure count.
   started). Full falsification trail (empty /opt files, /opt symlinks and
   drop-ins all inert — `/opt` is not in systemd's UnitPath; runtime
   bind-mounts bypassed) in `models/qnx1d/run-2026-10-29-services-bind.md`.
-- Unit-less daemons (`SCSAgent`, `TIFADaemon_L`, `TIFSDaemon`,
-  `SWUAutoUpgrade`, ~29 MB) respawn regardless — no systemd units;
-  forensics pending.
+- Formerly "unit-less" daemons resolved and on the mask list:
+  TIFADaemon_L <- automation-service, TIFSDaemon <- factory-service,
+  SCSAgent <- scs-agent.service, SWUAutoUpgrade <- swu-auto-upgrade.service.
+  Genuinely unit-less (launchpad, respawn regardless, ~29 MB):
+  `SWUCoreTV`, `SWUService`, `SWUVerifierTV` — forensics pending.
 
 **Pre-debloat baseline captured** (`models/qnx1d/baseline-pre-debloat.txt`:
   meminfo, PSI, load, per-process VmRSS+exe, disabled-row count) — the A/B
@@ -70,11 +72,12 @@ disabling it, and prints a summary with a per-package failure count.
   - `lists/tier2b-home-dependent.txt` (22, commented): tcc apps that are
     Vetro-keep or keeper-coupled — only with Home replacement or explicit
     owner acceptance.
-  - `lists/services-bind.txt` (25) + `lists/services-units.txt` (17 units):
-    the `/usr/bin` binaries and their systemd units. Runtime tools:
-    `tools/bindapply.sh` (falsified — respawner bypasses runtime mounts)
-    and `tools/mask.sh` / `tools/unmask.sh` (**working**: `/run` masks,
-    session-only); the
+  - `lists/services-bind.txt` (25) + `lists/services-units.txt` (23 units):
+    the `/usr/bin` binaries and their systemd units. The runtime tool is
+    `tools/mask.sh` / `tools/unmask.sh` (**working**: `/run` masks,
+    session-only — mask + reload + stop + refusal test, idempotent);
+    bind-mount overlaying was falsified (respawner bypasses runtime
+    mounts) and its scripts removed; the
     baseline was captured before any overlay).
   - Older per-source lists (`batch1`, `batch2`) and `models/qnx1d/optional-menu.md`
     remain for review.

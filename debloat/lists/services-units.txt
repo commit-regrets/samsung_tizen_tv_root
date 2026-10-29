@@ -6,8 +6,9 @@
 # Derived from the /usr/bin binaries in lists/services-bind.txt mapped to
 # their units via systemctl list-unit-files + systemctl status <pid>
 # (2026-10-29).
-# Unit mapping still pending (binaries running whose units are unnamed):
-# SWUCoreTV, SWUService, bt-monitor.
+# Unit mapping: bt-monitor = bluetooth-monitor.service (added below).
+# Still pending (launchpad-launched, no units): SWUCoreTV, SWUService,
+# SWUVerifierTV.
 # Binaries with no systemd unit at all (app-framework launched, respawn
 # regardless): SCSAgent, TIFADaemon_L, TIFSDaemon, SWUAutoUpgrade were
 # RESOLVED 2026-10-29 (see the holdout block at the bottom); still
