@@ -1,6 +1,6 @@
 """Offline tests for the debloat/ tooling - no TV, no root channel.
 
-Runs the TV-side scripts (apply/restore/mask/unmask/bindapply/bindrestore)
+Runs the TV-side scripts (apply/restore/mask/unmask)
 under a POSIX sh with their absolute paths rewritten into a temp tree and
 stub executables for everything that talks to the TV (pkgcmd, systemctl,
 mount, umount).  The stubs record every call, so the tests assert on
@@ -18,8 +18,9 @@ behaviour, not output text:
   * restore.sh re-activates everything with --global;
   * mask.sh/unmask.sh create and remove /run symlinks and call
     daemon-reload;
-  * bindapply.sh overlays only existing binaries and skips absent ones;
-    bindrestore.sh umounts exactly the overlays its stub mount reports;
+  * mask.sh creates /run mask symlinks, stops each unit and verifies the
+    start-refusal; unmask.sh removes the symlinks; (the falsified
+    bind-overlay scripts were removed - see the services run log round 1);
   * whitespace-only list lines are skipped everywhere;
   * every committed list file contains bare ids only, never a denylist
     entry, and the tier counts match the documented numbers.
