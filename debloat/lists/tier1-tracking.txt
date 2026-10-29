@@ -1,0 +1,19 @@
+# Tier 1 - tracking (current Vetro catalog). Standalone-safe.
+# Undo: tools/restore.sh with this file. APPLY=0 for dry run.
+# EXCLUDED from this tier (both are role=tracking in the current catalog):
+#   com.samsung.tv.screen-analysis-dbmgr - tcc measured picture-processing
+#     breakage when blocking screen-analysis; do not disable blindly.
+#   com.samsung.tv.iacr - classified ads by Vetro PR #44 but absent from
+#     tcc's tested list and coupling unknown; review before disabling.
+# COUPLED(com.samsung.tv.tvplus) - referenced by a keeper; accepted for tier 1.
+adplatform.ADPlayer
+com.samsung.tizen.samsung-analytics
+com.samsung.tv.ad-web-framework
+com.samsung.tv.adplayer
+com.samsung.tv.canalysis-service
+com.samsung.tv.cis-api-service-app
+com.samsung.tv.contents-recognition-dbmgr
+com.samsung.tv.nvision-analysis-dbmgr
+com.samsung.tv.pisa-service
+com.samsung.tv.targeted-ad-service
+content-grab-service

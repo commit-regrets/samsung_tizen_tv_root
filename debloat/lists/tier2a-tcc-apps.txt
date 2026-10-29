@@ -1,0 +1,11 @@
+# Tier 2a - tcc S90D disable list intersected with this registry:
+# role optional/tracking, no keep-side coupling. Standalone-safe.
+com.samsung.tizen.smartthings-thing
+com.samsung.tv.ambient-sound
+com.samsung.tv.ambientfte
+com.samsung.tv.ambientinfo-resources
+com.samsung.tv.mde-framework
+com.samsung.tv.tvsensor-iot-service
+com.samsung.tv.waapp-contents-provider
+org.tizen.easysetup-daemon
+org.tizen.multi-assistant-service

@@ -1,0 +1,30 @@
+# Tier S - system services: bind-mount /bin/true over /usr/bin/<name> at boot
+# (from tcc parseinfo.sh v4; /usr is read-only, disable-by-mount is reversible via umount)
+# NOTE: blocks SWU*/fw-update* = firmware auto-update stays off (intended; see toolkit trap 10).
+# Apply is BOOT-PERSISTENT only via the boot payload - a one-shot mount dies at reboot.
+
+data-service
+sp-kpi
+devicetracker
+stability-monitor
+SCSAgent
+TIFADaemon_L
+TIFSDaemon
+abnormal_user_behavior
+ambient-ua-agent
+pushd
+register-device
+SWUAutoUpgrade
+bt-monitor
+wifi-monitor
+SWUService
+SWUCoreTV
+SWUVerifierTV
+fw-update-service
+fw-update-init-download
+nagsam-daemon
+p2p-asm-UI
+contents-recognition-service
+p2p-asm
+emergencyLogTransmitter
+gamebar-service

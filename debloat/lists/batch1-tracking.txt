@@ -1,0 +1,16 @@
+# Batch 1 - tracking / advertising (privacy-choice UIs force-kept)
+# One app_id per line; # comments. Undo = tools/restore.sh with the same file.
+# Generated from models/qnx1d/inventory.json (Vetro 0.2.3 catalog, 2026-10-27).
+
+adplatform.ADPlayer
+com.samsung.tizen.samsung-analytics
+# COUPLED(com.samsung.tv.tvplus)
+com.samsung.tv.ad-web-framework
+com.samsung.tv.adplayer
+com.samsung.tv.canalysis-service
+com.samsung.tv.cis-api-service-app
+com.samsung.tv.contents-recognition-dbmgr
+com.samsung.tv.nvision-analysis-dbmgr
+com.samsung.tv.pisa-service
+com.samsung.tv.targeted-ad-service
+content-grab-service

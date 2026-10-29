@@ -1,0 +1,42 @@
+# Services systemd units - masked via /dev/null symlinks in
+# /run/systemd/system (tools/mask.sh). SESSION-ONLY: /run is tmpfs, masks
+# die at reboot; durable suppression = the boot payload re-writing them
+# (v42, decision recorded in models/qnx1d/v42-design-brief.md). /opt is
+# NOT in systemd's UnitPath - nothing under /opt masks anything.
+# Derived from the /usr/bin binaries in lists/services-bind.txt mapped to
+# their units via systemctl list-unit-files + systemctl status <pid>
+# (2026-10-29).
+# Unit mapping still pending (binaries running whose units are unnamed):
+# SWUCoreTV, SWUService, bt-monitor.
+# Binaries with no systemd unit at all (app-framework launched, respawn
+# regardless): SCSAgent, TIFADaemon_L, TIFSDaemon, SWUAutoUpgrade were
+# RESOLVED 2026-10-29 (see the holdout block at the bottom); still
+# unit-less: SWUVerifierTV, p2p-asm-UI.
+# pushd is socket-activated: mask the socket too.
+data-service.service
+org.tizen.tv.sp-kpi.service
+devicetracker.service
+stability-monitor.service
+contents-recognition-service.service
+abnormal_user_behavior.service
+ambient-ua-agent.service
+gamebar-service.service
+nagsam-daemon.service
+p2p-asm.service
+pushd.service
+pushd.socket
+register-device.service
+wifi-monitor.service
+fw-update-service.service
+fw-update-init-download.service
+fw-update-service.path
+
+# Holdout daemons (binary name != unit name; resolved via systemctl status <pid>):
+#   TIFADaemon_L  <- org.tizen.tv.automation-service.service
+#   TIFSDaemon    <- org.tizen.tv.factory-service.service
+org.tizen.tv.automation-service.service
+org.tizen.tv.factory-service.service
+scs-agent.service
+swu-auto-upgrade.service
+emergency-log-transmitter.service
+com.samsung.tv.cis-api-service-app.service

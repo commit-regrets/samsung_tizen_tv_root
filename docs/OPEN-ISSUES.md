@@ -74,7 +74,7 @@ meminfo-derived `0xE4E42000` was wrong (vendor-adjusted counters): see item 2.
 
 ## New falsifiable checks — from the tizen-tv-control-center cross-reference
 
-An independent S90D project (EU, **T-PTMDDEUC** — the same firmware family as
+An independent S90D project (EU, **T-PTMxxxx** — the same firmware family as
 this unit) runs root commands **over SDB** with Developer Mode enabled, and
 replaces `/opt/etc/parseinfo.sh` wholesale as its persistence boot hook. Both
 conflict with our recorded findings and are cheap to settle now that we hold
