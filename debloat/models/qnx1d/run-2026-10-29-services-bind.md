@@ -138,3 +138,36 @@ by hand:
 **This manual sequence IS the v42 payload step.** The payload change is:
 run this exact sequence after SUCCESS-R00T on a background thread, from a
 mask list shipped on /opt.
+
+## Round 5 — picture settings greyed out: avocd `new_home` flag (2026-10-29 late)
+
+**Symptom (owner report):** Brightness and Picture Mode no longer available
+after the suppression session.
+
+**Cause (not the disable list itself):** the AV-output daemon `avocd` keeps
+a `new_home` flag — Samsung Home sets it to 1 while its UI is on screen
+(motion processing off behind the home screen) and back to 0 when it hides.
+With the flag stuck at 1, Picture Clarity / Picture Mode / Brightness are
+greyed out. tcc documented this for home-screen replacement and
+**explicitly ruled out the debloat as the cause** — our aggressive kill
+pass likely raced Samsung Home's flag reset, leaving it at 1.
+
+**Fix (one command, applied live, verified):**
+
+```sh
+dbus-send --system --print-reply --dest=org.tizen.tv.avoc /org/tizen/tv/avoc   org.tizen.tv.avoc.AvOutputControl.SetNewHome int32:0
+```
+
+Readback check (`int32 1` = available, `int32 0` = greyed out):
+
+```sh
+dbus-send --system --print-reply --dest=org.tizen.tv.avoc /org/tizen/tv/avoc   org.tizen.tv.avoc.AvOutputControl.CheckAutoMotionPlus
+```
+
+Verified: 0 -> fix -> 1, still 1 after 40 s. The flag is memory-only; a
+reboot gives stock behavior back. If it recurs during use, tcc's 30 s
+loop (systemd-run + awk) holds it down; a future payload boot step could
+do the same if it proves recurring.
+
+**Diagnosis credit:** tizen-tv-control-center docs/06-picture-clarity.md
+and docs/picture-fix-any-launcher.md (S90D, same firmware family).
