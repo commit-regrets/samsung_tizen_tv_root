@@ -15,6 +15,18 @@ entry is an incomplete change. `AGENTS.md` repeats this rule for agents.
 
 ---
 
+## 2026-10-29 — first live debloat run through the toolkit channel
+
+The samsung-tv-debloat project (separate repo, sibling folder) ran its first
+real disable batch through this toolkit's root channel: 11 tracking/ad
+packages disabled, 39.1 MB of running ACR/ad processes killed, undo log on
+the TV. The run validated the toolkit-as-enabler role and surfaced two
+findings recorded there: UEP blocks script files exactly as `FAILED.md`
+documents (`cat | sh` workaround), and the toolkit's HTTP server doubles as
+the file-push path for TV-side scripts (temporary files under `server/`,
+removed after the run). Tooling and run log: `samsung-tv-debloat/models/
+qnx1d/run-2026-10-29-tier1.md`.
+
 ## 2026-10-27 (publication prep) — sanitize the live credential, drop agent scaffolding
 
 Audit of the tree against a public push (the working tree was clean; the history
