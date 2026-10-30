@@ -40,7 +40,10 @@ All TV reads/writes go through that channel (PC-side helpers:
   under the listed binaries.  That run used the **24-unit list**; it was then extended to 34 with the OTA
   stack and later cut to **29** when the four phone-path units and the
   `org.tizen.easysetup-daemon.service` mask were dropped (2026-10-30
-  evening, SmartThings).
+  evening, SmartThings). **First 29-unit boot PASSED 2026-10-30 19:29:41**:
+  masks begin n=29, masks=29 stopped=29 killed=4 fail=0 missing=0
+  activating=1 listed-activating=0 loop-check=ok newhome=set(0),loop-started,
+  and the easysetup unit now starts at boot (NRestarts=0).
   **Extended to 34 on 2026-10-30 14:50** with the OTA / firmware-update stack:
   `vdsystem-update-manager.{service,timer}`, `was-background-update.{service,path}`,
   `swu-verifier-tv.{service,timer}`, `swu-core-tv.service`,
