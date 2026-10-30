@@ -15,6 +15,54 @@ entry is an incomplete change. `AGENTS.md` repeats this rule for agents.
 
 ---
 
+## 2026-10-30 — two tcc lessons folded in: persistent picture loop, loop detector
+
+Cross-read of both reference trees before writing v42. Nothing in
+tizen-tv-control-center or Vetro blocked v42 (tcc's `systemctl mask --runtime`
+is the mechanism we already proved; their `parseinfo.sh` boot hook is the one
+our unit falsified; Vetro is app-level only, and its two extra verified ids
+`com.samsung.tv.acr` / `vision-data-recognition-service` do not exist on
+QNX1D). Two tcc findings did change the code, so they landed first:
+
+- **The picture guard is now persistent, not one-shot.** tcc documents that
+  `avocd`'s `new_home` flag can be re-set by Samsung code at any time, so a
+  single `SetNewHome` at boot/session start is not enough. `mask.sh` keeps
+  the immediate set + `CheckAutoMotionPlus` verify and then starts tcc's
+  proven 30 s loop as a transient unit:
+  `systemd-run --unit=newhome-fix /usr/bin/awk '…SetNewHome int32:0…sleep 30…'`.
+  Idempotent (a second run reports `newhome=active`), `NEWHOME_LOOP=0` keeps
+  the one-shot only, `systemctl stop newhome-fix` removes it (transient,
+  dies at reboot anyway). The v42 spec now says the same. Verified live the
+  same day (`systemd-run` unit active; a throwaway transient unit's
+  `dbus-send` returns rc=0, so SMACK does not block it). **Readback trap
+  recorded:** `CheckAutoMotionPlus` reads 0 while Samsung Home is on screen
+  (Home keeps motion processing off regardless of the flag), so the 0→1
+  check is only meaningful with content showing — v42's acceptance says so.
+- **Restart-loop detector (tcc's "trap").** A unit whose app is disabled
+  restarts every 2–5 s forever. `mask.sh` now reads
+  `systemctl list-units --all --no-legend --plain` once, reports the global
+  `activating` count for context and **fails the run if any listed unit is
+  activating**. First live run of the check found
+  `org.tizen.easysetup-daemon.service` at **`NRestarts=654`** and climbing,
+  `activating (auto-restart)`, from our own tier-2a app disable
+  (`app_launcher -s org.tizen.easysetup-daemon` fails under
+  `Restart=on-failure`). No reverse deps (checked live), so it is now the
+  **24th unit** in `lists/services-units.txt` — the completion of an app
+  disable, not a new decision. Audit of every other `app_launcher` unit of a
+  disabled app: `NRestarts=0`. Live-verified by masking just that unit:
+  `masked-runtime`, `NRestarts` frozen (759 → 759 over 25 s), state `failed`
+  (it had hit its start limit); v42's acceptance therefore counts
+  `inactive` **or** `failed` as stopped.
+- Beacon/summary parity for v42: `mask.sh` now prints
+  `activating=… listed-activating=… newhome=…`, and the brief's beacon shape
+  is `masks=… stopped=… loops=… newhome=…`.
+- Tests: `systemctl` stub learns `is-active`/`list-units`/unknown-unit
+  `start`; new `systemd-run` stub; assertions for the loop start, its
+  idempotency, the fail-on-listed-loop, the report-only-global-loop case,
+  and the 24-unit lock. Docs: v42 brief (steps, acceptance, counts,
+  root-owned policy path `/opt/usr/data/debloat-masks.txt`), `debloat/AGENTS.md`
+  (rule 14 records both traps), README, run-log round 6, parent `AGENTS.md` §11.
+
 ## 2026-10-30 — cold-boot readback closes the disable store; Bluetooth excluded
 
 The owner power-cycled the set and the readback settled both debloat questions.

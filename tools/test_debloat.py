@@ -112,6 +112,9 @@ class Fixture:
         self.state.write_text("", encoding="utf-8")
         self.flags = self.tmp / "flags.state"
         self.flags.write_text("", encoding="utf-8")
+        # `systemctl list-units --all` output: tests put "activating" lines here
+        self.active = self.tmp / "active_units.txt"
+        self.active.write_text("", encoding="utf-8")
         for name, body in {
             # pkgcmd: -D marks the app disabled, -A clears it (matches the
             # parser-DB semantics the real --global switch has); every call
@@ -155,6 +158,16 @@ class Fixture:
                           '# simulate real systemd: the mask only bites after a\n'
                           '# daemon-reload - model that with a reload marker\n'
                           'if [ "$1" = "daemon-reload" ]; then touch "$T/run/.reloaded"; fi\n'
+                          'if [ "$1" = "list-units" ]; then\n'
+                          '  [ -f "$ACTIVEUNITS" ] && cat "$ACTIVEUNITS"\n'
+                          '  exit 0\n'
+                          'fi\n'
+                          'if [ "$1" = "is-active" ]; then\n'
+                          '  case "$*" in *newhome-fix*)\n'
+                          '    [ -f "$FLAGS.newhomefix" ] && exit 0 || exit 3;;\n'
+                          '  esac\n'
+                          '  exit 3\n'
+                          'fi\n'
                           'if [ "$1" = "start" ]; then\n'
                           '  shift\n'
                           '  for u in "$@"; do\n'
@@ -163,9 +176,16 @@ class Fixture:
                           '      echo "Failed to start $u: Unit $u is masked." >&2\n'
                           '      exit 1\n'
                           '    fi\n'
+                          '    [ -e "$T/usr/lib/systemd/system/$u" ] || exit 5\n'
                           '  done\n'
                           'fi\n'
                           'exit 0\n'),
+            # systemd-run: the persistent picture-guard loop is a transient
+            # unit; a marker stands in for `systemctl is-active newhome-fix`.
+            "systemd-run": ('#!/bin/sh\n'
+                            'echo "systemd-run $*" >> "$CALLS"\n'
+                            'case "$*" in *--unit=newhome-fix*) : > "$FLAGS.newhomefix"; exit 0;; esac\n'
+                            'exit 1\n'),
             "mount": ('#!/bin/sh\n'
                       'case "$1" in\n'
                       '  --bind) echo "mount --bind $2 $3" >> "$CALLS"\n'
@@ -221,6 +241,7 @@ class Fixture:
                    T=str(self.root).replace("\\", "/"),
                    CALLS=str(self.log),
                    MOUNTS=str(self.state),
+                   ACTIVEUNITS=str(self.active),
                    FLAGS=str(self.flags))
         if env_extra:
             env.update(env_extra)
@@ -500,6 +521,15 @@ def main() -> int:
     check("mask: picture-guard ran (SetNewHome + verified available)",
           "picture-guard: new_home=0" in r.stdout
           and "(CheckAutoMotionPlus=1" in r.stdout)
+    # the persistent half (tcc): a one-shot is not enough because Samsung code
+    # can re-set new_home mid-session, so a 30 s transient unit must be started
+    check("mask: persistent newhome-fix loop started via systemd-run",
+          any("--unit=newhome-fix" in l for l in tmpf7.calls("systemd-run")),
+          str(tmpf7.calls("systemd-run")[:1]))
+    check("mask: the loop command carries SetNewHome",
+          any("SetNewHome" in l for l in tmpf7.calls("systemd-run")))
+    check("mask: summary reports newhome=started",
+          "newhome=started" in r.stdout)
     sysctl_log = tmpf7.calls("systemctl ")
     reload_at = next((i for i, l in enumerate(sysctl_log)
                       if "daemon-reload" in l), None)
@@ -522,6 +552,38 @@ def main() -> int:
           r.stdout.count("already-masked") == len(units))
     check("mask: second run STILL stops every unit",
           len(tmpf7.calls("systemctl stop")) - before >= len(units))
+    check("mask: second run sees the loop, does not start a second one",
+          "newhome=active" in r.stdout
+          and len(tmpf7.calls("systemd-run")) == 1,
+          f"{len(tmpf7.calls('systemd-run'))} systemd-run call(s)")
+
+    # restart-loop detector (tcc's trap): a listed unit stuck in
+    # "activating (auto-restart)" means the mask did not hold -> fail.
+    tmpf11 = Fixture(DEB / "tools" / "mask.sh")
+    tmpf11.add_units(units)
+    ul11 = tmpf11.write_list("units.txt", units)
+    tmpf11.active.write_text(
+        "data-service.service loaded activating auto-restart data-service\n"
+        "vdsystem-update-manager.service loaded activating start\n",
+        encoding="utf-8")
+    r = tmpf11.run([ul11], {"MASK": "1"})
+    check("mask: a listed unit still activating fails the run",
+          r.returncode != 0)
+    check("mask: the looping unit is named",
+          "LOOP: data-service.service" in r.stdout)
+    check("mask: global vs listed loop counts are reported",
+          "activating=2 listed-activating=1" in r.stdout, r.stdout[-200:])
+
+    tmpf12 = Fixture(DEB / "tools" / "mask.sh")
+    tmpf12.add_units(units)
+    ul12 = tmpf12.write_list("units.txt", units)
+    tmpf12.active.write_text(
+        "vdsystem-update-manager.service loaded activating start\n",
+        encoding="utf-8")
+    r = tmpf12.run([ul12], {"MASK": "1"})
+    check("mask: an unrelated activating unit is reported, not failed",
+          r.returncode == 0 and "activating=1 listed-activating=0" in r.stdout,
+          r.stdout[-200:])
     tmpf8 = Fixture(DEB / "tools" / "unmask.sh")
     ul8 = tmpf8.write_list("units.txt", units)
     r = tmpf8.run([ul8])
@@ -538,6 +600,7 @@ def main() -> int:
         '#!/bin/sh\n'
         'echo "systemctl $*" >> "$CALLS"\n'
         'if [ "$1" = "daemon-reload" ]; then echo FAIL; exit 1; fi\n'
+        'if [ "$1" = "is-active" ]; then exit 3; fi\n'
         'if [ "$1" = "start" ]; then echo "started $2"; exit 0; fi\n'
         'exit 0\n',
         encoding="utf-8", newline="\n")
@@ -545,7 +608,8 @@ def main() -> int:
     r = tmpf9.run([ul9], {"MASK": "1"})
     check("mask: reload failure fails the script", r.returncode != 0)
     check("mask: reload failure does not start units",
-          len(tmpf9.calls("systemctl start")) == 0,
+          len([l for l in tmpf9.calls("systemctl start")
+               if "newhome-fix" not in l]) == 0,
           str(tmpf9.calls("systemctl start")[:2]))
     check("mask: reload failure still stops units",
           len(tmpf9.calls("systemctl stop")) >= len(units))
@@ -639,7 +703,8 @@ def main() -> int:
     check("mask: unmakeable masks fail the run",
           r.returncode != 0 and "symlink-fail=3" in r.stdout, r.stdout[-240:])
     check("mask: no mask of ours -> no unit is started",
-          len(tmpf10e.calls("systemctl start")) == 0,
+          len([l for l in tmpf10e.calls("systemctl start")
+               if "newhome-fix" not in l]) == 0,
           str(tmpf10e.calls("systemctl start")[:2]))
     check("mask: the skipped refusal test is reported per unit",
           r.stdout.count("SKIP refusal-test") == len(units))
@@ -664,13 +729,15 @@ def main() -> int:
                   (DEB / "lists" / "services-units.txt")
                   .read_text(encoding="utf-8").splitlines()
                   if l.strip() and not l.strip().startswith("#")]
-    # 23 verified live in round 4 (2026-10-29) + cis-api.  bluetooth-monitor
-    # is EXCLUDED (not merely commented-optional): live inspection 2026-10-30
-    # showed it is the boot-time Bluetooth re-activator, and the owner's BLE
-    # remote depends on it.
-    check("services-units.txt is 23 active entries incl. cis-api",
-          len(units_list) == 23
-          and "com.samsung.tv.cis-api-service-app.service" in units_list,
+    # 24 active units: round 4 masked 23/23 live (2026-10-29); the 24th is
+    # org.tizen.easysetup-daemon.service, added 2026-10-30 when the restart-loop
+    # detector found its unit spinning at NRestarts=654 (app disabled in tier
+    # 2a, no reverse deps).  bluetooth-monitor is EXCLUDED (BT re-activator),
+    # not merely commented-optional.
+    check("services-units.txt is 24 active entries incl. easysetup",
+          len(units_list) == 24
+          and "com.samsung.tv.cis-api-service-app.service" in units_list
+          and "org.tizen.easysetup-daemon.service" in units_list,
           str(len(units_list)))
     check("bluetooth-monitor is a commented DO-NOT-MASK note, never an active mask",
           "bluetooth-monitor.service" not in units_list
@@ -743,6 +810,7 @@ def main() -> int:
     tmpf6.cleanup(); tmpf6b.cleanup(); tmpf6c.cleanup(); tmpf6d.cleanup()
     tmpf7.cleanup(); tmpf8.cleanup(); tmpf9.cleanup(); tmpf10.cleanup()
     tmpf10b.cleanup(); tmpf10c.cleanup(); tmpf10d.cleanup(); tmpf10e.cleanup()
+    tmpf11.cleanup(); tmpf12.cleanup()
 
     print("\ndebloat tooling tests:", "ok" if ok else "FAILED")
     return 0 if ok else 1

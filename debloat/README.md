@@ -53,8 +53,9 @@ the undo line *before* each disable under `/opt/usr/data/` (replay with
 `cat file | sh` — UEP blocks `sh /path`), and prints a summary with a
 per-package failure count. A dry run exits non-zero on a refused entry, so
 `APPLY=0` is a real gate. `mask.sh` takes a unit list plus an optional
-bind-list argument, refuses unit names that have no unit file, and kills
-leftover `/usr/bin/<name>` processes after stop.
+bind-list argument, refuses unit names that have no unit file, kills
+leftover `/usr/bin/<name>` processes after stop, installs the persistent
+picture-settings loop, and fails if a listed unit is still restart-looping.
 
 ## Status
 
@@ -65,15 +66,24 @@ leftover `/usr/bin/<name>` processes after stop.
   `models/qnx1d/run-2026-10-29-tier1.md`. ~25.9 MB running ACR/ad
   processes freed (distinct processes, measured against the pre-debloat
   baseline).
-- **Services layer: 23 systemd units masked live** via `/run` masks
+- **Services layer: 24 systemd units masked live** via `/run` masks
   (`tools/mask.sh`) — session-only by design; the verified round-4 run
   (2026-10-29) masked 23/23 and nothing respawned in the 8 s check,
   ~192 MB sum-RSS across the 21 running `/usr/bin` services (upper bound;
-  the per-process dump is the evidence). Durable suppression = the boot
+  the per-process dump is the evidence). The 24th,
+  `org.tizen.easysetup-daemon.service`, was added 2026-10-30: the new
+  restart-loop check found its unit spinning at `NRestarts=654`
+  (`activating (auto-restart)`) because its app is disabled in tier 2a and
+  `Restart=on-failure` retries a launcher call that can never succeed.
+  Durable suppression = the boot
   payload re-writing the masks each boot (v42, not started). Full
   falsification trail (empty /opt files, /opt symlinks and drop-ins all
   inert — `/opt` is not in systemd's UnitPath; runtime bind-mounts
   bypassed) in `models/qnx1d/run-2026-10-29-services-bind.md`.
+- **Picture settings** are guarded two ways since 2026-10-30: the immediate
+  `SetNewHome int32:0` + verify, and the persistent `newhome-fix` 30 s loop
+  (`systemd-run`, tcc's proven form). A one-shot is not enough — the flag
+  can be re-set mid-session; `systemctl stop newhome-fix` removes it.
 - `bluetooth-monitor.service` is **excluded on purpose** (mask list *and*
   kill list). Checked live 2026-10-30: it is the boot-time Bluetooth
   re-activator — its unit comment is "bt-service check previous
@@ -104,7 +114,7 @@ leftover `/usr/bin/<name>` processes after stop.
   - `lists/tier2b-home-dependent.txt` (22, commented): tcc apps that are
     Vetro-keep or keeper-coupled — only with Home replacement or explicit
     owner acceptance.
-  - `lists/services-units.txt` (23 masked units; `bluetooth-monitor.service`
+  - `lists/services-units.txt` (24 masked units; `bluetooth-monitor.service`
     is a commented DO-NOT-MASK note with the evidence) +
     `lists/services-bind.txt` (24 `/usr/bin` binaries — the **kill list** for
     `mask.sh`, not a bind-mount list; `bt-monitor` is commented out for the

@@ -168,9 +168,56 @@ dbus-send --system --print-reply --dest=org.tizen.tv.avoc /org/tizen/tv/avoc   o
 ```
 
 Verified: 0 -> fix -> 1, still 1 after 40 s. The flag is memory-only; a
-reboot gives stock behavior back. If it recurs during use, tcc's 30 s
-loop (systemd-run + awk) holds it down; a future payload boot step could
-do the same if it proves recurring.
+reboot gives stock behavior back. **Adopted 2026-10-30:** tcc's 30 s loop
+is now installed automatically by `mask.sh` (transient unit `newhome-fix`,
+`systemd-run` + awk; `systemctl stop newhome-fix` removes it), because the
+flag can be re-set mid-session and a one-shot at boot is not enough. The
+v42 payload step does the same.
 
 **Diagnosis credit:** tizen-tv-control-center docs/06-picture-clarity.md
 and docs/picture-fix-any-launcher.md (S90D, same firmware family).
+
+## Round 6 — the loop detector's first catch, and the picture loop (2026-10-30)
+
+The two tcc lessons folded into the tooling before v42 was written:
+
+1. **Restart-loop check.** `mask.sh` now reads
+   `systemctl list-units --all --no-legend --plain` once and fails the run if
+   any *listed* unit is `activating` (the global count is reported for
+   context; an idle boot here already has 2, so the global number is not the
+   signal). First live run of the check: `org.tizen.easysetup-daemon.service`
+   was in `activating (auto-restart)` with **`NRestarts=654`** and climbing
+   (~5 s cycle) — the tier-2a app disable leaves `app_launcher -s
+   org.tizen.easysetup-daemon` failing forever under `Restart=on-failure`.
+   No unit `Requires=`/`Wants=`/`BindsTo=` it (checked live), so the unit was
+   added to `lists/services-units.txt` (24th entry) — the completion of an
+   app disable, not a new decision. Every other `app_launcher` unit of a
+   disabled app reads `NRestarts=0`.
+2. **Persistent picture loop.** `mask.sh` keeps the immediate
+   `SetNewHome int32:0` + verify and then starts the `newhome-fix` 30 s loop
+   (idempotent: a second run reports `newhome=active`; `NEWHOME_LOOP=0` keeps
+   the one-shot only).
+
+The check is what makes v42's acceptance test meaningful: "0 respawn" was an
+8 s process sample, this is a state read (and it found a loop that had been
+running for 654 restarts).
+
+Live verification of both fixes the same day (targeted, not a full session):
+
+- Masked just `org.tizen.easysetup-daemon.service` (`ln -sf /dev/null` +
+  `daemon-reload` + `stop`, the same sequence `mask.sh` runs): `is-enabled`
+  = `masked-runtime`, `NRestarts` frozen (759 → 759 over 25 s; it had gone
+  654 → 759 in the preceding ~20 min), state `failed` (it had already hit
+  its start limit — **`failed` is stopped, not running**, so v42's check
+  must accept `inactive` or `failed`, not only `inactive`), `is-active` exit 3.
+- Started `newhome-fix` (`systemd-run`, the exact loop `mask.sh` installs):
+  `is-active` = active, and the same command pushed through a throwaway
+  transient unit returned `rc=0`, so dbus access from a systemd-run unit is
+  not blocked by SMACK (the probe unit was `dbustest`, removed after).
+- **Readback gotcha (record for v42):** `CheckAutoMotionPlus` read `0` right
+  after `SetNewHome int32:0` even from the shell — because the set was
+  sitting on the **Samsung Home screen**, where Home keeps motion processing
+  off regardless of the flag. The 0→1 verification in round 5 was with
+  content on screen. So "CheckAutoMotionPlus = 1" is only a valid acceptance
+  signal with an app/video showing; at the Home screen `0` is correct and
+  must not be read as a failed fix.

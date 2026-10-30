@@ -30,10 +30,15 @@ All TV reads/writes go through that channel (PC-side helpers:
   canalysis/pisa sentinels still present) - the store is durable as-is, no
   payload change needed for it.
 - **Services layer suppressed live (2026-10-29 evening + re-asserted
-  after the cold boot)**: 23 systemd units on `lists/services-units.txt`
-  (23/23 masked in the verified round-4 run) via
+  after the cold boot)**: 24 systemd units on `lists/services-units.txt`
+  (the 23 of the verified round-4 run plus `org.tizen.easysetup-daemon.service`,
+  added 2026-10-30 because the restart-loop detector found it spinning at
+  NRestarts=654 — its app is disabled in tier 2a and `Restart=on-failure`
+  retries forever) via
   `/run` symlinks
-  (`tools/mask.sh` — masks, reload, stop, refusal test, kill pass; idempotent) —
+  (`tools/mask.sh` — masks, reload, stop, refusal test, kill pass, picture
+  guard with the persistent `newhome-fix` 30 s loop, restart-loop check;
+  idempotent) —
   session-only, dies at reboot by design; 0 respawned in the verified
   round-4 run, ~192 MB sum-RSS across the 21 running `/usr/bin` services
   (upper bound). Durable = v42 (payload re-writes
@@ -115,7 +120,7 @@ All TV reads/writes go through that channel (PC-side helpers:
    all 11 `--global` rows and both sentinels SURVIVED the reboot - the
    `--global` store and the two vendor sentinels are durable as-is, and v42
    does NOT need to re-assert app disables. v42's only job is the /run mask
-   re-assertion for the 23 service units (see rule 13 and
+   re-assertion for the 24 service units (see rule 13 and
    `models/qnx1d/v42-design-brief.md` for the reviewed design).
 12. busybox `ps` shows only ~228 of ~408 processes; idle meminfo deltas are
    dominated by TV activity. Attribute per-process from `/proc` and compare
@@ -136,6 +141,23 @@ All TV reads/writes go through that channel (PC-side helpers:
    SWUCoreTV/SWUService/SWUVerifierTV are launchpad-launched with no units
    and respawn regardless; verify masks by `is-enabled`, and
    never by mount listings or `/opt` file existence.
+14. **Two traps earned from tizen-tv-control-center (2026-10-30):**
+   (a) **A disabled app leaves a restart-looping unit.** `pkgcmd -D` stops the
+   app but its unit's `ExecStart=app_launcher -s <app>` fails forever with
+   `Restart=on-failure` — `org.tizen.easysetup-daemon.service` had
+   `NRestarts=654` (5 s cycle) and nobody noticed. So *every* app disable
+   needs a unit check (`systemctl show <unit> -p NRestarts -p ActiveState`),
+   and `mask.sh` now fails if a listed unit is still `activating`.
+   (b) **The avocd `new_home` flag can be re-set mid-session**, not only at
+   the moment of masking, so a one-shot SetNewHome is not enough: `mask.sh`
+   installs the persistent `newhome-fix` 30 s loop (`systemctl stop
+   newhome-fix` to remove it; it is transient and dies at reboot).
+   **Readback semantics:** `CheckAutoMotionPlus` = 1 means picture settings
+   are available; **0 is expected while Samsung Home is in front** (Home
+   keeps motion processing off), so verify the fix with an app/video on
+   screen, not on the Home screen. A transient unit's dbus access works
+   (measured rc=0), and the loop is what keeps the flag clear once Home
+   hides.
 
 ## Model data
 

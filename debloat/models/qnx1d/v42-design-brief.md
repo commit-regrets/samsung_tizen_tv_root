@@ -28,20 +28,28 @@ design, or is there a better mechanism we missed?
   `.../pisa-service` — those two vendor unit files contain
   `ConditionPathExists` checks against exactly those paths. Cold-boot
   proven. These two are done permanently.
-- **23 systemd units** on `lists/services-units.txt` (session-only /run
+- **24 systemd units** on `lists/services-units.txt` (session-only /run
   masks): the original 22 (17 from the `/usr/bin` binary mapping, incl.
   `pushd.socket`; 5 from `systemctl status <pid>`:
   `org.tizen.tv.automation-service.service` [spawns TIFADaemon_L],
   `org.tizen.tv.factory-service.service` [spawns TIFSDaemon],
   `scs-agent.service`, `swu-auto-upgrade.service`,
   `emergency-log-transmitter.service`) plus
-  `com.samsung.tv.cis-api-service-app.service`. Round 4 live-masked all 23.
+  `com.samsung.tv.cis-api-service-app.service`. Round 4 live-masked those 23.
+  The 24th, `org.tizen.easysetup-daemon.service`, was added 2026-10-30: its
+  unit was restart-looping (`NRestarts=654`, `activating (auto-restart)`)
+  because its app is disabled in tier 2a and `Restart=on-failure` retries a
+  launcher call that can never succeed. No reverse deps (checked live), so
+  masking it completes that app disable. The restart-loop detector below is
+  what found it.
   `bluetooth-monitor.service` is **excluded, DO NOT MASK** (checked live
   2026-10-30): it is the boot-time Bluetooth re-activator — unit comment
   "check previous BT-connection status and re-activate BT when boot", wanted
   by `starter.target` + `swu-standalone.target`, `bt-monitor` holds
   `/dev/micom-msg`. Masking it risks the BLE remote not reconnecting after a
-  power cycle; it is out of the mask list and the kill list.
+  power cycle; it is out of the mask list and the kill list. tcc blocks
+  `bt-monitor` and reports the remote still works — that is the test to run
+  if the ~5.8 MB is ever wanted.
 - Live run log with the full falsification trail:
   `models/qnx1d/run-2026-10-29-services-bind.md`.
 
@@ -76,15 +84,27 @@ design, or is there a better mechanism we missed?
 power-on via the on-boot app IL replacement) gains a background step, same
 pattern as its existing auto-update-off:
 
-1. Read a mask list from persistent storage — e.g.
-   `/opt/usr/home/owner/share/debloat-masks.txt` (one unit per line;
-   written/shipped by the debloat repo's deploy flow).
-2. `ln -sf /dev/null /run/systemd/system/<unit>` for each; then
-   `systemctl daemon-reload`.
+1. Read a mask list from persistent storage — **root-owned**
+   `/opt/usr/data/debloat-masks.txt` (one unit per line; shipped by the
+   toolkit's deploy flow).  NOT `share/`: that tree is browser-writable as
+   uid 5001 and the payload executes what it reads there.  Fail open on a
+   missing file (delete it = revert to stock).
+2. `ln -sf /dev/null /run/systemd/system/<unit>` for each (skip existing —
+   idempotent); then **one** `systemctl daemon-reload` before any stop
+   (masks are inert until the reload).
 3. `systemctl stop` each unit; kill any straggler by `/proc/<pid>/exe`
    path under the mapped binaries.
-4. Beacon the result (`masks=<n> stopped=<k> fail=<m>`) — the existing
-   `Beacon()` with its 500 ms timeout.
+4. Picture-guard: one `SetNewHome int32:0` + verify, **then start the
+   persistent `newhome-fix` 30 s loop** (`systemd-run --unit=newhome-fix
+   /usr/bin/awk '…'`, tcc's proven form).  A one-shot is not enough: the
+   flag lives in memory and Samsung code can set it again mid-session
+   (tcc docs/picture-fix-any-launcher.md).
+5. Restart-loop check (tcc's trap): a unit whose app is disabled restarts
+   every 2–5 s forever.  After the stop pass, no *listed* unit may be
+   `activating`; report the global count too (an idle boot already has a
+   couple, so only the listed set is the failure signal).
+6. Beacon the result with the existing `Beacon()` (500 ms cap):
+   `masks=<n> stopped=<k> fail=<m> loops=<n> newhome=<state>`.
 
 ## Questions the review must answer
 
@@ -129,11 +149,22 @@ Q6. **Payload discipline (AGENTS.md §9 of samsung_tv_root)**: the new step
 ## Acceptance criteria for v42 (when built)
 
 After a mains power-cycle, within ~90 s of power-on:
-- all 23 listed units masked (`is-enabled` = masked-runtime) and inactive;
+- all 24 listed units masked (`is-enabled` = masked-runtime) and **not
+  running** (`inactive` or `failed` — a unit that hit its start limit stays
+  `failed` after the stop, which is stopped);
 - zero processes with exe under the listed units' binaries;
+- **no listed unit `activating`** (restart-loop check; the global count is
+  context, an idle boot already has a couple);
+- `newhome-fix` active and, **with content on screen**,
+  `CheckAutoMotionPlus` = 1 (0 while Samsung Home is in front is normal —
+  Home keeps motion processing off, so the readback is only meaningful once
+  an app/video is showing); the loop is what keeps it available after Home
+  hides;
 - the 20 `--global` app rows still true;
-- channel answering with `id -u` = 0; beacon shows the mask result.
-Revert path: remove the list file from /opt → reboot → stock behavior.
+- channel answering with `id -u` = 0; beacon shows
+  `masks=… stopped=… loops=… newhome=…`.
+Revert path: remove the list file from /opt → reboot → stock behavior (the
+picture loop is a transient unit and dies with the boot).
 
 ## Hard-won facts (do not re-learn)
 

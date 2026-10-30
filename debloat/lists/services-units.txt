@@ -6,10 +6,14 @@
 # Derived from the /usr/bin binaries in lists/services-bind.txt mapped to
 # their units via systemctl list-unit-files + systemctl status <pid>
 # (2026-10-29).
-# 23 entries, locked by tools/test_debloat.py.  This is the list that was
-# actually masked live: round 4, 2026-10-29 (23/23 masked, 0 respawned in
-# the 8 s check).  mask.sh now refuses a name with no unit file, so this
-# file doubles as the v42 mask list - do not add a name that has not been
+# 24 entries, locked by tools/test_debloat.py.  Round 4 masked 23/23 live
+# (2026-10-29); `org.tizen.easysetup-daemon.service` was added 2026-10-30
+# after the restart-loop detector in mask.sh found its unit spinning at
+# NRestarts=654 and climbing (`activating (auto-restart)`, ~5 s cycle): the
+# app was disabled in tier 2a, app_launcher refuses it, Restart=on-failure
+# retries forever.  No unit Requires/Wants/BindsTo it (checked live), so
+# masking it is the completion of that app disable, not a new decision.
+# This is the list v42 replays - do not add a name that has not been
 # verified with `systemctl list-unit-files | grep <name>`.
 # Binaries with NO systemd unit at all (launchpad/app-framework launched,
 # respawn regardless): SWUCoreTV, SWUService, SWUVerifierTV, p2p-asm-UI.
@@ -48,6 +52,9 @@ scs-agent.service
 swu-auto-upgrade.service
 emergency-log-transmitter.service
 com.samsung.tv.cis-api-service-app.service
+# app_launcher unit of a tier-2a disabled app; restart-looping until masked
+# (NRestarts=654, 2026-10-30) - see the header note.
+org.tizen.easysetup-daemon.service
 
 # DO NOT MASK - checked live 2026-10-30: bluetooth-monitor.service is the
 # Bluetooth re-activation helper, not a telemetry monitor.

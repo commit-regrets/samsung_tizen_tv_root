@@ -11,9 +11,14 @@
 #   is a real start)
 #   pass 3: kill leftover processes whose /proc/<pid>/exe is /usr/bin/<name>
 #   from the optional bind list (round 4: mask alone left launchpad copies up)
+#   pass 4: picture-guard - one SetNewHome + verify, then the persistent
+#   30 s `newhome-fix` transient unit (the flag can be re-set mid-session)
+#   pass 5: restart-loop check - a listed unit that is still "activating"
+#   fails the run (tcc's trap: a unit whose app is disabled restarts forever)
 # SESSION-ONLY by design (/run is tmpfs, dies at reboot).  Durable
 # suppression = the boot payload re-writing these masks each boot (v42).
-# Undo = tools/unmask.sh with the same list.
+# Undo = tools/unmask.sh with the same list; the picture loop is stopped with
+# `systemctl stop newhome-fix` (it is a transient unit, gone at reboot).
 #
 #   MASK=0 sh mask.sh lists/services-units.txt
 #   sh mask.sh lists/services-units.txt lists/services-bind.txt
@@ -31,7 +36,7 @@
 #
 # Idempotent: re-running in the same boot session is safe and still stops
 # any unit that is up (already-masked units are counted, not skipped from
-# the stop pass).
+# the stop pass), and the newhome-fix loop is not started twice.
 set -u
 
 LIST="${1:-}"
@@ -178,23 +183,80 @@ fi
 # motion processing forced off (Picture Mode / Brightness greyed out).
 # Resetting it is what Home itself does when it hides - safe, memory-only.
 # See models/qnx1d/run-2026-10-29-services-bind.md round 5.
-# AVOCD=0 skips this (e.g. while diagnosing avocd itself).
+#
+# Two parts, and both are needed:
+#   * one immediate SetNewHome + verify (fast feedback, and the whole guard
+#     still works where systemd-run is missing);
+#   * the persistent `newhome-fix` 30 s loop.  The flag lives in memory only
+#     and Samsung code can set it again at any time (tizen-tv-control-center
+#     docs/picture-fix-any-launcher.md: "keeps resetting it every 30 s until
+#     the next reboot"), so a one-shot at boot is not enough - the grey-out
+#     comes back mid-session.
+# AVOCD=0 skips the whole guard; NEWHOME_LOOP=0 keeps only the one-shot.
+newhome=off
 if [ "$MASK" = "1" ] && [ "${AVOCD:-1}" = "1" ] && command -v dbus-send >/dev/null 2>&1; then
   if dbus-send --system --print-reply --dest=org.tizen.tv.avoc /org/tizen/tv/avoc \
       org.tizen.tv.avoc.AvOutputControl.SetNewHome int32:0 >/dev/null 2>&1; then
     st=$(dbus-send --system --print-reply --dest=org.tizen.tv.avoc /org/tizen/tv/avoc \
       org.tizen.tv.avoc.AvOutputControl.CheckAutoMotionPlus 2>/dev/null \
       | awk '/int32/{print $NF}')
-    echo "picture-guard: new_home=0 (CheckAutoMotionPlus=${st:-?}; 1 = picture settings available)"
-    [ "$st" = "1" ] || echo "picture-guard: WARNING - still forced off; rerun SetNewHome or use the 30 s loop (tcc ch. 6)"
+    # 1 = picture settings available now.  0 is NOT a failure by itself: while
+    # Samsung Home is in front, Home keeps motion processing off, so the
+    # readback is 0 regardless of the flag we just cleared.  Only an empty
+    # answer means the verify call itself failed.
+    echo "picture-guard: new_home=0 (CheckAutoMotionPlus=${st:-?}; 1 = settings available, 0 while Samsung Home is in front)"
+    [ -n "$st" ] || echo "picture-guard: WARNING - the verify call returned nothing"
   else
     echo "picture-guard: dbus call failed - skipped (run the SetNewHome command manually)"
   fi
+  if [ "${NEWHOME_LOOP:-1}" = "1" ]; then
+    if systemctl is-active --quiet newhome-fix.service 2>/dev/null; then
+      newhome=active
+      echo "picture-guard: newhome-fix loop already active (30 s)"
+    elif systemctl start newhome-fix.service 2>/dev/null; then
+      newhome=started
+      echo "picture-guard: newhome-fix loop re-started (30 s; stop: systemctl stop newhome-fix)"
+    elif command -v systemd-run >/dev/null 2>&1 && systemd-run --unit=newhome-fix \
+        /usr/bin/awk 'BEGIN { while (1) { system("dbus-send --system --dest=org.tizen.tv.avoc /org/tizen/tv/avoc org.tizen.tv.avoc.AvOutputControl.SetNewHome int32:0"); system("sleep 30") } }' \
+        >/dev/null 2>&1; then
+      newhome=started
+      echo "picture-guard: newhome-fix loop started (30 s; stop: systemctl stop newhome-fix)"
+    else
+      newhome=failed
+      echo "picture-guard: WARNING - newhome-fix loop not started; the flag can restick later"
+    fi
+  fi
+fi
+
+# ---- restart-loop check (tcc's trap) -------------------------------------
+# A unit whose app is disabled or whose binary is gone restarts every 2-5 s
+# forever ("activating (auto-restart)"): up to 130 restarts in minutes on
+# tcc's S90D.  The global count is reported for context (an idle boot already
+# has a couple), but the FAILURE signal is a LISTED unit still activating -
+# that means the mask did not hold.
+loops=0; ourloops=0
+if [ "$MASK" = "1" ] && command -v systemctl >/dev/null 2>&1; then
+  units_file=/tmp/.dsh_units.$$
+  if systemctl list-units --all --no-legend --plain > "$units_file" 2>/dev/null; then
+    loops=$(grep -c ' activating ' "$units_file" 2>/dev/null) || loops=0
+    grep ' activating ' "$units_file" 2>/dev/null | awk '{print $1}' > "$units_file.active"
+    ourloops=$(awk 'NR==FNR{a[$1]=1; next} ($1 in a){c++} END{print c+0}' \
+      "$units_file.active" "$LIST" 2>/dev/null) || ourloops=0
+    while IFS= read -r lu || [ -n "$lu" ]; do
+      case "$lu" in ''|\#*) continue ;; esac
+      lu=$(printf '%s' "$lu" | tr -d '\r' | awk '{$1=$1};1')
+      [ -n "$lu" ] || continue
+      grep -qxF "$lu" "$units_file.active" 2>/dev/null && \
+        echo "LOOP: $lu is still activating (the mask did not hold)"
+    done < "$LIST"
+  fi
+  rm -f "$units_file" "$units_file.active"
+  echo "loop-check: activating=$loops listed-activating=$ourloops (an idle boot already has a couple)"
 fi
 
 echo
 if [ "$MASK" = "1" ]; then
-  echo "summary: newly-masked=$new already=$already stopped=$stopped refusal-ok=$refused missing-units=$missing symlink-fail=$bad kill-refused=$killbad start-failures=$fail killed=$killed reload_ok=$reload_ok"
+  echo "summary: newly-masked=$new already=$already stopped=$stopped refusal-ok=$refused missing-units=$missing symlink-fail=$bad kill-refused=$killbad start-failures=$fail killed=$killed reload_ok=$reload_ok activating=$loops listed-activating=$ourloops newhome=$newhome"
 else
   echo "dry run: would mask $new new units ($already already masked, $missing missing), stop + refusal-test $n"
 fi
@@ -206,7 +268,8 @@ if [ "$n" = "0" ]; then
 fi
 if [ "$MASK" = "1" ]; then
   [ "$fail" = "0" ] && [ "$bad" = "0" ] && [ "$missing" = "0" ] \
-    && [ "$killbad" = "0" ] && [ "$reload_ok" = "1" ] || exit 1
+    && [ "$killbad" = "0" ] && [ "$reload_ok" = "1" ] \
+    && [ "$ourloops" = "0" ] || exit 1
 else
   [ "$bad" = "0" ] && [ "$missing" = "0" ] || exit 1
 fi
