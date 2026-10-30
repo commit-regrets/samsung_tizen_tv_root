@@ -74,6 +74,12 @@ org.tizen.voice-onboarding
 # referenced by p2p-asm and ScreenMirroring by pvrrecorder/5-way-function, so
 # treat even that subset as unproven.
 #
+# Not in the batch either, and why:
+#   * p2p-asm / p2p-asm-UI - RPKs; p2p-asm is already service-masked and is
+#     referenced by boot-helper-dyboost-tv and nfc-daemon, so the app rows stay.
+#   * com.samsung.tv.coba.mobilebff - a separate store TPK, referenced by the
+#     already-disabled mde-framework; leave it to a later, phone-tested pass.
+#
 # Reverted ids (do NOT re-add without a phone test):
 #   com.samsung.tv.airplay-app-2          org.tizen.ScreenMirroring-app-tv
 #   org.tizen.SMSourceAPP                 com.samsung.tv.multiscreen
