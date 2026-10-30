@@ -1,5 +1,13 @@
 # Open issues — current state, pending work, and closed history
 
+> **ACTIVE BLOCKER (2026-10-30):** the owner's phone shows the TV **offline** in
+> SmartThings, so phone control does not work, while the TV is rooted, network-up
+> and its SmartThings processes are running. Full evidence, the states already
+> tested, what is ruled out and the next bisect step:
+> [docs/SMARTTHINGS-OFFLINE-2026-10-30.md](SMARTTHINGS-OFFLINE-2026-10-30.md).
+> The debloat lists currently on the TV are not the committed ones (the TV is
+> between experiments); restore from debloat/lists/ before any new list work.
+
 ## Current state — 2026-10-30 (v42 verified: cold boots, 34-unit durable masks,
 58 -> 42 app rows after the batch-3 revert; test_all 14/14)
 
