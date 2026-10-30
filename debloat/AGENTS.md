@@ -29,15 +29,30 @@ All TV reads/writes go through that channel (PC-side helpers:
   2026-10-30 for ALL 20 rows** (mains cycle: `id -u` = 0, count = 20, both
   canalysis/pisa sentinels still present) - the store is durable as-is, no
   payload change needed for it.
-- **Services layer: 24/24 units masked, and now durable (v42).**
-  `lists/services-units.txt` holds 24 units; the boot payload re-applies all of
+- **Services layer: 34/34 units masked, and now durable (v42).**
+  `lists/services-units.txt` holds 34 units; the boot payload re-applies all of
   them from the root-owned `/opt/usr/data/debloat-masks.txt` at every boot
   (`deploy.sh` installs that file; deleting it is the revert). **Cold-boot
   acceptance PASSED 2026-10-30 14:05:40** (mains cycle, no PC involved):
   `masks=24 stopped=24 killed=3 fail=0 missing=0 listed-activating=0
   loop-check=ok newhome=set(0),loop-started`, and live afterwards **24/24
   masked-runtime with none active** (18 inactive + 6 failed) and zero processes
-  under the 24 listed binaries. That is the standing state, not a session.
+  under the listed binaries (that run used the 24-unit list; the 34-unit
+  extension is below). That is the standing state, not a session.
+  **Extended to 34 on 2026-10-30 14:50** with the OTA / firmware-update stack:
+  `vdsystem-update-manager.{service,timer}`, `was-background-update.{service,path}`,
+  `swu-verifier-tv.{service,timer}`, `swu-core-tv.service`,
+  `swu-service.service`, `vdca-update.service`, `swu-auto-upgrade.timer`
+  (+2 kill-list binaries). Re-run beaconed `masks=34 stopped=34 killed=1 fail=0
+  missing=0 activating=0 listed-activating=0 loop-check=ok
+  newhome=set(0),loop-active` — and **`vdsystem-update-manager.service` was a
+  SECOND restart loop** (`Restart=always`, `ExecMainStatus=0`,
+  `activating (auto-restart)`), which is why the global count fell 2 -> 0. The
+  dependency gate passed (only `swu-core-tv`/`swu-service` `Requisite=` and
+  `swu-factory-usb-upgrade.target` `Requires=` the verifier — all disabled; they
+  simply cannot start, which is the intent). **Rejected lever:** the vendor's own
+  OTA switch is `ConditionPathExists=!/mnt/backup/OS_UPGRADE_FLAG`, but
+  `/mnt/backup` is a symlink to `/mnt/systemrw` (trap 9) — do not plant it.
   **History — do not read it as the current state:** round 4 (2026-10-29)
   masked 23/23 live (0 respawn in the 8 s check, ~192 MB sum-RSS upper bound
   across the 21 running `/usr/bin` services); the 24th,
@@ -55,8 +70,9 @@ All TV reads/writes go through that channel (PC-side helpers:
   TIFSDaemon <- factory-service, SCSAgent <- scs-agent.service,
   SWUAutoUpgrade <- swu-auto-upgrade.service); `cis-api-service-app` churn
   stops in masked sessions (its unit is on the list); SWUCoreTV/SWUService/
-  SWUVerifierTV are launchpad-launched with no units (suppression route
-  still open). `bluetooth-monitor.service` is **excluded, not a candidate**:
+  SWUVerifierTV are on the list via their own units now
+  (`swu-core-tv.service`, `swu-service.service`, `swu-verifier-tv.service`) -
+  corrected 2026-10-30: they are no longer 'launchpad with no unit'. `bluetooth-monitor.service` is **excluded, not a candidate**:
   it is the boot-time Bluetooth re-activator (unit comment: "check previous
   BT-connection status and re-activate BT when boot"; wanted by
   `starter.target` + `swu-standalone.target`; `bt-monitor` holds
@@ -130,7 +146,7 @@ All TV reads/writes go through that channel (PC-side helpers:
    all 11 `--global` rows and both sentinels SURVIVED the reboot - the
    `--global` store and the two vendor sentinels are durable as-is, and v42
    does NOT need to re-assert app disables. v42's only job is the /run mask
-   re-assertion for the 24 service units (see rule 13 and
+   re-assertion for the 34 service units (see rule 13 and
    `models/qnx1d/v42-design-brief.md` for the reviewed design).
 12. busybox `ps` shows only ~228 of ~408 processes; idle meminfo deltas are
    dominated by TV activity. Attribute per-process from `/proc` and compare
@@ -148,8 +164,8 @@ All TV reads/writes go through that channel (PC-side helpers:
    map with `systemctl status <pid>` (TIFADaemon_L <- automation-service,
    TIFSDaemon <- factory-service, SCSAgent <- scs-agent.service,
    SWUAutoUpgrade <- swu-auto-upgrade.service — all on the mask list);
-   SWUCoreTV/SWUService/SWUVerifierTV are launchpad-launched with no units
-   and respawn regardless; verify masks by `is-enabled`, and
+   SWUCoreTV/SWUService/SWUVerifierTV have units after all (2026-10-30) and
+   are masked like the rest; verify masks by `is-enabled`, and
    never by mount listings or `/opt` file existence.
 14. **Two traps earned from tizen-tv-control-center (2026-10-30):**
    (a) **A disabled app leaves a restart-looping unit.** `pkgcmd -D` stops the

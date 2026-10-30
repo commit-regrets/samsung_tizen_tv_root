@@ -6,7 +6,7 @@
 # Derived from the /usr/bin binaries in lists/services-bind.txt mapped to
 # their units via systemctl list-unit-files + systemctl status <pid>
 # (2026-10-29).
-# 24 entries, locked by tools/test_debloat.py.  Round 4 masked 23/23 live
+# 34 entries, locked by tools/test_debloat.py.  Round 4 masked 23/23 live
 # (2026-10-29); `org.tizen.easysetup-daemon.service` was added 2026-10-30
 # after the restart-loop detector in mask.sh found its unit spinning at
 # NRestarts=654 and climbing (`activating (auto-restart)`, ~5 s cycle): the
@@ -16,7 +16,9 @@
 # This is the list v42 replays - do not add a name that has not been
 # verified with `systemctl list-unit-files | grep <name>`.
 # Binaries with NO systemd unit at all (launchpad/app-framework launched,
-# respawn regardless): SWUCoreTV, SWUService, SWUVerifierTV, p2p-asm-UI.
+# respawn regardless): p2p-asm-UI.  (Corrected 2026-10-30: the three SWU
+# binaries DO have units - swu-core-tv.service, swu-service.service,
+# swu-verifier-tv.service - they are on this list now.)
 # pushd is socket-activated: mask the socket too.
 # OWNER TRADE-OFF: masking register-device.service takes down vd_dmr
 # (DLNA media renderer, port 9197) - casting from phones breaks. Remove
@@ -55,6 +57,36 @@ com.samsung.tv.cis-api-service-app.service
 # app_launcher unit of a tier-2a disabled app; restart-looping until masked
 # (NRestarts=654, 2026-10-30) - see the header note.
 org.tizen.easysetup-daemon.service
+
+# --- OTA / firmware-update stack, added 2026-10-30 (item 1 of the post-v42
+# plan).  Live evidence that day: vdsystem-update-manager.service was
+# `activating (auto-restart)` with Restart=always and ExecMainStatus=0 - a
+# SECOND restart loop of the same class as easysetup; was-background-update
+# .service was `active running` (WantedBy=starter.target, path-triggered);
+# swu-verifier-tv.service was running (WantedBy=multi-user.target plus two
+# bootseq starter targets); vdca-update.service and swu-auto-upgrade.timer
+# were failed.  The timers/paths are listed too, so the triggers stop firing
+# instead of failing forever.
+# Gate (2026-10-30, the q3deps predicate run inline over all unit files):
+#   swu-core-tv.service / swu-service.service  Requisite=swu-verifier-tv.service
+#   swu-factory-usb-upgrade.target             Requires=swu-verifier-tv.service
+# All three are disabled and off the boot path; masking the verifier makes the
+# SWU core/service/factory-USB paths un-startable, which is the intent.  No
+# PartOf/Conflicts/BindsTo on any added unit, and nothing Wants them.
+# REJECTED lever: the vendor's own OTA switch is
+# `ConditionPathExists=!/mnt/backup/OS_UPGRADE_FLAG` on the SWU cores - but
+# /mnt/backup is a symlink to /mnt/systemrw, i.e. the trap-9 zone.  Do not plant
+# that flag; mask the units instead.
+vdsystem-update-manager.service
+vdsystem-update-manager.timer
+was-background-update.service
+was-background-update.path
+swu-verifier-tv.service
+swu-verifier-tv.timer
+swu-core-tv.service
+swu-service.service
+vdca-update.service
+swu-auto-upgrade.timer
 
 # DO NOT MASK - checked live 2026-10-30: bluetooth-monitor.service is the
 # Bluetooth re-activation helper, not a telemetry monitor.

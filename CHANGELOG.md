@@ -15,6 +15,49 @@ entry is an incomplete change. `AGENTS.md` repeats this rule for agents.
 
 ---
 
+## 2026-10-30 — the OTA stack joins the durable mask list (24 -> 34 units)
+
+After v42 made the list durable, adding a unit is a one-line change, so the
+whole software-update path went in - and it found a **second restart loop**:
+
+| Unit | Was | Why it matters |
+|---|---|---|
+| `vdsystem-update-manager.service` | `activating (auto-restart)`, `Restart=always`, `ExecMainStatus=0` | the same bug class as easysetup, live since 14:15 |
+| `was-background-update.service` | `active running` (`WantedBy=starter.target`, path-triggered) | background updater alive every boot |
+| `swu-verifier-tv.service` | `active running` (`WantedBy=multi-user.target` + two bootseq targets) | the SWU verifier |
+| `vdca-update.service`, `swu-auto-upgrade.timer` | `failed` | update path retrying into nothing |
+| `swu-core-tv.service`, `swu-service.service` | `disabled/inactive` | **correction:** SWUCoreTV/SWUService/SWUVerifierTV are NOT unit-less - they had units all along |
+| the timers/paths (`vdsystem-update-manager.timer`, `was-background-update.path`, `swu-verifier-tv.timer`) | active/inactive | the triggers, so they stop firing instead of failing |
+
+**Gate (q3deps predicate run inline over every unit file):** the only hard
+reverse edges are `swu-core-tv`/`swu-service` `Requisite=swu-verifier-tv` and
+`swu-factory-usb-upgrade.target` `Requires=swu-verifier-tv` - all three
+disabled and off the boot path, and masking the verifier only makes the SWU
+core/service/factory-USB paths un-startable, which is the intent. No
+`PartOf`/`Conflicts`/`BindsTo` on any added unit; nothing `Wants` them.
+
+**Rejected lever:** the vendor's own OTA switch is
+`ConditionPathExists=!/mnt/backup/OS_UPGRADE_FLAG` on the SWU cores. It looks
+free, but `/mnt/backup` is a symlink to `/mnt/systemrw` - the trap-9 zone - so
+the flag was NOT planted; the units are masked instead.
+
+Lists are now **34 units / 26 binaries** (`+2` kill-list names:
+`was_background_update`, `vdsystem-update-manager`; the three SWU binaries were
+already there). Tests lock the new counts and the new names.
+
+Applied live without a reboot (an app restart re-runs v42): the lists were
+installed on `/opt/usr/data` from the server-rendered committed copies, the
+payload process was killed, and 2 s later:
+
+    masks=34 stopped=34 killed=1 fail=0 missing=0 activating=0
+    listed-activating=0 loop-check=ok newhome=set(0),loop-active
+
+All ten new units are `masked-runtime` and none is active; zero processes under
+the two new binaries; `vdsystem-update-manager` is `failed` with its restart
+refused. **The global `activating` count fell 2 -> 0** because that loop was
+the remaining one. The boot-time re-application mechanism is already
+cold-boot proven; a future power cycle will simply read 34 instead of 24.
+
 ## 2026-10-30 — review fixes: the current state is 24/24, and the mask beacons decode
 
 Three findings from the post-acceptance review, all docs/tooling — the boot

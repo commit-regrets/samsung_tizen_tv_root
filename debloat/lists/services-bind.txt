@@ -9,8 +9,11 @@
 # every process whose /proc/<pid>/exe is /usr/bin/<name> here.
 # NOTE: covers SWU*/fw-update* = firmware auto-update stays off (intended;
 # see the toolkit trap 10).  Session-only; a masked unit cannot respawn.
-# 24 active names.  Binaries this unit does not ship (3 of 24) are skipped
-# and counted.
+# 26 active names.  Binaries this unit does not ship are skipped and
+# counted (some names exist only on other models).
+# 2026-10-30: + was_background_update, vdsystem-update-manager with the
+# OTA stack (was-background-update.service, vdsystem-update-manager.
+# service); the three SWU binaries were already here.
 # DELIBERATELY EXCLUDED (2026-10-30): bt-monitor / bluetooth-monitor.service.
 # Excluded on the owner's instruction (Bluetooth must keep working).  Live
 # inspection: its unit comment reads "bt-service check previous BT-connection
@@ -45,3 +48,5 @@ contents-recognition-service
 p2p-asm
 emergencyLogTransmitter
 gamebar-service
+was_background_update
+vdsystem-update-manager

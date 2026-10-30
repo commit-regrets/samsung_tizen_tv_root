@@ -757,15 +757,20 @@ def main() -> int:
                   (DEB / "lists" / "services-units.txt")
                   .read_text(encoding="utf-8").splitlines()
                   if l.strip() and not l.strip().startswith("#")]
-    # 24 active units: round 4 masked 23/23 live (2026-10-29); the 24th is
+    # 34 active units: round 4 masked 23/23 live (2026-10-29); the 24th is
     # org.tizen.easysetup-daemon.service, added 2026-10-30 when the restart-loop
-    # detector found its unit spinning at NRestarts=654 (app disabled in tier
-    # 2a, no reverse deps).  bluetooth-monitor is EXCLUDED (BT re-activator),
-    # not merely commented-optional.
-    check("services-units.txt is 24 active entries incl. easysetup",
-          len(units_list) == 24
+    # detector found its unit spinning at NRestarts=654.  The last ten are the
+    # OTA/firmware-update stack (2026-10-30), including a SECOND loop
+    # (vdsystem-update-manager, Restart=always).  bluetooth-monitor is EXCLUDED
+    # (BT re-activator), not merely commented-optional.
+    update_units = {"vdsystem-update-manager.service", "was-background-update.service",
+                    "swu-verifier-tv.service", "swu-core-tv.service",
+                    "swu-service.service", "vdca-update.service"}
+    check("services-units.txt is 34 active entries incl. easysetup + the OTA stack",
+          len(units_list) == 34
           and "com.samsung.tv.cis-api-service-app.service" in units_list
-          and "org.tizen.easysetup-daemon.service" in units_list,
+          and "org.tizen.easysetup-daemon.service" in units_list
+          and update_units <= set(units_list),
           str(len(units_list)))
     check("bluetooth-monitor is a commented DO-NOT-MASK note, never an active mask",
           "bluetooth-monitor.service" not in units_list
@@ -774,7 +779,8 @@ def main() -> int:
     bind_txt = (DEB / "lists" / "services-bind.txt").read_text(encoding="utf-8")
     bind_list = [l.strip() for l in bind_txt.splitlines()
                  if l.strip() and not l.strip().startswith("#")]
-    check("services-bind.txt is 24 active binaries", len(bind_list) == 24,
+    check("services-bind.txt is 26 active binaries", len(bind_list) == 26
+          and {"was_background_update", "vdsystem-update-manager"} <= set(bind_list),
           str(len(bind_list)))
     check("services-bind.txt: bt-monitor is not an active kill-list entry",
           "bt-monitor" not in bind_list and "bt-monitor" in bind_txt)

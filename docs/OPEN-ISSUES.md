@@ -52,14 +52,19 @@ meminfo-derived `0xE4E42000` was wrong (vendor-adjusted counters): see item 2.
    gate (Chromium 120) and the physmap primitive are still unproven elsewhere.
    Record each unit's results there.
 5. **Debloat — durable; service suppression is live (RESOLVED 2026-10-30).**
-   20 apps are durably disabled (`pkgcmd --global`) and **all 24 units are
+   20 apps are durably disabled (`pkgcmd --global`) and **all 34 units are
    masked**, re-applied at every boot by the payload from
    `/opt/usr/data/debloat-masks.txt`. **Cold-boot acceptance PASSED
    2026-10-30 14:05:40** (mains cycle, no PC involved): `masks=24 stopped=24
    killed=3 fail=0 missing=0 listed-activating=0 loop-check=ok
-   newhome=set(0),loop-started` at t=51 s, 24/24 units masked-runtime and none
+   newhome=set(0),loop-started` at t=51 s, every unit masked-runtime and none
    active, zero processes under the listed binaries, 20 app rows true, both
-   sentinels present. Design: `debloat/models/qnx1d/v42-design-brief.md`
+   sentinels present. **Extended the same day to 34 units / 26 binaries** with
+   the OTA / firmware-update stack (see item 6): `masks=34 stopped=34 killed=1
+   fail=0 missing=0 activating=0 listed-activating=0 loop-check=ok
+   newhome=set(0),loop-active`, and a **second restart loop**
+   (`vdsystem-update-manager.service`, `Restart=always`) was found and stopped
+   by it. Design: `debloat/models/qnx1d/v42-design-brief.md`
    (reviewed, cleared, implemented as `MaskServices()`); the two policy files
    are installed by `deploy.sh` and deleted by `uninstall.sh` — that is the
    revert. **History:** round 4 (2026-10-29) masked 23/23 during that session

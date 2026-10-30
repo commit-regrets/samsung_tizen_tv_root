@@ -66,9 +66,9 @@ picture-settings loop, and fails if a listed unit is still restart-looping.
   `models/qnx1d/run-2026-10-29-tier1.md`. ~25.9 MB running ACR/ad
   processes freed (distinct processes, measured against the pre-debloat
   baseline).
-- **Services layer: a 24-unit mask list; only the targeted easysetup mask is
-  up right now** — the 2026-10-30 reboot cleared the other 23 (and
-  `newhome-fix` is running). The verified round-4 run
+- **Services layer: a 34-unit mask list, all of it masked durably (v42) and
+  verified on the 2026-10-30 cold boot** (`masks=24 ... listed-activating=0`,
+  then 34 after the OTA stack was added at 14:50). The verified round-4 run
   (2026-10-29) masked 23/23 and nothing respawned in the 8 s check,
   ~192 MB sum-RSS across the 21 running `/usr/bin` services (upper bound;
   the per-process dump is the evidence). The 24th,
@@ -80,7 +80,8 @@ picture-settings loop, and fails if a listed unit is still restart-looping.
   Durable suppression = the boot
   payload re-applying the masks each boot from
   `/opt/usr/data/debloat-masks.txt` (v42, deployed 2026-10-30 and **cold-boot
-  verified**: 24/24 masks back, none active, zero listed processes). Full
+  verified**: every mask back, none active, zero listed processes; 34/34 since
+  the OTA stack joined at 14:50). Full
   falsification trail (empty /opt files, /opt symlinks and drop-ins all
   inert — `/opt` is not in systemd's UnitPath; runtime bind-mounts
   bypassed) in `models/qnx1d/run-2026-10-29-services-bind.md`.
@@ -99,8 +100,11 @@ picture-settings loop, and fails if a listed unit is still restart-looping.
 - Formerly "unit-less" daemons resolved and on the mask list:
   TIFADaemon_L <- automation-service, TIFSDaemon <- factory-service,
   SCSAgent <- scs-agent.service, SWUAutoUpgrade <- swu-auto-upgrade.service.
-  Genuinely unit-less (launchpad, respawn regardless, ~29 MB):
-  `SWUCoreTV`, `SWUService`, `SWUVerifierTV` — suppression route still open.
+  Not unit-less after all (corrected 2026-10-30): `SWUCoreTV`, `SWUService`
+  and `SWUVerifierTV` ship `swu-core-tv.service`, `swu-service.service` and
+  `swu-verifier-tv.service`; all three units joined the durable mask list
+  together with the rest of the OTA stack (34 units total).
+  `p2p-asm-UI` stays genuinely unit-less (launchpad, respawns regardless).
 
 **Pre-debloat baseline captured** (`models/qnx1d/baseline-pre-debloat.txt`:
   meminfo, PSI, load, per-process VmRSS+exe, disabled-row count) — the A/B
