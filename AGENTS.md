@@ -670,7 +670,7 @@ that downloads it) and reboot. Things to preserve when editing `Program.cs`:
   `systemctl daemon-reload`, stop each unit, kill leftover `/usr/bin/<name>`
   processes, start the persistent `newhome-fix` 30 s picture loop, check that
   no listed unit is still `activating`, and beacon
-  `masks=… stopped=… missing=… activating=… listed-activating=…
+  `masks=… stopped=… fail=… missing=… activating=… listed-activating=…
   loop-check=ok|failed newhome=…` (no ambiguous `loops=`); fail open on a
   missing list. Both
   pre-checks are now closed (2026-10-30): the cold-boot readback shows **all

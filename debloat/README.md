@@ -66,8 +66,9 @@ picture-settings loop, and fails if a listed unit is still restart-looping.
   `models/qnx1d/run-2026-10-29-tier1.md`. ~25.9 MB running ACR/ad
   processes freed (distinct processes, measured against the pre-debloat
   baseline).
-- **Services layer: a 24-unit mask list, nothing masked right now** (session
-  masks died with the 2026-10-30 reboot). The verified round-4 run
+- **Services layer: a 24-unit mask list; only the targeted easysetup mask is
+  up right now** — the 2026-10-30 reboot cleared the other 23 (and
+  `newhome-fix` is running). The verified round-4 run
   (2026-10-29) masked 23/23 and nothing respawned in the 8 s check,
   ~192 MB sum-RSS across the 21 running `/usr/bin` services (upper bound;
   the per-process dump is the evidence). The 24th,

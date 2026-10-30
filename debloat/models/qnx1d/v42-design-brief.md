@@ -174,8 +174,8 @@ After a mains power-cycle, within ~90 s of power-on:
   hides;
 - the 20 `--global` app rows still true;
 - channel answering with `id -u` = 0; beacon shows
-  `masks=… stopped=… missing=… activating=… listed-activating=…
-  loop-check=ok|failed newhome=…`.
+  `masks=… stopped=… fail=… missing=… activating=… listed-activating=…
+  loop-check=ok|failed newhome=…` (the same field set as step 6).
 Revert path: remove the list file from /opt → reboot → stock behavior (the
 picture loop is a transient unit and dies with the boot).
 

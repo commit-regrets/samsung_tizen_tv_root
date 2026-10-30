@@ -36,10 +36,10 @@ All TV reads/writes go through that channel (PC-side helpers:
   `org.tizen.easysetup-daemon.service`, was added 2026-10-30 because the
   restart-loop detector found it spinning at `NRestarts=654` (its app is
   disabled in tier 2a and `Restart=on-failure` retries forever); it was
-  verified by masking that one unit, not in a full run. **The 2026-10-30
-  mains cycle cleared every `/run` mask**, so as of this writing nothing is
-  masked except that one targeted test — that is the session-only design, and
-  it is what v42 fixes. Tooling: `tools/mask.sh` (masks, reload, stop,
+  verified by masking that one unit, not in a full run. **As of 2026-10-30
+  12:35 exactly one mask is up** — `org.tizen.easysetup-daemon.service`, the
+  targeted test — with `newhome-fix` running; the 2026-10-30 mains cycle
+  cleared the other 23, and that is the session-only design v42 fixes. Tooling: `tools/mask.sh` (masks, reload, stop,
   refusal test, kill pass, picture guard with the persistent `newhome-fix`
   30 s loop, restart-loop check; idempotent) and `tools/unmask.sh`.
   Durable = v42 (payload re-writes the masks at boot; not started).

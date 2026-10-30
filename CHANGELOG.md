@@ -15,6 +15,27 @@ entry is an incomplete change. `AGENTS.md` repeats this rule for agents.
 
 ---
 
+## 2026-10-30 — review residuals: one live-state truth, one beacon shape, TESTING 4c
+
+Three P3 consistency residuals from the second review:
+
+- **One live-state sentence everywhere.** `debloat/AGENTS.md`,
+  `docs/OPEN-ISSUES.md` and `debloat/README.md` now all say the same thing,
+  checked live at 12:35: the mask list is 24, **exactly one mask is up**
+  (`org.tizen.easysetup-daemon.service`, the targeted test) with `newhome-fix`
+  running, and the 2026-10-30 mains cycle cleared the other 23. (AGENTS.md said
+  "nothing is masked except the targeted test", the other two said "no masks
+  are up" — both were half-true.)
+- **Beacon shape has one definition.** `fail=<m>` is now in all three places
+  that define it (v42 brief step 6, the brief's acceptance line, parent
+  `AGENTS.md` §11): `masks= stopped= fail= missing= activating=
+  listed-activating= loop-check= newhome=`.
+- **`docs/TESTING.md` 4c matches the layer**: five TV-side scripts (the four
+  plus `q3deps.sh`), the q3deps list contract (comment-only list → `FAIL:` +
+  exit 2), the documented `cat script | sh -s <list>` form, the piped-list
+  refusal, and the fail-closed loop check (`loop-check=failed` on an
+  unreadable `list-units`, not "no loops").
+
 ## 2026-10-30 — bt-monitor forensic answer: it restores the saved BT state at boot
 
 Owner question: what does `bluetooth-monitor.service` do, and should we block
@@ -56,7 +77,7 @@ into v42" items plus doc drift. All fixed before v42 starts:
   (payload **skips** and beacons `missing=<n>`; `mask.sh` stays strict — a
   human is there and a typo must be loud; an OTA rename must not fail the boot
   step), the beacon fields are pinned to
-  `masks=… stopped=… missing=… activating=… listed-activating=…
+  `masks=… stopped=… fail=… missing=… activating=… listed-activating=…
   loop-check=ok|failed newhome=…` (the ambiguous `loops=` is gone), and the Q3
   table explicitly says it covers the 23-entry run only — the 24th unit was
   checked with the same predicate inline on the TV, not by `q3deps.sh` over 24.
@@ -113,7 +134,9 @@ QNX1D). Two tcc findings did change the code, so they landed first:
   `inactive` **or** `failed` as stopped.
 - Beacon/summary parity for v42: `mask.sh` now prints
   `activating=… listed-activating=… newhome=…`, and the brief's beacon shape
-  is `masks=… stopped=… loops=… newhome=…`.
+  is `masks=… stopped=… fail=… missing=… activating=… listed-activating=…
+  loop-check=ok|failed newhome=…` (final shape, pinned in the review-residual
+  entry above).
 - Tests: `systemctl` stub learns `is-active`/`list-units`/unknown-unit
   `start`; new `systemd-run` stub; assertions for the loop start, its
   idempotency, the fail-on-listed-loop, the report-only-global-loop case,

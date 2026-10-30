@@ -126,15 +126,19 @@ has drifted.
 
 ## 4c. Debloat tooling — `tools/test_debloat.py`
 
-Runs the TV-side debloat scripts (`debloat/tools/apply.sh`, `restore.sh`,
-`mask.sh`, `unmask.sh`) under a POSIX `sh` with their absolute TV paths
-rewritten into a temp tree and stubs for `pkgcmd`, `sqlite3`, `systemctl` and
-`dbus-send`, so the assertions are on behaviour (which command ran, in what
-order, with what exit code), not on output prose:
+Runs the five TV-side debloat scripts (`debloat/tools/apply.sh`, `restore.sh`,
+`mask.sh`, `unmask.sh`, `q3deps.sh`) under a POSIX `sh` with their absolute TV
+paths rewritten into a temp tree and stubs for `pkgcmd`, `sqlite3`, `systemctl`,
+`systemd-run` and `dbus-send`, so the assertions are on behaviour (which command
+ran, in what order, with what exit code), not on output prose:
 
 - every script refuses to run without a list **file** argument (exit 2, no TV
   command) — the old `${LIST:--}` default was a literal file named `-`, so a
-  no-arg or piped run printed `0 of 0` and exited 0;
+  no-arg or piped run printed `0 of 0` and exited 0; the documented TV form
+  `cat script | sh -s <list>` is tested too, and a list piped without the
+  argument is refused (exit 2), not silently read as empty;
+- `q3deps.sh`: one-unit list → `of 1 checked`; a comment-only list → `FAIL:` +
+  exit 2 (never the old `0 coupled of 0 … dependency-safe`);
 - `apply.sh`: dry run is a gate (a refused entry fails it), list order, undo
   line before the disable, the canalysis/pisa sentinels (planted, stopped,
   recorded in the undo log, and an unplantable sentinel aborts), denylist,
@@ -144,7 +148,9 @@ order, with what exit code), not on output prose:
   whose mask is ours only, `MISSING` unit names fail the run, all-missing
   exits 2, the persistent `newhome-fix` loop (started once, reported
   `newhome=started` then `active`), the restart-loop check (a listed unit
-  still `activating` fails the run; an unrelated one only gets reported), and
+  still `activating` fails the run; an unrelated one only gets reported; a
+  failed `list-units` dump is `loop-check=failed` and fails the run rather
+  than reading as "no loops"), and
   the kill pass kills the process whose `/proc/<pid>/exe` is the
   listed binary (POSIX only — the fixture points `PROCDIR` at a fake tree);
 - list hygiene (bare ids, no denylist entry, the 24-unit mask-list lock and
