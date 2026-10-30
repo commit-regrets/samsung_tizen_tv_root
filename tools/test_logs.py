@@ -69,7 +69,33 @@ HEALTHY = [
     line(10, 0, 7, 32, "autoupdate [system] db/menu/support/softwareupdate/"
                        "autoupdate = Int32: 0"),
     line(10, 0, 8, 33, "device closed"),
+    line(10, 0, 8, 33, "masks begin n=24"),
     line(10, 0, 9, 34, "ROOTCHAN 31337 uid=0 bind=192.0.2.10"),
+    line(10, 0, 10, 35, "masks=24 stopped=24 killed=3 fail=0 missing=0 "
+                        "activating=2 listed-activating=0 loop-check=ok "
+                        "newhome=set(0),loop-started"),
+]
+
+# v42.0's first run: the stop loop ran out of budget (fixed in v42.1, but the
+# line is still in logs written that day, so it must decode).
+MASKFAIL = [
+    line(13, 7, 1, 40, "start uid=5001 pid=400"),
+    line(13, 7, 1, 41, "masks begin n=24"),
+    line(13, 7, 2, 96, "masks deadline after 4/24 stops"),
+    line(13, 7, 2, 97, "masks=24 stopped=2 killed=16 fail=22 missing=0 "
+                       "activating=1 listed-activating=0 loop-check=ok "
+                       "newhome=set(0),loop-active"),
+]
+
+MASKSKIP = [
+    line(14, 0, 0, 50, "masks begin n=24"),
+    line(14, 0, 1, 51, "masks skip (no /opt/usr/data/debloat-masks.txt)"),
+]
+
+MASKODD = [
+    line(15, 0, 0, 60, "masks begin n=24"),
+    line(15, 0, 1, 61, "masks counters unverified (list-units failed)"),
+    line(15, 0, 1, 61, "masks exception IOException: list-units"),
 ]
 
 SICK = [
@@ -108,9 +134,37 @@ def test_beacons():
     codes = {f["code"] for f in r["findings"]}
     check("healthy: HIGH-ALLOC + HIGH-SCAN + UPDATE-OFF seen",
           {"HIGH-ALLOC", "HIGH-SCAN", "UPDATE-OFF"} <= codes, str(codes))
+    check("healthy: v42 mask step decoded as MASK-BEGIN + MASK-OK",
+          {"MASK-BEGIN", "MASK-OK"} <= codes, str(codes))
     hs = next(f for f in r["findings"] if f["code"] == "HIGH-SCAN")
     check("healthy: HIGH-SCAN hint names the elsewhere meaning",
           "elsewhere" in hs["hint"])
+
+    # v42.0 budget-exhausted boot: MASK-FAIL (and the retired deadline line)
+    p3 = write_log(MASKFAIL)
+    r3 = beacons.analyse_boot(
+        beacons.group_boots(list(beacons.parse_lines(p3.read_text())))[0], 0)
+    codes3 = {f["code"] for f in r3["findings"]}
+    check("maskfail: MASK-FAIL + MASK-DEADLINE, never MASK-OK",
+          {"MASK-FAIL", "MASK-DEADLINE"} <= codes3 and "MASK-OK" not in codes3,
+          str(codes3))
+    mf = next(f for f in r3["findings"] if f["code"] == "MASK-FAIL")
+    check("maskfail: hint explains socket/path units", "socket" in mf["hint"])
+
+    # missing policy = documented revert
+    p4 = write_log(MASKSKIP)
+    r4 = beacons.analyse_boot(
+        beacons.group_boots(list(beacons.parse_lines(p4.read_text())))[0], 0)
+    check("maskskip: MASK-SKIP decoded",
+          "MASK-SKIP" in {f["code"] for f in r4["findings"]})
+
+    # unreadable dump + thrown thread must not read as success
+    p5 = write_log(MASKODD)
+    r5 = beacons.analyse_boot(
+        beacons.group_boots(list(beacons.parse_lines(p5.read_text())))[0], 0)
+    codes5 = {f["code"] for f in r5["findings"]}
+    check("maskodd: MASK-UNVERIFIED + MASK-CRASH decoded",
+          {"MASK-UNVERIFIED", "MASK-CRASH"} <= codes5, str(codes5))
 
     # sick boot: device held, window off, bind fallback, crash -> error hint
     p2 = write_log(SICK)

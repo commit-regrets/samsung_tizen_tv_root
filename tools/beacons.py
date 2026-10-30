@@ -117,6 +117,44 @@ SIGNATURES = [
      "could not re-assert auto-update off",
      "OTA could replace the app and the boot row; set it by hand "
      "(AGENTS.md 'Auto-update is pinned off')"),
+    # ---- v42 service masks (debloat) --------------------------------------
+    ("MASK-BEGIN", re.compile(r"^masks begin n=\d+"), "info",
+     "the v42 service-mask step started",
+     "expect the 'masks=' result line within ~25 s; without it the thread "
+     "died - look for MASK-CRASH"),
+    ("MASK-SKIP", re.compile(r"^masks skip"), "warn",
+     "the mask step was skipped (no policy file, or it ran before uid 0)",
+     "no /opt/usr/data/debloat-masks.txt means the documented revert is in "
+     "effect and the masks stay session-only: re-run deploy.sh to restore the "
+     "list. uid= means a code path error - report it"),
+    ("MASK-OK", re.compile(r"^masks=\d+ stopped=\d+ killed=\d+ fail=0 missing=0 "
+                           r".*loop-check=ok newhome="), "info",
+     "the service-mask step is applied and verified",
+     "nothing to do. activating=<n> is context only (unrelated units); "
+     "newhome=set(0) is expected while Samsung Home is in front, and "
+     "loop-started is normal after a reboot (the transient unit dies with it)"),
+    ("MASK-FAIL", re.compile(r"^masks=\d+(?=.*(?:fail=[1-9]|missing=[1-9]|"
+                             r"loop-check=(?:failed|skipped)))"), "warn",
+     "the mask step ran but did not come out clean (fail>0, missing>0 or "
+     "loop-check=failed)",
+     "fail = listed units still up after the stop window plus reload/kill "
+     "errors; missing = names with no unit file (a vendor rename - drop or "
+     "re-map them). A .socket/.path unit has no process, so only its stop job "
+     "can take it down. Re-run debloat/tools/mask.sh for a human-paced retry"),
+    ("MASK-DEADLINE", re.compile(r"^masks deadline after "), "info",
+     "v42.0 only: the per-unit stop loop ran out of budget",
+     "fixed in v42.1 - one batched --no-block stop plus a list-units poll; "
+     "this line can only come from the first v42 build, and the kill pass "
+     "still took the survivors down"),
+    ("MASK-UNVERIFIED", re.compile(r"^masks counters unverified"), "warn",
+     "the list-units dump failed, so stopped/fail are not measurements",
+     "the masks are still written; read the state by hand: systemctl "
+     "list-units --all --no-legend --plain | grep <unit>"),
+    ("MASK-CRASH", re.compile(r"^masks exception "), "error",
+     "the v42 mask thread threw",
+     "masks may be partially written; the channel and the rest of the boot are "
+     "unaffected (own thread). Read the exception type, then re-run "
+     "debloat/tools/mask.sh"),
 ]
 
 ROOTED = re.compile(r"^SUCCESS-R00T ")

@@ -103,6 +103,33 @@ The on-TV marker keeps the `t=<n>s <payload line>` shape (no token).
 | `fail open node after 120s=<-1> errno=<e>` | every physmap node was held for the whole retry | a browser stub or wedged process owns them; wait ~2 min or power-cycle; check `/dev/video*` |
 | `fail no kernel image / no init_task / no task offsets` | memory scan found nothing this attempt | usually early-boot chaos, later attempt recovers; persistent on new firmware = re-measure constants (`docs/PORTABILITY.md`) |
 
+### Service masks (v42, debloat)
+
+The payload re-applies `/opt/usr/data/debloat-masks.txt` on its own thread after
+it roots, so these lines appear on every boot where the policy file exists.
+Codes: `MASK-BEGIN`, `MASK-OK`, `MASK-FAIL`, `MASK-SKIP`, `MASK-UNVERIFIED`,
+`MASK-CRASH` (`MASK-DEADLINE` is the retired v42.0 stop loop).
+
+| Line | Meaning | Action |
+|---|---|---|
+| `masks begin n=<n>` | the step started with n policy entries | expect the result within ~25 s; no result line at all means the thread died — look for `masks exception` |
+| `masks=<m> stopped=<k> killed=<j> fail=0 missing=0 activating=<g> listed-activating=0 loop-check=ok newhome=…` | applied and verified: m masks written, k units confirmed down, j stragglers killed | nothing to do. `activating=<g>` is context only (unrelated units on an idle boot); `newhome=set(0)` is expected on Samsung Home; `loop-started` after a reboot is normal (the transient unit dies with it) |
+| `masks=… fail=<f>` | f listed units were still up after the stop window, plus reload/kill errors | `fail` is the number that must be 0. A `.socket`/`.path` unit has no process, so only its stop job can take it down; re-run `debloat/tools/mask.sh` for a human-paced retry |
+| `masks=… missing=<n>` | n listed names have no unit file | a vendor rename in an OTA — drop the name from `debloat/lists/services-units.txt` or re-map it; the payload intentionally skips instead of failing |
+| `masks skip (no /opt/usr/data/debloat-masks.txt)` | no policy file: the step is skipped | this is the documented revert (`uninstall.sh` deletes the file); masks are session-only until `deploy.sh` re-installs it |
+| `masks skip uid=<n>` | the step ran before uid 0 | a code-path error — it is only called on the success branch; report it |
+| `masks counters unverified (list-units failed)` | the confirmation dump failed, so `stopped`/`fail` in the next line are not measurements | masks are still written; read the state by hand: `systemctl list-units --all --no-legend --plain \| grep <unit>` |
+| `masks exception <Type>` | the mask thread threw | masks may be partially written; the channel and the rest of the boot are unaffected (own thread). Read the type, then re-run `mask.sh` |
+| `masks deadline after <i>/<n> stops` | v42.0 only: the per-unit blocking stop loop ran out of budget | fixed in v42.1 (one batched `--no-block` stop + dump poll); an old log showing this predates the fix |
+
+Healthy v42 cold boot (2026-10-30 14:05):
+
+```
+masks begin n=24
+masks=24 stopped=24 killed=3 fail=0 missing=0 activating=2 listed-activating=0 loop-check=ok newhome=set(0),loop-started
+```
+
+
 ## Boot shapes (what healthy and sick look like)
 
 Healthy cold boot since v33 (the documented v37 boot):

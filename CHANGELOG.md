@@ -15,6 +15,38 @@ entry is an incomplete change. `AGENTS.md` repeats this rule for agents.
 
 ---
 
+## 2026-10-30 — review fixes: the current state is 24/24, and the mask beacons decode
+
+Three findings from the post-acceptance review, all docs/tooling — the boot
+itself was fine.
+
+- **The "current state" leads still described the session-only era.**
+  `debloat/AGENTS.md` opened with "a 24-unit mask LIST, not 24 masks that are up
+  now", and `docs/OPEN-ISSUES.md` with "only that one mask is up right now" —
+  true at 12:35, false from 14:05. Both now lead with **24/24 masked, durable
+  via v42** (acceptance numbers inline) and keep the 12:35 reading as an
+  explicitly labelled History paragraph, so the next reader cannot mistake it
+  for the present.
+- **The beacon dictionary had no entries for the v42 lines**, although
+  `docs/LOGGUIDE.md` claims every beacon is decoded: `beacons.py` would show a
+  `fail=` or `loop-check=failed` line as unclassified noise. Added `MASK-BEGIN`,
+  `MASK-OK`, `MASK-FAIL`, `MASK-SKIP`, `MASK-UNVERIFIED`, `MASK-CRASH` and
+  `MASK-DEADLINE` (the retired v42.0 stop loop, so old logs still explain
+  themselves), a "Service masks (v42)" section in the guide with the healthy
+  cold-boot shape, and fixtures in `test_logs.py` (healthy -> OK; the 13:07 boot
+  -> FAIL + DEADLINE; a missing list -> SKIP; a failed dump + thrown thread ->
+  UNVERIFIED + CRASH). Writing the tests caught a defect in the new dictionary:
+  `^masks=\d+` matched the clean line too, so every healthy boot reported both
+  MASK-OK and MASK-FAIL. `MASK-FAIL` now fires only on
+  `fail=[1-9]`/`missing=[1-9]`/`loop-check=failed`.
+- **Two smaller truths:** the §1 Boot-to-root row now quotes v42's own number
+  (48 s, attempt 1 `direct-patch`, mask step done at t=51 s) instead of leaving
+  v41 as the newest datapoint; and the stale local `payload/out/` copy (v41,
+  gitignored) was refreshed from `server/payload.dll` — the tracked artifact
+  was always right, but a hand-copy would have picked up the old DLL.
+
+`test_all` 14/14, sanitize clean.
+
 ## 2026-10-30 — v42 deployed; the first run found (and fixed) the stop pass
 
 Deployed over the 31337 channel with `deploy.sh`: `PREV_IL=1ab4343e..` (the v41

@@ -29,26 +29,26 @@ All TV reads/writes go through that channel (PC-side helpers:
   2026-10-30 for ALL 20 rows** (mains cycle: `id -u` = 0, count = 20, both
   canalysis/pisa sentinels still present) - the store is durable as-is, no
   payload change needed for it.
-- **Services layer: a 24-unit mask LIST, not 24 masks that are up now.**
-  `lists/services-units.txt` holds 24 units, but only **23 were masked live**
-  (round 4, 2026-10-29: 23/23, 0 respawn in the 8 s check, ~192 MB sum-RSS
-  across the 21 running `/usr/bin` services — upper bound). The 24th,
-  `org.tizen.easysetup-daemon.service`, was added 2026-10-30 because the
-  restart-loop detector found it spinning at `NRestarts=654` (its app is
-  disabled in tier 2a and `Restart=on-failure` retries forever); it was
-  verified by masking that one unit, not in a full run. **As of 2026-10-30
-  12:35 exactly one mask is up** — `org.tizen.easysetup-daemon.service`, the
-  targeted test — with `newhome-fix` running; the 2026-10-30 mains cycle
-  cleared the other 23, and that is the session-only design v42 fixes. Tooling: `tools/mask.sh` (masks, reload, stop,
-  refusal test, kill pass, picture guard with the persistent `newhome-fix`
-  30 s loop, restart-loop check; idempotent) and `tools/unmask.sh`.
-  Durable = v42, **deployed 2026-10-30**: the payload re-applies this list at
-  boot from the root-owned `/opt/usr/data/debloat-masks.txt`, which
-  `deploy.sh` installs. First live run beaconed `masks=24 stopped=24 killed=0
-  fail=0 missing=0 listed-activating=0 loop-check=ok newhome=set(0),loop-active`;
-  **cold-boot acceptance PASSED 2026-10-30 14:05:40** (mains cycle, no PC:
+- **Services layer: 24/24 units masked, and now durable (v42).**
+  `lists/services-units.txt` holds 24 units; the boot payload re-applies all of
+  them from the root-owned `/opt/usr/data/debloat-masks.txt` at every boot
+  (`deploy.sh` installs that file; deleting it is the revert). **Cold-boot
+  acceptance PASSED 2026-10-30 14:05:40** (mains cycle, no PC involved):
   `masks=24 stopped=24 killed=3 fail=0 missing=0 listed-activating=0
-  loop-check=ok newhome=set(0),loop-started`, 24/24 masked and none active).
+  loop-check=ok newhome=set(0),loop-started`, and live afterwards **24/24
+  masked-runtime with none active** (18 inactive + 6 failed) and zero processes
+  under the 24 listed binaries. That is the standing state, not a session.
+  **History — do not read it as the current state:** round 4 (2026-10-29)
+  masked 23/23 live (0 respawn in the 8 s check, ~192 MB sum-RSS upper bound
+  across the 21 running `/usr/bin` services); the 24th,
+  `org.tizen.easysetup-daemon.service`, was added 2026-10-30 after the
+  restart-loop detector found it spinning at `NRestarts=654` (its app is
+  disabled in tier 2a and `Restart=on-failure` retries forever); at **12:35
+  that day only that one mask was up**, because `/run` masks die with the
+  reboot — the session-only design v42 removed. Tooling (still the
+  human-facing path): `tools/mask.sh` (masks, reload, stop, refusal test, kill
+  pass, picture guard with the persistent `newhome-fix` 30 s loop,
+  restart-loop check; idempotent) and `tools/unmask.sh`.
   **Open:** tier 2b needs the Control Center
   layer; batch 3 awaits owner picks; the four former "unit-less" holdouts
   are resolved and on the mask list (TIFADaemon_L <- automation-service,

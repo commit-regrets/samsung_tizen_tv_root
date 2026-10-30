@@ -51,23 +51,21 @@ meminfo-derived `0xE4E42000` was wrong (vendor-adjusted counters): see item 2.
    `docs/PORTABILITY.md`; the payload now tries `video40/30/60`, but the browser
    gate (Chromium 120) and the physmap primitive are still unproven elsewhere.
    Record each unit's results there.
-5. **Debloat / v42 — durable service suppression.** 20 apps are durably
-   disabled (`pkgcmd --global`); the mask list is **24 units** (23 masked in
-   the verified round 4; the 24th added 2026-10-30 after the loop detector
-   found `org.tizen.easysetup-daemon.service` at `NRestarts=654`), but **only
-   that one mask is up right now** (the targeted test; `newhome-fix` is
-   running) — the 2026-10-30 mains cycle cleared the other 23, which
-   is exactly why v42 must re-assert them from the payload. Design is
-   reviewed and cleared (`debloat/models/qnx1d/v42-design-brief.md`) and
-   **deployed 2026-10-30** (`MaskServices()` + the two policy files in
-   `deploy.sh`/`uninstall.sh`; the artifact md5/size live only in the
-   AGENTS.md §1 state row). The post-deploy run beaconed `masks=24 stopped=24
-   killed=0 fail=0 missing=0 listed-activating=0 loop-check=ok
-   newhome=set(0),loop-active` in 2 s, with zero processes left under the 24
-   binaries. **Cold-boot acceptance PASSED 2026-10-30 14:05:40** (mains cycle,
-   no PC): `masks=24 stopped=24 killed=3 fail=0 missing=0 listed-activating=0
-   loop-check=ok newhome=set(0),loop-started` at t=51 s, 24/24 units
-   masked-runtime and none active, 20 app rows true, both sentinels present. Both pre-checks are closed
+5. **Debloat — durable; service suppression is live (RESOLVED 2026-10-30).**
+   20 apps are durably disabled (`pkgcmd --global`) and **all 24 units are
+   masked**, re-applied at every boot by the payload from
+   `/opt/usr/data/debloat-masks.txt`. **Cold-boot acceptance PASSED
+   2026-10-30 14:05:40** (mains cycle, no PC involved): `masks=24 stopped=24
+   killed=3 fail=0 missing=0 listed-activating=0 loop-check=ok
+   newhome=set(0),loop-started` at t=51 s, 24/24 units masked-runtime and none
+   active, zero processes under the listed binaries, 20 app rows true, both
+   sentinels present. Design: `debloat/models/qnx1d/v42-design-brief.md`
+   (reviewed, cleared, implemented as `MaskServices()`); the two policy files
+   are installed by `deploy.sh` and deleted by `uninstall.sh` — that is the
+   revert. **History:** round 4 (2026-10-29) masked 23/23 during that session
+   (`~192 MB` sum-RSS upper bound); the 24th (`org.tizen.easysetup-daemon.service`,
+   `NRestarts=654`) was added 2026-10-30; before v42 a reboot cleared the
+   masks, which is why the 12:35 reading that day was "one mask up". Both pre-checks are closed
    (2026-10-30): (a) the mains cycle
    read back **all 20** `app_disable='true'` rows with both sentinels present and
    `id -u` = 0, so the store is durable as-is; (b) `bluetooth-monitor.service` is
