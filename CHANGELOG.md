@@ -15,6 +15,34 @@ entry is an incomplete change. `AGENTS.md` repeats this rule for agents.
 
 ---
 
+## 2026-10-30 — the five tcc service candidates: measured, and rejected
+
+The next debloat step was meant to be the five extra service candidates from
+tcc (~46 MB sum-RSS in the note: `slive-provider-daemon` 17.6,
+`mcf-agent-service` 9.0, `screen_sharing` 8.9, `user-presence` 7.4,
+`wifi_state_manager` 3.4). Measured live with `/proc/<pid>/smaps_rollup`
+instead of trusting the sum:
+
+| candidate | RSS | **PSS** | unit | note |
+|---|---|---|---|---|
+| `slive-provider-daemon` | 15.7 MB | **1.77 MB** | `slive-provider-daemon.service` | `Restart=always`, /opt app |
+| `screen_sharing` | 9.2 MB | **1.01 MB** | `screen_sharing.service` | casting/mirroring |
+| `user-presence` | 7.1 MB | **0.49 MB** | `user-presence.service` | presence |
+| `wifi_state_manager` | 3.5 MB | **0.08 MB** | `wsm-service.service` | Wi-Fi state |
+| `mcf-agent-service` | not running | — | `mcf-agent-service.service` | it is an **app** (`app_launcher -s com.samsung.tizen.mcf-agent`), inactive |
+
+**Total ~3.4 MB of PSS**, not 46 MB — the sum-RSS figure was ~10x the real cost
+because these daemons share nearly everything (same inflation that made the
+"192 MB services prize" an upper bound). Against that: two are `Restart=always`
+services wanted by `starter.target`/bootseq targets, one is the Wi-Fi state
+machine the root channel's network path depends on, and one is an app that the
+right lever (`pkgcmd -D --global`) would handle as an app row, not a unit.
+
+**Verdict: no-go on all five.** Recorded in `debloat/AGENTS.md` and
+`docs/OPEN-ISSUES.md` with the PSS numbers so the next session does not
+re-propose them from the old sum-RSS note. The remaining debloat value is
+app-level (batch 3) and the Control Center layer, not these daemons.
+
 ## 2026-10-30 — review of the 34-unit step: four stale spots, one open question closed
 
 The second review of the OTA-stack change confirmed the counts (34/26, all ten

@@ -91,7 +91,14 @@ meminfo-derived `0xE4E42000` was wrong (vendor-adjusted counters): see item 2.
    `fw-update-*` units are all on the durable list (34 units).
    `fw-usb-update-service.{service,path}` does **not exist on this unit**
    (checked 2026-10-30: no unit file, `is-enabled` errors) - if a future
-   firmware ships it, add it there.  **The vendor flag lever is REJECTED:
+   firmware ships it, add it there.  **The five tcc service candidates are
+   measured and REJECTED (2026-10-30):** sum-RSS ~35.5 MB, but PSS is 1.77 MB
+   (`slive-provider-daemon`) + 1.01 MB (`screen_sharing`) + 0.49 MB
+   (`user-presence`) + 0.08 MB (`wifi_state_manager`, whose unit is
+   `wsm-service.service`) = **~3.4 MB**, and `mcf-agent-service` is an app
+   (`app_launcher -s com.samsung.tizen.mcf-agent`), inactive at the time.  The
+   Wi-Fi state daemon must not be touched while the root channel rides the
+   network.  **The vendor flag lever is REJECTED:
    `ConditionPathExists=!/mnt/backup/OS_UPGRADE_FLAG` resolves to
    `/mnt/systemrw` (trap 9) - do not plant it.**  (Done: the DWARF offset
    reader, the

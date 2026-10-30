@@ -65,7 +65,14 @@ All TV reads/writes go through that channel (PC-side helpers:
   pass, picture guard with the persistent `newhome-fix` 30 s loop,
   restart-loop check; idempotent) and `tools/unmask.sh`.
   **Open:** tier 2b needs the Control Center
-  layer; batch 3 awaits owner picks; the four former "unit-less" holdouts
+  layer; batch 3 awaits owner picks; **tcc's five extra service candidates are
+  EVALUATED AND REJECTED (2026-10-30)**: measured live, their sum-RSS (~35.5 MB)
+  is ~10x the real cost - PSS is 1.77 (slive-provider-daemon) + 1.01
+  (screen_sharing) + 0.49 (user-presence) + 0.08 (wifi_state_manager via
+  `wsm-service.service`) = **~3.4 MB total**, and `mcf-agent-service` is an *app*
+  (`app_launcher -s com.samsung.tizen.mcf-agent`) that was inactive. The Wi-Fi
+  state daemon is not something to touch while the root channel depends on the
+  network. Do not re-propose these without a PSS number; the four former "unit-less" holdouts
   are resolved and on the mask list (TIFADaemon_L <- automation-service,
   TIFSDaemon <- factory-service, SCSAgent <- scs-agent.service,
   SWUAutoUpgrade <- swu-auto-upgrade.service); `cis-api-service-app` churn
