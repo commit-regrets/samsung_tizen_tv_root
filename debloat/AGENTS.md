@@ -37,8 +37,8 @@ All TV reads/writes go through that channel (PC-side helpers:
   `masks=24 stopped=24 killed=3 fail=0 missing=0 listed-activating=0
   loop-check=ok newhome=set(0),loop-started`, and live afterwards **24/24
   masked-runtime with none active** (18 inactive + 6 failed) and zero processes
-  under the listed binaries (that run used the 24-unit list; the 34-unit
-  extension is below). That is the standing state, not a session.
+  under the listed binaries.  That run used the **24-unit list**; the current
+  standing state is the 34-unit list below (the extension, not a regression).
   **Extended to 34 on 2026-10-30 14:50** with the OTA / firmware-update stack:
   `vdsystem-update-manager.{service,timer}`, `was-background-update.{service,path}`,
   `swu-verifier-tv.{service,timer}`, `swu-core-tv.service`,

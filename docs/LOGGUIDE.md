@@ -122,7 +122,9 @@ Codes: `MASK-BEGIN`, `MASK-OK`, `MASK-FAIL`, `MASK-SKIP`, `MASK-UNVERIFIED`,
 | `masks exception <Type>` | the mask thread threw | masks may be partially written; the channel and the rest of the boot are unaffected (own thread). Read the type, then re-run `mask.sh` |
 | `masks deadline after <i>/<n> stops` | v42.0 only: the per-unit blocking stop loop ran out of budget | fixed in v42.1 (one batched `--no-block` stop + dump poll); an old log showing this predates the fix |
 
-Healthy v42 cold boot (2026-10-30 14:05):
+Healthy v42 cold boot (2026-10-30 14:05 - the FIRST acceptance, on the
+then-24-unit list; the list has been 34 units since 14:50 that day, so a
+current boot prints `masks begin n=34`):
 
 ```
 masks begin n=24

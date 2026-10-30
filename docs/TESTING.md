@@ -153,8 +153,9 @@ ran, in what order, with what exit code), not on output prose:
   than reading as "no loops"), and
   the kill pass kills the process whose `/proc/<pid>/exe` is the
   listed binary (POSIX only — the fixture points `PROCDIR` at a fake tree);
-- list hygiene (bare ids, no denylist entry, the 24-unit mask-list lock and
-  the 24-binary kill-list lock) and `merge.js`
+- list hygiene (bare ids, no denylist entry, the 34-unit mask-list lock and
+  the 26-binary kill-list lock, with the OTA-stack names asserted by name -
+  services, timers and paths alike) and `merge.js`
   determinism: regenerating the inventory from the committed registry dump may
   flip only the two documented overrides, with matching counts and summary.
 

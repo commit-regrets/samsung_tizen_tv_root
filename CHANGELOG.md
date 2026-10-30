@@ -15,6 +15,33 @@ entry is an incomplete change. `AGENTS.md` repeats this rule for agents.
 
 ---
 
+## 2026-10-30 — review of the 34-unit step: four stale spots, one open question closed
+
+The second review of the OTA-stack change confirmed the counts (34/26, all ten
+names, both new binaries) and the trap-9 rejection, and found four more places
+still describing the old world:
+
+- **`docs/TESTING.md`** still advertised a "24-unit mask-list lock and
+  24-binary kill-list lock"; the layer locks 34/26 and now also asserts the OTA
+  names by name - services, timers and paths alike.
+- **The v42 brief** still said `SWUCoreTV`/`SWUService`/`SWUVerifierTV` have no
+  units - the claim this round corrected. Both occurrences now carry the
+  correction and point at `swu-core-tv.service`, `swu-service.service`,
+  `swu-verifier-tv.service`, so a later agent cannot re-derive "launchpad
+  leftovers".
+- **`docs/OPEN-ISSUES.md` item 6** still recommended planting
+  `/mnt/backup/OS_UPGRADE_FLAG`. Struck: it resolves to `/mnt/systemrw`
+  (trap 9). The mask half of that item is marked done (34 units), and the item
+  now records that `fw-usb-update-service.{service,path}` **does not exist on
+  this unit** (checked: no unit file, `is-enabled` errors) - so it belongs in a
+  "not here" note, not on the list.
+- **P3s:** the test lock now names all ten additions including the four
+  triggers (`.timer`/`.path`), the debloat AGENTS 24/24 paragraph is labelled
+  as the first acceptance rather than "the standing state", and the LOGGUIDE
+  example is labelled as the 14:05 24-unit run (a current boot prints 34).
+
+No behaviour change; docs and locks only. `test_all` 14/14, sanitize clean.
+
 ## 2026-10-30 — the OTA stack joins the durable mask list (24 -> 34 units)
 
 After v42 made the list durable, adding a unit is a one-line change, so the

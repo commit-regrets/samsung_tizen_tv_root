@@ -77,6 +77,9 @@ org.tizen.easysetup-daemon.service
 # `ConditionPathExists=!/mnt/backup/OS_UPGRADE_FLAG` on the SWU cores - but
 # /mnt/backup is a symlink to /mnt/systemrw, i.e. the trap-9 zone.  Do not plant
 # that flag; mask the units instead.
+# fw-usb-update-service.{service,path} (named in OPEN-ISSUES item 6) does NOT
+# exist on this unit - checked 2026-10-30: no unit file in any UnitPath dir and
+# `systemctl is-enabled` errors.  If a future firmware ships it, add it here.
 vdsystem-update-manager.service
 vdsystem-update-manager.timer
 was-background-update.service

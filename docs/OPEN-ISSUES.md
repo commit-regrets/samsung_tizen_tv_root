@@ -84,10 +84,17 @@ meminfo-derived `0xE4E42000` was wrong (vendor-adjusted counters): see item 2.
    `debloat/AGENTS.md`.
 6. **Reference-derived follow-ups, in value order:** a per-run task tag
    (`PHYSRPT`+pid) plus a pid/tgid and `real_cred == cred` check to retire the
-   stale-task family for good; OTA hardening beyond the buxton key
-   (`/mnt/backup/OS_UPGRADE_FLAG` + `systemctl mask --runtime` for
-   `swu-auto-upgrade.*`, `fw-update-service.*`, `fw-usb-update-service.*`,
-   `was-background-update.*`).  (Done: the DWARF offset reader, the
+   stale-task family for good.  **OTA hardening: the mask half is DONE
+   (2026-10-30)** - `swu-auto-upgrade.*`, `was-background-update.*`,
+   `vdsystem-update-manager.*`, `swu-verifier-tv.*`, `swu-core-tv.service`,
+   `swu-service.service`, `vdca-update.service` and the already-listed
+   `fw-update-*` units are all on the durable list (34 units).
+   `fw-usb-update-service.{service,path}` does **not exist on this unit**
+   (checked 2026-10-30: no unit file, `is-enabled` errors) - if a future
+   firmware ships it, add it there.  **The vendor flag lever is REJECTED:
+   `ConditionPathExists=!/mnt/backup/OS_UPGRADE_FLAG` resolves to
+   `/mnt/systemrw` (trap 9) - do not plant it.**  (Done: the DWARF offset
+   reader, the
    layout-shift-proof list walk, the sanitizer - see `tools/` and
    `docs/REFERENCE-MATERIALS.md` for the download sources they assume.)
 7. **Public-release hygiene** — `LICENSE` (MIT for original work), `NOTICE.md`

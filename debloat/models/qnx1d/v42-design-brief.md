@@ -226,8 +226,11 @@ Per-question verdicts:
 `com.samsung.tv.cis-api-service-app.service` added (launchpad + Restart=
 on-failure every 90 s — masking it is how the churn stops; the app row
 alone does not). `bt-monitor` = `bluetooth-monitor.service` — **excluded**
-(see the DO NOT MASK note above; not `bt-service`). Still unit-less
-(launchpad, no systemd unit): `SWUCoreTV`, `SWUService`, `SWUVerifierTV`.
+(see the DO NOT MASK note above; not `bt-service`). **Correction
+(2026-10-30, when the OTA stack joined the list):** `SWUCoreTV`,
+`SWUService` and `SWUVerifierTV` DO have units —
+`swu-core-tv.service`, `swu-service.service`, `swu-verifier-tv.service` — and
+all three are on the list now. Do not repeat the "unit-less" claim.
 
 **Acceptance criteria amended:** "zero processes under the listed binaries
 within ~90 s" holds only after the kill pass, and only for the units
@@ -250,8 +253,10 @@ checklist (Q5 grep, Q3 reverse-deps, SWU/bt-monitor mapping) is closed.
   hard `Requires=` couplings, all documented and accepted (one real
   feature loss: DLNA via vd_dmr depends on register-device — owner
   trade-off, recorded in the list header).
-- **SWU mapping done:** SWUCoreTV / SWUService / SWUVerifierTV have no
-  units (launchpad); bt-monitor = bluetooth-monitor.service, explicitly
+- **SWU mapping DONE, and it was wrong at the time (fixed 2026-10-30):**
+  SWUCoreTV / SWUService / SWUVerifierTV have units - `swu-core-tv.service`,
+  `swu-service.service`, `swu-verifier-tv.service` - and are masked with the
+  rest of the OTA stack.  bt-monitor = bluetooth-monitor.service, explicitly
   EXCLUDED (BT re-activator, see the DO NOT MASK note above).
 - **v42 is cleared for implementation** per the confirmed design above.
 
