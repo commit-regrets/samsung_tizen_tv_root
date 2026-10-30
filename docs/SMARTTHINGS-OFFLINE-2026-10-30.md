@@ -22,9 +22,9 @@ Non-goal: the root/debloat machinery itself works (root channel, payload v42,
 
 | Thing | Value |
 |---|---|
-| TV | `192.168.178.175` (QNX1D, Tizen 9, rooted, uid 0) |
+| TV | `<TV_IP>` (QNX1D, Tizen 9, rooted, uid 0) |
 | Root channel | TCP 31337, line protocol, replies end `__END__` |
-| PC | `192.168.178.214` (Wi-Fi). Phone is `192.168.178.217` |
+| PC | `<PC_IP>` (Wi-Fi); the phone is another LAN host |
 | Repo | `C:\Users\Raghav\Documents\projects\samsung_tv_root` (branch `develop`) |
 | TV-side debloat tools | `debloat/tools/{apply,restore,mask,unmask}.sh` |
 | Debloat lists (source of truth) | `debloat/lists/*.txt` |
@@ -35,7 +35,7 @@ Run any TV command with:
 ```powershell
 cd C:\Users\Raghav\Documents\projects\samsung_tv_root
 $env:PATH = "C:\Program Files\Git\bin;" + $env:PATH   # for base64/sh helpers
-python tools/root_shell.py '<one-line command>' 192.168.178.175
+python tools/root_shell.py '<one-line command>' <TV_IP>
 ```
 
 Two hard quirks, both cost time tonight:
