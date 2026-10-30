@@ -43,6 +43,9 @@ venv/
 payload/obj/
 payload/out/
 payload/bin/
+# a build run from the repo root (`-o out`) lands here instead of payload/out;
+# the tracked artifact is server/payload.dll, never these
+/out/
 *.pdb
 
 # ------------------------------------------------------ Tizen package artifacts
@@ -85,3 +88,4 @@ python/
 
 # independent review notes (not part of the toolkit)
 docs/codreview.md
+
