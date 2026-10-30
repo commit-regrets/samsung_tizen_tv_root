@@ -1,35 +1,24 @@
-# Batch 3 — optional features this household does not use.
+# Batch 3 — optional features this household does not use: VOICE ONLY.
 #
 # OWNER DECISIONS (2026-10-30):
-#   * voice: NOT used  -> the whole voice area (23 ids).  The remote's mic
-#     button stops working; Bixby/Alexa/wake-word engines stop.
-#   * SmartThings: USED (phone control) -> the `samsung` area is NOT touched,
-#     and `com.samsung.tv.coba.mobilebff` is deliberately left out of the
-#     sharing list below (it is the CoBA mobile backend that a phone-side
-#     control path could ride on; not worth the risk for 0 MB).
-#   * AirPlay / Multi View / screen mirroring: NOT used -> the sharing area,
-#     minus the mobile-control pieces above.
+#   * voice: NOT used -> the whole voice area (22 ids, after the one id that
+#     tier 2a already disabled).  The remote's mic button stops working;
+#     Bixby/Alexa/wake-word engines stop.  ~7 MB PSS while they were running.
+#   * SmartThings: USED (phone control) -> the `samsung` area is untouched.
+#   * AirPlay / Multi View / mirroring: not used EITHER, but **the sharing area
+#     was REVERTED the same evening** - see the block at the bottom.
 #
-# MEASURED COST (PSS, this unit, 2026-10-30): the only one actually resident
-# is the AirPlay receiver `com.samsung.tv.airplay-app-2` at ~7.3 MB PSS
-# (2 procs).  The voice stack is ~7 MB PSS in total while active; most of these
-# ids are not running right now, so the rest of this list buys "never launches
-# again" (no wakeups, no telemetry) rather than RAM today.
-#
-# WHAT BREAKS: phone->TV casting/mirroring (Smart View, AirPlay), Multi View,
-# USB-camera view, Remote PC / Remote Workspace, and every voice feature.
+# WHAT BREAKS: every voice feature, and nothing else.
 #
 # NOT IN THIS LIST ON PURPOSE:
+#   * `org.tizen.5-way-function` is the mainApp of package
+#     `com.samsung.tv.PanelKeyApp` (panel keys), and
+#     `com.samsung.tv.airplay-app-2-dummy` is the mainApp of
+#     `com.samsung.tv.airplay-app-2`.  Neither is a package id; listing them
+#     would target another package's entry point.
 #   * com.samsung.tizen.smartthings-client, smartthingsfind-daemon, ssoservice,
-#     samsung-cloud, samsung-pass-agent  (SmartThings + Samsung account;
-#     owner uses phone control);
-#   * com.samsung.tv.coba.mobilebff (see above);
-#   * org.tizen.5-way-function, com.samsung.tv.airplay-app-2-dummy - the menu
-#     lists them but they are NOT installed on this unit (no inventory row);
-#     `pkgcmd -D` on a missing id fails the batch.
-#   * com.samsung.tv.slive-daemon / tvplus / channel-list / NetworkSetting -
-#     keep-side packages, not app rows in this list; they merely have optional
-#     integrations with voice/multiscreen and degrade gracefully.
+#     samsung-cloud, samsung-pass-agent - SmartThings + Samsung account.
+#   * the sharing area (16 ids) - REVERTED, see below.
 #
 # REVERT: `sh tools/restore.sh lists/batch3-optional.txt` (pkgcmd -A --global,
 # same list).  Undo lines are written under /opt/usr/data/ by apply.sh.
@@ -58,21 +47,41 @@ org.tizen.tts-download-ui
 org.tizen.voice-app
 org.tizen.voice-client
 org.tizen.voice-onboarding
-# --- sharing: casting / mirroring / multi view / remote pc (16) --------------
-# the real AirPlay receiver; the menu only lists the -dummy placeholder
-com.samsung.tv.airplay-app-2
-org.tizen.ScreenMirroring-app-tv
-org.tizen.SMSourceAPP
-com.samsung.tv.multiscreen
-com.samsung.tv.coba.multiscreen
-com.samsung.tv.multiviewsetupapp
-com.samsung.tv.multiview-bluetooth-audio
-com.samsung.tv.coba.mvcontents
-com.samsung.tv.coba.mvicon
-com.samsung.tv.coba.mvmobile
-com.samsung.tv.coba.mviotcamera
-com.samsung.tv.coba.usbcam
-com.samsung.tv.coba.remoteworkspace
-com.samsung.tv.coss.provider.d2d
-com.samsung.tv.remoteapp
-org.tizen.remotepc
+
+# ---------------------------------------------------------------------------
+# REVERTED 2026-10-30 (same evening): the 16 sharing ids, because disabling
+# them BROKE SMARTHINGS PHONE CONTROL.
+#
+# Root cause: `com.samsung.tizen.smartthings-client` declares
+# `com.samsung.tv.multiscreen` as a package it uses (inventory `referencedBy`;
+# the Q80A menu listed multiscreen's COUPLED users as slive-daemon/tvplus/...
+# but NOT smartthings-client - the menu's coupling list is incomplete, the
+# inventory's is not).  With multiscreen disabled, the phone could no longer
+# control the TV.  The other 15 were reverted with it rather than bisected
+# for a ~7 MB PSS win (the AirPlay receiver alone).
+#
+# All 16 are re-enabled (`pkgcmd -A`), the mask list is back to 34 (the
+# `com.samsung.tv.multiscreen.service` entry was removed and the unit
+# unmasked+started - with the app enabled its `app_launcher -r` succeeds, so
+# the trap-14a loop cannot happen).
+#
+# If anyone wants the AirPlay receiver's memory back, bisect on THIS set, one
+# id at a time with a phone test in between, and check the inventory's
+# `referencedBy` for each: smartthings-client is a declared user of
+# multiscreen, so multiscreen must stay.  The candidate-subset with no declared
+# user among keep-side packages is airplay-app-2 / ScreenMirroring-app-tv /
+# SMSourceAPP / remotepc / remoteapp / coba.usbcam - but SMSourceAPP is
+# referenced by p2p-asm and ScreenMirroring by pvrrecorder/5-way-function, so
+# treat even that subset as unproven.
+#
+# Reverted ids (do NOT re-add without a phone test):
+#   com.samsung.tv.airplay-app-2          org.tizen.ScreenMirroring-app-tv
+#   org.tizen.SMSourceAPP                 com.samsung.tv.multiscreen
+#   com.samsung.tv.coba.multiscreen       com.samsung.tv.multiviewsetupapp
+#   com.samsung.tv.multiview-bluetooth-audio
+#   com.samsung.tv.coba.mvcontents        com.samsung.tv.coba.mvicon
+#   com.samsung.tv.coba.mvmobile          com.samsung.tv.coba.mviotcamera
+#   com.samsung.tv.coba.usbcam            com.samsung.tv.coba.remoteworkspace
+#   com.samsung.tv.coss.provider.d2d      com.samsung.tv.remoteapp
+#   org.tizen.remotepc
+# ---------------------------------------------------------------------------

@@ -81,7 +81,18 @@ keep set: 30 reference nothing we keep. Skipped as coupled: `org.tizen.ep-hotel-
 | 29 | org.tizen.rscm-screensaver | Remote Shop Content Management | `pkgcmd -D -t app -n org.tizen.rscm-screensaver --global` | `pkgcmd -A -t app -n org.tizen.rscm-screensaver --global` |
 | 30 | org.tizen.widget_viewer_sdk | Widget Viewer for SDK | `pkgcmd -D -t app -n org.tizen.widget_viewer_sdk --global` | `pkgcmd -A -t app -n org.tizen.widget_viewer_sdk --global` |
 
-## Batch 3 — EXECUTED 2026-10-30 (`lists/batch3-optional.txt`)
+## Batch 3 — EXECUTED 2026-10-30 as VOICE ONLY (`lists/batch3-optional.txt`)
+
+**The sharing half was reverted the same evening.** The first run disabled 38
+ids (voice 22 + sharing 16) and SmartThings phone control broke:
+`com.samsung.tizen.smartthings-client` declares `com.samsung.tv.multiscreen` in
+the inventory `referencedBy`, and multiscreen was in the disabled set. All 16
+sharing ids were re-enabled (`pkgcmd -A`), rows went 58 -> 42, the
+`multiscreen` mask entry was removed and the unit unmasked+started. The file
+keeps the reverted block with the reason and the "if you want the AirPlay
+receiver's 7.3 MB back, bisect one id at a time against a phone test" note.
+
+
 
 Owner decisions: **no voice**, **no AirPlay / Multi View / screen mirroring**,
 **SmartThings IS used** (phone control), so:

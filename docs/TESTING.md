@@ -155,7 +155,9 @@ ran, in what order, with what exit code), not on output prose:
   listed binary (POSIX only — the fixture points `PROCDIR` at a fake tree);
 - list hygiene (bare ids, no denylist entry, the 34-unit mask-list lock and
   the 26-binary kill-list lock, with the OTA-stack names asserted by name -
-  services, timers and paths alike) and `merge.js`
+  services, timers and paths alike - plus the batch-3 list lock: exactly
+  the 22 voice ids, and the reverted sharing ids must not reappear as
+  active lines) and `merge.js`
   determinism: regenerating the inventory from the committed registry dump may
   flip only the two documented overrides, with matching counts and summary.
 

@@ -6,7 +6,7 @@
 # Derived from the /usr/bin binaries in lists/services-bind.txt mapped to
 # their units via systemctl list-unit-files + systemctl status <pid>
 # (2026-10-29).
-# 35 entries, locked by tools/test_debloat.py.  Round 4 masked 23/23 live
+# 34 entries, locked by tools/test_debloat.py.  Round 4 masked 23/23 live
 # (2026-10-29); `org.tizen.easysetup-daemon.service` was added 2026-10-30
 # after the restart-loop detector in mask.sh found its unit spinning at
 # NRestarts=654 and climbing (`activating (auto-restart)`, ~5 s cycle): the
@@ -80,11 +80,11 @@ org.tizen.easysetup-daemon.service
 # fw-usb-update-service.{service,path} (named in OPEN-ISSUES item 6) does NOT
 # exist on this unit - checked 2026-10-30: no unit file in any UnitPath dir and
 # `systemctl is-enabled` errors.  If a future firmware ships it, add it here.
-# Batch-3 companion (2026-10-30): disabling the app `com.samsung.tv.multiscreen`
-# left THIS unit restarting every 5 s (`Restart=always`, ExecStart runs
-# `app_launcher -r`, ExecMainStatus=0) - the same trap as easysetup.  Masking
-# the unit is the way to stop it; the app being disabled is what makes it loop.
-com.samsung.tv.multiscreen.service
+# 2026-10-30: `com.samsung.tv.multiscreen.service` was added here for a few
+# hours as the batch-3 companion loop (the disabled app left `app_launcher -r`
+# restarting every 5 s) and REMOVED again when the sharing batch was reverted:
+# the app is enabled now, so `app_launcher -r` succeeds and the unit cannot
+# loop.  If multiscreen is ever disabled again, re-add this unit with it.
 vdsystem-update-manager.service
 vdsystem-update-manager.timer
 was-background-update.service

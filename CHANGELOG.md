@@ -15,6 +15,47 @@ entry is an incomplete change. `AGENTS.md` repeats this rule for agents.
 
 ---
 
+## 2026-10-30 — batch 3's sharing half REVERTED: it broke SmartThings
+
+The owner reported SmartThings phone control no longer worked after batch 3.
+Cause, from the inventory: **`com.samsung.tizen.smartthings-client` declares
+`com.samsung.tv.multiscreen` as a package it uses** (`referencedBy`) - and
+`com.samsung.tv.multiscreen` was one of the 16 sharing ids disabled an hour
+earlier. The optional menu's COUPLED column had listed multiscreen's users as
+`slive-daemon`/`tvplus`/`channel-list`/... but **not** smartthings-client, so
+the menu alone would never have caught this; the inventory would.
+
+Action, immediately and without bisecting:
+
+- the 16 sharing ids are re-enabled (`pkgcmd -A ... --global`), rows 58 -> **42**
+  (tier 1+2a 20 + voice 22);
+- `com.samsung.tv.multiscreen.service` - the trap-14a companion mask added with
+  the disable - is removed from the mask list and the unit unmasked+started;
+  with its app enabled, `app_launcher -r` succeeds and the 5 s loop cannot
+  happen, so the list is back to **34 units / 26 binaries**;
+- `lists/batch3-optional.txt` now holds **22 voice ids** and a long REVERTED
+  block naming all 16 sharing ids, the dependency that caused it, and the
+  bisect protocol for anyone who wants the AirPlay receiver's ~7.3 MB back
+  (one id at a time, phone test between each, inventory `referencedBy` checked
+  per id);
+- the list's "not installed" skip reason is corrected: `org.tizen.5-way-function`
+  is the mainApp of `com.samsung.tv.PanelKeyApp`, and `...airplay-app-2-dummy`
+  is the mainApp of `com.samsung.tv.airplay-app-2` - neither is a package id.
+
+`test_debloat.py` now locks the batch-3 list to exactly those 22 ids and to
+"the reverted ids are not active lines", so this cannot silently come back.
+
+**Lesson for the next list change:** the Q80A menu's COUPLED column is
+incomplete; the inventory's `referencedBy` is the authority for "who uses this
+package", and a keep-side user means a phone/cloud feature may depend on it.
+Also: the multiscreen mask entry went in without a q3deps run - it was removed
+again, so the 34-entry list has no un-gated name, but the gate must come before
+the add.
+
+State after the revert: 42 apps disabled, 34 units masked. The 16:08 cold boot
+had run the temporary 35/58 state cleanly; the current 34/42 state is the next
+boot's test.
+
 ## 2026-10-30 — first 35-unit / 58-app cold boot: clean
 
 The mains cycle after the OTA stack and batch 3 (16:08:54). Rooted

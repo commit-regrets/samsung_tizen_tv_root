@@ -766,14 +766,12 @@ def main() -> int:
     update_units = {"vdsystem-update-manager.service", "was-background-update.service",
                     "swu-verifier-tv.service", "swu-core-tv.service",
                     "swu-service.service", "vdca-update.service",
-                    # the batch-3 companion loop
-                    "com.samsung.tv.multiscreen.service",
                     # the triggers too: a listed timer/path cannot sit in a
                     # fail-loop the way the unmasked ones did
                     "vdsystem-update-manager.timer", "was-background-update.path",
                     "swu-verifier-tv.timer", "swu-auto-upgrade.timer"}
-    check("services-units.txt is 35 active entries incl. easysetup + OTA + batch-3 loop",
-          len(units_list) == 35
+    check("services-units.txt is 34 active entries incl. easysetup + the OTA stack",
+          len(units_list) == 34
           and "com.samsung.tv.cis-api-service-app.service" in units_list
           and "org.tizen.easysetup-daemon.service" in units_list
           and update_units <= set(units_list),
@@ -790,6 +788,31 @@ def main() -> int:
           str(len(bind_list)))
     check("services-bind.txt: bt-monitor is not an active kill-list entry",
           "bt-monitor" not in bind_list and "bt-monitor" in bind_txt)
+    # batch 3 = voice only (22 ids) after the sharing area was reverted on
+    # 2026-10-30 because it broke SmartThings phone control; the reverted ids
+    # must not come back as active lines, only as the documented block.
+    b3_txt = (DEB / "lists" / "batch3-optional.txt").read_text(encoding="utf-8")
+    b3 = [l.strip() for l in b3_txt.splitlines()
+          if l.strip() and not l.strip().startswith("#")]
+    voice_expected = {
+        "com.samsung.tv.alexa-fullscreen-app", "com.samsung.tv.aov-dashboard",
+        "com.samsung.tv.aov-service", "com.samsung.tv.bixby-context-client",
+        "com.samsung.tv.bixby-prov", "com.samsung.tv.bixbycapsuleviewer",
+        "com.samsung.tv.farfieldvoice", "com.samsung.tv.fuzzy-search-engine",
+        "com.samsung.tv.intelligent-action-app", "com.samsung.tv.mybixby",
+        "com.samsung.tv.ondevice-voice", "com.samsung.tv.utterance-recommender-app",
+        "com.samsung.tv.vif", "com.samsung.tv.voice-instant-app",
+        "com.samsung.tv.voiceassistant-music", "com.samsung.tv.voiceid-service",
+        "com.samsung.tv.wakeup-engine-alexa", "com.samsung.tv.wakeup-engine-bixby",
+        "org.tizen.tts-download-ui", "org.tizen.voice-app",
+        "org.tizen.voice-client", "org.tizen.voice-onboarding",
+    }
+    check("batch3-optional.txt is exactly the 22 voice ids",
+          set(b3) == voice_expected, str(sorted(set(b3) ^ voice_expected)))
+    check("batch3-optional.txt: the reverted sharing ids are not active lines",
+          "com.samsung.tv.multiscreen" not in b3
+          and "com.samsung.tv.airplay-app-2" not in b3
+          and "REVERTED 2026-10-30" in b3_txt)
 
     # 10. merge determinism: regenerating the inventory from the committed
     # registry dump must reproduce it EXCEPT the two documented manual

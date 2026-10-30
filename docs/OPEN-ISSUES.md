@@ -1,6 +1,7 @@
 # Open issues — current state, pending work, and closed history
 
-## Current state — 2026-10-27 (v41 verified: cold boots, kill -9, uninstall/recover)
+## Current state — 2026-10-30 (v42 verified: cold boots, 34-unit durable masks,
+58 -> 42 app rows after the batch-3 revert; test_all 14/14)
 
 TV: **v41** (`1ab4343e…`, 33,792 B), rooted via 31337. Every beacon carries
 `tok=<BEACON_TOKEN>` (from `rootchan.token`); forged and token-less beacons are refused.
@@ -52,8 +53,10 @@ meminfo-derived `0xE4E42000` was wrong (vendor-adjusted counters): see item 2.
    gate (Chromium 120) and the physmap primitive are still unproven elsewhere.
    Record each unit's results there.
 5. **Debloat — durable; service suppression is live (RESOLVED 2026-10-30).**
-   **58 apps are durably disabled** (`pkgcmd --global`; 20 from tiers 1+2a,
-   38 from batch 3 on 2026-10-30) and **all 35 units are masked**, re-applied at every boot by the payload from
+   **42 apps are durably disabled** (`pkgcmd --global`; 20 from tiers 1+2a,
+   22 voice ids from batch 3 on 2026-10-30 - the 16 sharing ids were
+   reverted the same day because they broke SmartThings phone control) and
+   **all 34 units are masked**, re-applied at every boot by the payload from
    `/opt/usr/data/debloat-masks.txt`. **Cold-boot acceptance PASSED
    2026-10-30 14:05:40** (mains cycle, no PC involved): `masks=24 stopped=24
    killed=3 fail=0 missing=0 listed-activating=0 loop-check=ok

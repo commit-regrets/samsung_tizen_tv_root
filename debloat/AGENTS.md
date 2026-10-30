@@ -64,19 +64,26 @@ All TV reads/writes go through that channel (PC-side helpers:
   human-facing path): `tools/mask.sh` (masks, reload, stop, refusal test, kill
   pass, picture guard with the persistent `newhome-fix` 30 s loop,
   restart-loop check; idempotent) and `tools/unmask.sh`.
-  **Batch 3 applied 2026-10-30** (`lists/batch3-optional.txt`, 38 ids: the
-  voice area minus the one already disabled in tier 2a, plus the sharing area
-  minus the phone-control pieces - the owner does not use voice, AirPlay,
-  Multi View or mirroring, and DOES use SmartThings, so the `samsung` area and
-  `com.samsung.tv.coba.mobilebff` were left alone).  38/38 disabled, 20 -> 58
-  rows; undo recorded at `/opt/usr/data/debloat-undo-20261030-155433.sh`.
-  The only one resident was `com.samsung.tv.airplay-app-2` (~7.3 MB PSS, 2
-  procs) - killed after the disable; the rest was "never launches again".
-  **Trap-14a hit again:** the disable left `com.samsung.tv.multiscreen.service`
-  restarting every 5 s (`Restart=always`, `app_launcher -r`), so the mask list
-  grew 34 -> 35 with it.  Always run the unit scan after an app batch.
-  **Open:** tier 2b needs the Control Center
-  layer; batch 3 awaits owner picks; **tcc's five extra service candidates are
+  **Batch 3 REALITY (2026-10-30): 22 voice ids, sharing reverted.** The first
+  run disabled 38 ids (voice 22 + sharing 16) and **SmartThings phone control
+  stopped working**: `com.samsung.tizen.smartthings-client` declares
+  `com.samsung.tv.multiscreen` as a package it uses (inventory `referencedBy`),
+  and multiscreen was in the set. All 16 sharing ids were re-enabled
+  (`pkgcmd -A`), rows are back to **42** (20 tiers 1+2a + 22 voice), and the
+  `multiscreen` mask entry was removed with the unit unmasked+started - the
+  mask list is **34 units / 26 binaries** again. The AirPlay receiver's
+  ~7.3 MB PSS came back with it; the voice stack (~7 MB PSS) is the win.
+  A 16:08 cold boot ran the temporary 35/58 state cleanly, but the CURRENT
+  34/42 state is not boot-verified yet.
+  **Lesson:** the Q80A menu's COUPLED column is incomplete (it did not list
+  smartthings-client for multiscreen); the inventory's `referencedBy` is the
+  authority. Before disabling any optional id, grep the inventory for declared
+  users - a keep-side user means a phone/cloud feature may depend on it.
+  **Rule:** every mask-list addition needs the q3deps gate run *before* the
+  add (the multiscreen entry went in without one; it was removed again, so the
+  34-entry list still has no un-gated name).
+  **Open:** tier 2b needs the Control Center layer; batch 3 is
+  voice-only and done; **tcc's five extra service candidates are
   EVALUATED AND REJECTED (2026-10-30)**: measured live, their sum-RSS (~35.5 MB)
   is ~10x the real cost - PSS is 1.77 (slive-provider-daemon) + 1.01
   (screen_sharing) + 0.49 (user-presence) + 0.08 (wifi_state_manager via
