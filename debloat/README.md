@@ -79,8 +79,8 @@ picture-settings loop, and fails if a listed unit is still restart-looping.
   was verified by masking that one unit, not in a full run.
   Durable suppression = the boot
   payload re-applying the masks each boot from
-  `/opt/usr/data/debloat-masks.txt` (v42, deployed 2026-10-30; the next
-  mains cycle is the acceptance). Full
+  `/opt/usr/data/debloat-masks.txt` (v42, deployed 2026-10-30 and **cold-boot
+  verified**: 24/24 masks back, none active, zero listed processes). Full
   falsification trail (empty /opt files, /opt symlinks and drop-ins all
   inert — `/opt` is not in systemd's UnitPath; runtime bind-mounts
   bypassed) in `models/qnx1d/run-2026-10-29-services-bind.md`.

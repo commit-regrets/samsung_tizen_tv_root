@@ -46,7 +46,9 @@ All TV reads/writes go through that channel (PC-side helpers:
   boot from the root-owned `/opt/usr/data/debloat-masks.txt`, which
   `deploy.sh` installs. First live run beaconed `masks=24 stopped=24 killed=0
   fail=0 missing=0 listed-activating=0 loop-check=ok newhome=set(0),loop-active`;
-  the next mains cycle is the acceptance (masks must come back with no PC).
+  **cold-boot acceptance PASSED 2026-10-30 14:05:40** (mains cycle, no PC:
+  `masks=24 stopped=24 killed=3 fail=0 missing=0 listed-activating=0
+  loop-check=ok newhome=set(0),loop-started`, 24/24 masked and none active).
   **Open:** tier 2b needs the Control Center
   layer; batch 3 awaits owner picks; the four former "unit-less" holdouts
   are resolved and on the mask list (TIFADaemon_L <- automation-service,

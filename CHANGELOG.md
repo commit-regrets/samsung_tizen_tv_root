@@ -56,8 +56,19 @@ sentinels present, uid 0. The lesson is in `AGENTS.md` §9 and the brief: the
 stop pass must be one batched non-blocking call confirmed from the dump, never a
 loop of blocking calls.
 
-Owed: one mains cycle to prove the masks come back from `/opt` with no PC
-(the point of v42).
+**Cold-boot acceptance (2026-10-30 14:05:40, mains cycle, no PC involved):**
+rooted direct-patch at t=48 s, `ROOTCHAN` t=48, and three seconds later
+
+    masks=24 stopped=24 killed=3 fail=0 missing=0 activating=2
+    listed-activating=0 loop-check=ok newhome=set(0),loop-started
+
+- the masks came back from `/opt` on their own, all 24 confirmed stopped, the
+three stragglers killed, nothing missing, no listed unit looping, and the
+picture loop started fresh (`loop-started`, because the transient unit dies at
+reboot). Live after that boot: 24/24 listed units `masked-runtime` and none
+active (18 `inactive` + 6 `failed`), zero processes under the 24 listed binaries,
+all 20 `app_disable` rows true, both sentinels present, uid 0, the same v42
+artifact. **v42 is done.**
 
 ## 2026-10-30 — v42: the payload re-asserts the service masks at every boot
 

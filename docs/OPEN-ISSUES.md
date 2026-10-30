@@ -64,9 +64,10 @@ meminfo-derived `0xE4E42000` was wrong (vendor-adjusted counters): see item 2.
    AGENTS.md §1 state row). The post-deploy run beaconed `masks=24 stopped=24
    killed=0 fail=0 missing=0 listed-activating=0 loop-check=ok
    newhome=set(0),loop-active` in 2 s, with zero processes left under the 24
-   binaries; **owed: the mains-cycle acceptance** (the masks must come back at
-   boot from /opt with no PC, and the 20 app rows + both sentinels must still
-   read back). Both pre-checks are closed
+   binaries. **Cold-boot acceptance PASSED 2026-10-30 14:05:40** (mains cycle,
+   no PC): `masks=24 stopped=24 killed=3 fail=0 missing=0 listed-activating=0
+   loop-check=ok newhome=set(0),loop-started` at t=51 s, 24/24 units
+   masked-runtime and none active, 20 app rows true, both sentinels present. Both pre-checks are closed
    (2026-10-30): (a) the mains cycle
    read back **all 20** `app_disable='true'` rows with both sentinels present and
    `id -u` = 0, so the store is durable as-is; (b) `bluetooth-monitor.service` is
