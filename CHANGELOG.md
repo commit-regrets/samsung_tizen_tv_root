@@ -15,6 +15,78 @@ entry is an incomplete change. `AGENTS.md` repeats this rule for agents.
 
 ---
 
+## 2026-10-30 — SmartThings phone-offline: cause is org.tizen.easysetup-daemon
+
+Owner-confirmed bisect, one variable at a time, 0 masks, analytics left
+enabled. Voice 22 and tier 1's remaining 10 stayed **online**. Adding the 6
+tier 2a ids went **offline**; re-enabling them with no stack restart (thing
+pid unchanged) went **online**, so the thing respawn was not the cause.
+Disabling `org.tizen.easysetup-daemon` alone then went **offline**. Its
+manifest carries the IoT master/resource metadata that `smartthings-thing`
+also provides. It is now denylisted, dropped from tier 2a, and its unit is
+off the mask list — masking the unit would stop the same daemon. Re-enabled
+and launched; the owner confirmed the phone **online** again (~18:51). The other
+five tier 2a ids stayed enabled through the online readings and remain
+disableable. Full step log: `docs/SMARTTHINGS-OFFLINE-2026-10-30.md`.
+
+## 2026-10-30 — SmartThings phone-offline: 0/0 is ONLINE; bisecting the rows
+
+Owner confirmed the phone shows the TV **online** after the fully-stock
+restore (0 live masks, 0 `app_disable` rows, ST stack restarted).  That
+closes "it is something other than the debloat" and re-opens the row
+bisect.  `samsung-analytics` stays denylisted (SES privilege) but is not
+the cause.  Voice 22 re-disabled → still **online** (18:35).  Tier 1's
+remaining 10 added on top (rows 32, analytics stays enabled, stack pids
+unchanged) → still **online** (18:37, owner).  Adding the 6 tier 2a ids
+(rows 38; thing pid changed 28614→1777 during the disable) → **offline**
+(18:42, owner).  Re-enabling the 6 with no stack restart (thing pid still
+1777) → **online** (18:44, owner), so the respawn is not the cause.  Next
+single variable: `org.tizen.easysetup-daemon` (IoT master/resource metadata).
+Full step log: `docs/SMARTTHINGS-OFFLINE-2026-10-30.md`.
+
+## 2026-10-30 — SmartThings phone-offline: samsung-analytics was NOT sufficient
+
+Owner confirmed the phone still showed the TV offline after analytics was
+re-enabled and the client restarted.  The SES privilege dependency is real
+(the client's tizen-manifest requests it) so the denylist stays, but it is
+not the cause of this outage.  TV was then restored to the last known-good
+shape: **0 app_disable rows, 0 live masks**, ST client+thing restarted,
+policy files parked as `.bak` so a reboot does not re-mask.  That is the
+~18:00 state that previously read online; the next phone check decides
+whether anything other than the debloat rows is still in the way.
+
+## 2026-10-30 — SmartThings phone-offline: samsung-analytics was the cause
+
+The phone listed the TV offline while `smartthings-client` / `smartthings-thing`
+/ `stfind-daemon` were all alive and holding cloud sockets.  Of the 39 disabled
+app rows (0 masks), **exactly one** is used by the client:
+`com.samsung.tizen.samsung-analytics`.  The client's own
+`tizen-manifest.xml` requests the appdefined privilege
+`http://com.samsung.tizen.samsung-analytics/appdefined/samsung-analytics`,
+which that package provides; `pkgcmd -D` on analytics removes the grant
+without killing the client, which is why "stack alive" was necessary but not
+sufficient.  Confirmed live: flag `true` -> `pkgcmd -A` -> flag `false`
+(rows 39 -> 38), analytics launched, client restarted.
+
+Lists locked so it cannot recur:
+
+- `samsung-analytics` dropped from tier 1 / batch 1 and added to the
+  `apply.sh` denylist, with the five SmartThings-stack ids
+  (`smartthings-client`, `smartthings-thing`, `smartthingsfind-daemon`,
+  `mde-framework`, `tvsensor-iot-service`);
+- those three stack ids dropped from tier 2a (9 -> 6);
+- `pushd` / `register-device` / `p2p-asm` dropped from the mask/kill lists
+  (34 -> 30 units, 26 -> 23 binaries) — they were already ruled out as the
+  cause (~1.5 MB) but sit on the phone-control path the owner uses.
+
+Standing disable set at that point was **38 app rows** (tier 1 10 + tier 2a
+6 + voice 22) and **30 units**.  **Superseded later the same evening:** the
+row-by-row bisect found `org.tizen.easysetup-daemon` to be the cause, so the
+final standing set is **37 rows** (tier 1 10 + tier 2a 5 + voice 22) and
+**29 units** - see the entry above.  `test_debloat.py` locks all four counts
+plus "stack ids absent from tier 2a", "easysetup absent from tier 2a and
+from the mask list" and "phone-path units commented not active".
+
 ## 2026-10-30 — correction: the SmartThings dependency arrow was inverted, cause unproven
 
 `c09340d`'s subject ("smartthings-client -> multiscreen") and the sentence

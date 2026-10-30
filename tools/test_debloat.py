@@ -14,7 +14,8 @@ not output text:
   * real run disables in list order and writes the undo log (echo + pkgcmd
     -A per package) BEFORE the first disable;
   * the hard denylist (carrier, coba.adagent, privacy UIs, Home/menu, DRM,
-    screen-analysis, vetrotvapp) is refused even when the list asks;
+    screen-analysis, vetrotvapp, samsung-analytics, SmartThings stack) is
+    refused even when the list asks;
   * canalysis/pisa plant their vendor sentinels, stop those units, and fail
     the run loudly when a sentinel cannot be written; restore.sh removes
     the sentinels again;
@@ -51,13 +52,32 @@ DENY = ["com.samsung.tv.MultiControl-Service", "com.samsung.tv.coba.adagent",
         "com.samsung.tv.coba.privacy_app", "tv6pbVMQFF", "vetrotvapp",
         "org.tizen.menu", "com.samsung.tv.home.sidebar",
         "com.samsung.tv.screen-analysis-dbmgr",
-        "unified-drm-playready-PontusM"]
-TIER1 = ["adplatform.ADPlayer", "com.samsung.tizen.samsung-analytics",
+        "unified-drm-playready-PontusM",
+        "com.samsung.tizen.samsung-analytics",
+        "com.samsung.tizen.smartthings-client",
+        "com.samsung.tizen.smartthings-thing",
+        "com.samsung.tv.smartthingsfind-daemon",
+        "com.samsung.tv.mde-framework",
+        "com.samsung.tv.tvsensor-iot-service",
+        "org.tizen.easysetup-daemon"]
+TIER1 = ["adplatform.ADPlayer",
          "com.samsung.tv.ad-web-framework", "com.samsung.tv.adplayer",
          "com.samsung.tv.canalysis-service", "com.samsung.tv.cis-api-service-app",
          "com.samsung.tv.contents-recognition-dbmgr",
          "com.samsung.tv.nvision-analysis-dbmgr", "com.samsung.tv.pisa-service",
          "com.samsung.tv.targeted-ad-service", "content-grab-service"]
+TIER2A = ["com.samsung.tv.ambient-sound", "com.samsung.tv.ambientfte",
+          "com.samsung.tv.ambientinfo-resources",
+          "com.samsung.tv.waapp-contents-provider",
+          "org.tizen.multi-assistant-service"]
+ST_STACK = ["com.samsung.tizen.smartthings-client",
+            "com.samsung.tizen.smartthings-thing",
+            "com.samsung.tv.smartthingsfind-daemon",
+            "com.samsung.tv.mde-framework",
+            "com.samsung.tv.tvsensor-iot-service"]
+PHONE_UNITS = ["p2p-asm.service", "pushd.service", "pushd.socket",
+               "register-device.service"]
+PHONE_BINS = ["pushd", "register-device", "p2p-asm"]
 
 # TV absolute paths -> the fixture tree.  Longest first: /prd/usr/bin must win
 # over /usr/bin, and /usr/lib/systemd over nothing else, in ONE pass.
@@ -283,16 +303,16 @@ def main() -> int:
     check("apply dry: exit 0", r.returncode == 0)
     check("apply dry: no pkgcmd call", len(tmpf.calls("pkgcmd")) == 0,
           f"{len(tmpf.calls('pkgcmd'))} calls")
-    check("apply dry: 11 DRY lines",
-          len([l for l in r.stdout.splitlines() if l.startswith("DRY[")]) == 11)
+    check(f"apply dry: {len(TIER1)} DRY lines",
+          len([l for l in r.stdout.splitlines() if l.startswith("DRY[")]) == len(TIER1))
 
     # 2. real run: 11 disables in order, undo log complete + before first disable
     r = tmpf.run([lst], {"APPLY": "1"})
     check("apply real: exit 0", r.returncode == 0)
     pkg = tmpf.calls("pkgcmd -D")
-    check("apply real: 11 pkgcmd -D calls", len(pkg) == 11)
+    check(f"apply real: {len(TIER1)} pkgcmd -D calls", len(pkg) == len(TIER1))
     dis = len([l for l in r.stdout.splitlines() if l.startswith("disabled[")])
-    check("apply real: 11 disabled (sqlite readback true)", dis == 11)
+    check("apply real: all disabled (sqlite readback true)", dis == len(TIER1))
     order = [l.split("-n ")[1].split(" ")[0] for l in pkg]
     check("apply real: list order preserved", order == TIER1, str(order[:3]))
     undo_path = next((l.split(": ", 1)[1].strip() for l in
@@ -301,7 +321,7 @@ def main() -> int:
     undo_lines = Path(undo_path).read_text(encoding="utf-8").splitlines() \
         if undo_path else []
     check("apply real: undo log has pkgcmd -A for every package",
-          len([l for l in undo_lines if l.startswith("pkgcmd -A")]) == 11)
+          len([l for l in undo_lines if l.startswith("pkgcmd -A")]) == len(TIER1))
     check("apply real: undo log is under opt/usr/data (not share/)",
           undo_path is not None
           and "opt/usr/data" in undo_path.replace("\\", "/")
@@ -332,7 +352,7 @@ def main() -> int:
     tmpf2 = Fixture(DEB / "tools" / "apply.sh")
     bad = tmpf2.write_list("deny.txt", DENY + TIER1[:1])
     r = tmpf2.run([bad], {"APPLY": "1"})
-    check("apply: denylist refused (9 entries)",
+    check(f"apply: denylist refused ({len(DENY)} entries)",
           r.stdout.count("REFUSE (denylist)") == len(DENY))
     check("apply: denylist entry fails the run",
           r.returncode != 0)
@@ -757,12 +777,9 @@ def main() -> int:
                   (DEB / "lists" / "services-units.txt")
                   .read_text(encoding="utf-8").splitlines()
                   if l.strip() and not l.strip().startswith("#")]
-    # 34 active units: round 4 masked 23/23 live (2026-10-29); the 24th is
-    # org.tizen.easysetup-daemon.service, added 2026-10-30 when the restart-loop
-    # detector found its unit spinning at NRestarts=654.  The last ten are the
-    # OTA/firmware-update stack (2026-10-30), including a SECOND loop
-    # (vdsystem-update-manager, Restart=always).  bluetooth-monitor is EXCLUDED
-    # (BT re-activator), not merely commented-optional.
+    # 30 active units: 34 minus the four phone-path units dropped 2026-10-30
+    # (pushd.{service,socket}, register-device.service, p2p-asm.service).
+    # bluetooth-monitor stays EXCLUDED (BT re-activator).
     update_units = {"vdsystem-update-manager.service", "was-background-update.service",
                     "swu-verifier-tv.service", "swu-core-tv.service",
                     "swu-service.service", "vdca-update.service",
@@ -770,24 +787,46 @@ def main() -> int:
                     # fail-loop the way the unmasked ones did
                     "vdsystem-update-manager.timer", "was-background-update.path",
                     "swu-verifier-tv.timer", "swu-auto-upgrade.timer"}
-    check("services-units.txt is 34 active entries incl. easysetup + the OTA stack",
-          len(units_list) == 34
+    check("services-units.txt is 29 active entries incl. the OTA stack, easysetup excluded",
+          len(units_list) == 29
           and "com.samsung.tv.cis-api-service-app.service" in units_list
-          and "org.tizen.easysetup-daemon.service" in units_list
+          and "org.tizen.easysetup-daemon.service" not in units_list
           and update_units <= set(units_list),
           str(len(units_list)))
+    check("easysetup unit is a commented DO-NOT-MASK note",
+          "# org.tizen.easysetup-daemon.service" in
+          (DEB / "lists" / "services-units.txt").read_text(encoding="utf-8"))
     check("bluetooth-monitor is a commented DO-NOT-MASK note, never an active mask",
           "bluetooth-monitor.service" not in units_list
           and "# bluetooth-monitor.service" in
           (DEB / "lists" / "services-units.txt").read_text(encoding="utf-8"))
+    check("phone-path units are commented, never active masks",
+          all(u not in units_list for u in PHONE_UNITS)
+          and all("# " + u in
+                  (DEB / "lists" / "services-units.txt").read_text(encoding="utf-8")
+                  for u in PHONE_UNITS))
     bind_txt = (DEB / "lists" / "services-bind.txt").read_text(encoding="utf-8")
     bind_list = [l.strip() for l in bind_txt.splitlines()
                  if l.strip() and not l.strip().startswith("#")]
-    check("services-bind.txt is 26 active binaries", len(bind_list) == 26
+    check("services-bind.txt is 23 active binaries", len(bind_list) == 23
           and {"was_background_update", "vdsystem-update-manager"} <= set(bind_list),
           str(len(bind_list)))
     check("services-bind.txt: bt-monitor is not an active kill-list entry",
           "bt-monitor" not in bind_list and "bt-monitor" in bind_txt)
+    check("services-bind.txt: phone-path binaries are not active kill-list entries",
+          all(b not in bind_list for b in PHONE_BINS))
+    t2a_txt = (DEB / "lists" / "tier2a-tcc-apps.txt").read_text(encoding="utf-8")
+    t2a = [l.strip() for l in t2a_txt.splitlines()
+           if l.strip() and not l.strip().startswith("#")]
+    check("tier2a-tcc-apps.txt is the 5 non-stack ids",
+          t2a == TIER2A, str(t2a))
+    check("tier2a-tcc-apps.txt: SmartThings stack ids are absent",
+          all(s not in t2a for s in ST_STACK))
+    t1 = [l.strip() for l in
+          (DEB / "lists" / "tier1-tracking.txt").read_text(encoding="utf-8").splitlines()
+          if l.strip() and not l.strip().startswith("#")]
+    check("tier1-tracking.txt is 10 ids without samsung-analytics",
+          t1 == TIER1, str(t1))
     # batch 3 = voice only (22 ids) after the sharing area was reverted on
     # 2026-10-30 because it broke SmartThings phone control; the reverted ids
     # must not come back as active lines, only as the documented block.

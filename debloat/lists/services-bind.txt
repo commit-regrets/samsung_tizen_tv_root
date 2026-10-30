@@ -9,7 +9,7 @@
 # every process whose /proc/<pid>/exe is /usr/bin/<name> here.
 # NOTE: covers SWU*/fw-update* = firmware auto-update stays off (intended;
 # see the toolkit trap 10).  Session-only; a masked unit cannot respawn.
-# 26 active names.  Binaries this unit does not ship are skipped and
+# 23 active names.  Binaries this unit does not ship are skipped and
 # counted (some names exist only on other models).
 # 2026-10-30: + was_background_update, vdsystem-update-manager with the
 # OTA stack (was-background-update.service, vdsystem-update-manager.
@@ -23,6 +23,9 @@
 # pass was a 2 s respawn loop, not a suppression.  tcc blocks it and reports
 # the remote still works, but that is unverified on this set; ~5.8 MB is not
 # worth the experiment.
+# DELIBERATELY EXCLUDED (2026-10-30): pushd, register-device, p2p-asm.
+# Phone-control / device-registration path; owner uses SmartThings.
+# p2p-asm-UI stays (no unit, launchpad-held, not on that path).
 
 data-service
 sp-kpi
@@ -33,8 +36,6 @@ TIFADaemon_L
 TIFSDaemon
 abnormal_user_behavior
 ambient-ua-agent
-pushd
-register-device
 SWUAutoUpgrade
 wifi-monitor
 SWUService
@@ -45,7 +46,6 @@ fw-update-init-download
 nagsam-daemon
 p2p-asm-UI
 contents-recognition-service
-p2p-asm
 emergencyLogTransmitter
 gamebar-service
 was_background_update

@@ -6,23 +6,24 @@
 # Derived from the /usr/bin binaries in lists/services-bind.txt mapped to
 # their units via systemctl list-unit-files + systemctl status <pid>
 # (2026-10-29).
-# 34 entries, locked by tools/test_debloat.py.  Round 4 masked 23/23 live
-# (2026-10-29); `org.tizen.easysetup-daemon.service` was added 2026-10-30
-# after the restart-loop detector in mask.sh found its unit spinning at
-# NRestarts=654 and climbing (`activating (auto-restart)`, ~5 s cycle): the
-# app was disabled in tier 2a, app_launcher refuses it, Restart=on-failure
-# retries forever.  No unit Requires/Wants/BindsTo it (checked live), so
-# masking it is the completion of that app disable, not a new decision.
+# 29 entries, locked by tools/test_debloat.py.  Round 4 masked 23/23 live
+# (2026-10-29). `org.tizen.easysetup-daemon.service` was added 2026-10-30
+# while its app was disabled (the unit was restart-looping at NRestarts=654)
+# and REMOVED the same evening: disabling that app makes the SmartThings
+# phone show the TV offline, so the app stays enabled and this unit must
+# not be masked. See the DO-NOT-MASK note below.
 # This is the list v42 replays - do not add a name that has not been
 # verified with `systemctl list-unit-files | grep <name>`.
 # Binaries with NO systemd unit at all (launchpad/app-framework launched,
 # respawn regardless): p2p-asm-UI.  (Corrected 2026-10-30: the three SWU
 # binaries DO have units - swu-core-tv.service, swu-service.service,
 # swu-verifier-tv.service - they are on this list now.)
-# pushd is socket-activated: mask the socket too.
-# OWNER TRADE-OFF: masking register-device.service takes down vd_dmr
-# (DLNA media renderer, port 9197) - casting from phones breaks. Remove
-# that one mask if DLNA is needed.
+# pushd is socket-activated: mask the socket too.  The four phone-path
+# units (pushd.{service,socket}, register-device.service, p2p-asm.service)
+# were on this list through round 4 and are now EXCLUDED: they are on the
+# SmartThings / device-registration path the owner uses (~1.5 MB PSS).
+# OWNER TRADE-OFF kept as a note: masking register-device.service also
+# takes down vd_dmr (DLNA media renderer, port 9197).
 data-service.service
 org.tizen.tv.sp-kpi.service
 devicetracker.service
@@ -32,10 +33,6 @@ abnormal_user_behavior.service
 ambient-ua-agent.service
 gamebar-service.service
 nagsam-daemon.service
-p2p-asm.service
-pushd.service
-pushd.socket
-register-device.service
 wifi-monitor.service
 fw-update-service.service
 fw-update-init-download.service
@@ -54,9 +51,13 @@ scs-agent.service
 swu-auto-upgrade.service
 emergency-log-transmitter.service
 com.samsung.tv.cis-api-service-app.service
-# app_launcher unit of a tier-2a disabled app; restart-looping until masked
-# (NRestarts=654, 2026-10-30) - see the header note.
-org.tizen.easysetup-daemon.service
+# DO NOT MASK - org.tizen.easysetup-daemon.service
+# Phone-confirmed 2026-10-30: with voice + tier 1 already disabled and the
+# phone online, disabling this one app flipped SmartThings to offline.
+# Its manifest carries the IoT master/resource metadata that smartthings-thing
+# also speaks. The restart-loop (NRestarts=654) only existed because the app
+# was disabled; leave the app enabled and this unit runs.
+# org.tizen.easysetup-daemon.service
 
 # --- OTA / firmware-update stack, added 2026-10-30 (item 1 of the post-v42
 # plan).  Live evidence that day: vdsystem-update-manager.service was
@@ -113,3 +114,12 @@ swu-auto-upgrade.timer
 # the experiment, so it stays out of this list AND out of the kill list
 # (lists/services-bind.txt).
 # bluetooth-monitor.service
+#
+# DO NOT MASK - phone-control path (2026-10-30).  Unmasked and started
+# during the SmartThings-offline bisect; they were running in every
+# failing state so they are not the cause, but the owner uses SmartThings
+# so they stay off this list.  ~1.5 MB PSS total.
+# p2p-asm.service
+# pushd.service
+# pushd.socket
+# register-device.service

@@ -29,16 +29,18 @@ All TV reads/writes go through that channel (PC-side helpers:
   2026-10-30 for ALL 20 rows** (mains cycle: `id -u` = 0, count = 20, both
   canalysis/pisa sentinels still present) - the store is durable as-is, no
   payload change needed for it.
-- **Services layer: 34/34 units masked, and now durable (v42).**
-  `lists/services-units.txt` holds 34 units; the boot payload re-applies all of
+- **Services layer: 29 units masked, and now durable (v42).**
+  `lists/services-units.txt` holds 29 units; the boot payload re-applies all of
   them from the root-owned `/opt/usr/data/debloat-masks.txt` at every boot
   (`deploy.sh` installs that file; deleting it is the revert). **Cold-boot
   acceptance PASSED 2026-10-30 14:05:40** (mains cycle, no PC involved):
   `masks=24 stopped=24 killed=3 fail=0 missing=0 listed-activating=0
   loop-check=ok newhome=set(0),loop-started`, and live afterwards **24/24
   masked-runtime with none active** (18 inactive + 6 failed) and zero processes
-  under the listed binaries.  That run used the **24-unit list**; the current
-  standing state is the 34-unit list below (the extension, not a regression).
+  under the listed binaries.  That run used the **24-unit list**; it was then extended to 34 with the OTA
+  stack and later cut to **29** when the four phone-path units and the
+  `org.tizen.easysetup-daemon.service` mask were dropped (2026-10-30
+  evening, SmartThings).
   **Extended to 34 on 2026-10-30 14:50** with the OTA / firmware-update stack:
   `vdsystem-update-manager.{service,timer}`, `was-background-update.{service,path}`,
   `swu-verifier-tv.{service,timer}`, `swu-core-tv.service`,
@@ -66,25 +68,31 @@ All TV reads/writes go through that channel (PC-side helpers:
   restart-loop check; idempotent) and `tools/unmask.sh`.
   **Batch 3 REALITY (2026-10-30): 22 voice ids, sharing reverted.** The first
   run disabled 38 ids (voice 22 + sharing 16) and **SmartThings phone control
-  stopped working**.  **The cause is UNPROVEN.**  An earlier note here said
-  `smartthings-client` "declares multiscreen" - that is the arrow BACKWARDS:
-  `referencedBy` is who USES this package, so multiscreen using the client is
-  the direction, not the reverse. All 16 sharing ids were re-enabled
-  (`pkgcmd -A`), rows are back to **42** (20 tiers 1+2a + 22 voice), and the
-  `multiscreen` mask entry was removed with the unit unmasked+started - the
-  mask list is **34 units / 26 binaries** again. The AirPlay receiver's
-  ~7.3 MB PSS came back with it; the voice stack (~7 MB PSS) is the win.
-  A 16:08 cold boot ran the temporary 35/58 state cleanly, but the CURRENT
-  34/42 state is not boot-verified yet.
-  **Lesson:** `referencedBy` = who uses the package, so read it as "these
-  packages call this one".  Do not invert it (we did once).  A package that a
-  keep-side app USES is a risk to that app; a package that USES a keep-side app
-  is not.  And the phone-control path is not fully mapped: after the whole
-  sharing area came back and the TV rebooted, phone control was still dead, so
-  the dependency is somewhere else - find it by bisection, not by assertion.
+  stopped working**.  **Cause (owner-confirmed bisect, one variable at a time,
+  the same evening): `org.tizen.easysetup-daemon`.**  Disabling it alone flips
+  SmartThings from online to offline; its manifest carries the IoT
+  master/resource metadata that `smartthings-thing` also provides, and the
+  client keeps running with cloud sockets up while the phone shows offline.
+  It is **denylisted**, dropped from tier 2a, and **its unit is off the mask
+  list** (masking the unit stops the same daemon) - 24-unit list -> 29 units.
+  `com.samsung.tizen.samsung-analytics` is denylisted too, but for a different
+  reason: the client's `tizen-manifest` requests its appdefined privilege, so
+  disabling it leaves the client up with the phone offline.  It was the first
+  suspect and **is not sufficient** - re-enabling it did not restore the phone
+  (18:2x), which is what forced the row-by-row bisect that found easysetup.
+  The sharing-batch revert was a wrong guess from reading `referencedBy`
+  backwards (`multiscreen` uses the client, not the reverse) - the 16 stay
+  re-enabled as prudence.  The five SmartThings-stack ids are denylisted and
+  dropped from tier 2a (9 -> 5).  Standing set: **37 app rows** (tier 1 10 +
+  tier 2a 5 + voice 22) and **29 units / 23 binaries** (`pushd` /
+  `register-device` / `p2p-asm` unmasked: phone-path, ~1.5 MB).
+  **Lesson:** `referencedBy` = who uses the package.  A package that a
+  keep-side app USES is a risk to that app; a package that USES a keep-side
+  app is not.  And check the keep-side app's own `tizen-manifest.xml`
+  privileges (that is how analytics was caught - it was a real dependency,
+  just not this outage's cause).
   **Rule:** every mask-list addition needs the q3deps gate run *before* the
-  add (the multiscreen entry went in without one; it was removed again, so the
-  34-entry list still has no un-gated name).
+  add (the multiscreen entry went in without one; it was removed again).
   **Open:** tier 2b needs the Control Center layer; batch 3 is
   voice-only and done; **tcc's five extra service candidates are
   EVALUATED AND REJECTED (2026-10-30)**: measured live, their sum-RSS (~35.5 MB)
@@ -131,7 +139,12 @@ All TV reads/writes go through that channel (PC-side helpers:
    dependency (`coba.adagent`), the privacy-choice UIs, Home (`org.tizen.menu`,
    `com.samsung.tv.home.sidebar`), DRM (`unified-drm-*`),
    `com.samsung.tv.screen-analysis-dbmgr` (tcc measured picture-processing
-   breakage), Bluetooth (`bluetooth-monitor.service` / `bt-monitor`):
+   breakage), **the SmartThings stack** (`smartthings-client`,
+   `smartthings-thing`, `smartthingsfind-daemon`, `mde-framework`,
+   `tvsensor-iot-service`), **`com.samsung.tizen.samsung-analytics`**
+   (the client's SES privilege provider) and **`org.tizen.easysetup-daemon`**
+   (phone-confirmed 2026-10-30: this one disable flips SmartThings from
+   online to offline; do not mask its unit either), Bluetooth (`bluetooth-monitor.service` / `bt-monitor`):
    **excluded on the owner's instruction** — it is the boot-time BT
    re-activator (holds `/dev/micom-msg`, wanted by `starter.target`); tcc
    blocks it and reports the remote still works, but that is unverified on

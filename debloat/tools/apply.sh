@@ -16,8 +16,8 @@
 #   * the list is one app_id per line, '#'-comments allowed;
 #   * every line is validated as a bare id BEFORE it reaches a command;
 #   * a hard denylist (Smart Hub dependency, privacy-choice UIs, our own
-#     carrier, Home/menu, DRM, screen-analysis, Vetro itself) is refused
-#     even if the list asks;
+#     carrier, Home/menu, DRM, screen-analysis, Vetro itself, the SmartThings
+#     stack, samsung-analytics) is refused even if the list asks;
 #   * the undo line is recorded BEFORE each disable;
 #   * disable only - never uninstall;
 #   * a dry run exits non-zero on a refusal, so APPLY=0 gates the real run;
@@ -53,9 +53,20 @@ DB=/opt/dbspace/.pkgmgr_parser.db
 # screen-analysis-dbmgr is not role=tracking any more (see the tier-1 header):
 # tcc measured picture-processing breakage when it is blocked, so it is a
 # denylist entry rather than a comment a future list can ignore.
+# samsung-analytics is an SES sibling of smartthings-client: the client's
+# tizen-manifest requests that package's appdefined privilege, so disabling
+# it leaves the client up but the phone shows the TV offline (2026-10-30).
+# The five SmartThings-stack ids are the owner-used phone-control path.
+# easysetup-daemon: phone-confirmed 2026-10-30, this one disable flips
+# SmartThings from online to offline. Its unit must not be masked either.
 DENY="com.samsung.tv.coba.adagent com.samsung.tv.coba.privacy_app tv6pbVMQFF
 com.samsung.tv.MultiControl-Service org.tizen.menu com.samsung.tv.home.sidebar
-com.samsung.tv.screen-analysis-dbmgr vetrotvapp"
+com.samsung.tv.screen-analysis-dbmgr vetrotvapp
+com.samsung.tizen.samsung-analytics
+com.samsung.tizen.smartthings-client com.samsung.tizen.smartthings-thing
+com.samsung.tv.smartthingsfind-daemon com.samsung.tv.mde-framework
+com.samsung.tv.tvsensor-iot-service
+org.tizen.easysetup-daemon"
 
 
 mkdir -p "$DATA" "$SENTINEL_DIR" 2>/dev/null

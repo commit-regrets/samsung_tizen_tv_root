@@ -1,12 +1,11 @@
 # Open issues — current state, pending work, and closed history
 
-> **ACTIVE BLOCKER (2026-10-30):** the owner's phone shows the TV **offline** in
-> SmartThings, so phone control does not work, while the TV is rooted, network-up
-> and its SmartThings processes are running. Full evidence, the states already
-> tested, what is ruled out and the next bisect step:
+> **RESOLVED 2026-10-30:** SmartThings showed the TV offline because
+> `org.tizen.easysetup-daemon` was disabled. Phone-confirmed both ways:
+> that one disable flipped it offline, and re-enabling it brought the phone
+> back **online** (~18:51). Denylisted, and its unit is off the mask list.
+> Step log:
 > [docs/SMARTTHINGS-OFFLINE-2026-10-30.md](SMARTTHINGS-OFFLINE-2026-10-30.md).
-> The debloat lists currently on the TV are not the committed ones (the TV is
-> between experiments); restore from debloat/lists/ before any new list work.
 
 ## Current state — 2026-10-30 (v42 verified: cold boots, 34-unit durable masks,
 58 -> 42 app rows after the batch-3 revert; test_all 14/14)
@@ -61,11 +60,15 @@ meminfo-derived `0xE4E42000` was wrong (vendor-adjusted counters): see item 2.
    gate (Chromium 120) and the physmap primitive are still unproven elsewhere.
    Record each unit's results there.
 5. **Debloat — durable; service suppression is live (RESOLVED 2026-10-30).**
-   **42 apps are durably disabled** (`pkgcmd --global`; 20 from tiers 1+2a,
-   22 voice ids from batch 3 on 2026-10-30 - the 16 sharing ids were
-   reverted the same day because they broke SmartThings phone control) and
-   **all 34 units are masked**, re-applied at every boot by the payload from
-   `/opt/usr/data/debloat-masks.txt`. **Cold-boot acceptance PASSED
+   **37 apps are durably disabled** (`pkgcmd --global`; 10 from tier 1, 5
+   from tier 2a, 22 voice ids from batch 3) and **29 units are on the mask
+   list**, re-applied at every boot by the payload from
+   `/opt/usr/data/debloat-masks.txt`.  Two ids are **not** among them and
+   never will be, both phone-confirmed: `com.samsung.tizen.samsung-analytics`
+   (the SES privilege provider `smartthings-client` requests) and
+   `org.tizen.easysetup-daemon` - disabling that one alone flips the phone
+   from online to offline (owner-confirmed bisect 2026-10-30). The 16
+   sharing ids stay reverted (prudence, not the cause). **Cold-boot acceptance PASSED
    2026-10-30 14:05:40** (mains cycle, no PC involved): `masks=24 stopped=24
    killed=3 fail=0 missing=0 listed-activating=0 loop-check=ok
    newhome=set(0),loop-started` at t=51 s, every unit masked-runtime and none
@@ -99,7 +102,8 @@ meminfo-derived `0xE4E42000` was wrong (vendor-adjusted counters): see item 2.
    (2026-10-30)** - `swu-auto-upgrade.*`, `was-background-update.*`,
    `vdsystem-update-manager.*`, `swu-verifier-tv.*`, `swu-core-tv.service`,
    `swu-service.service`, `vdca-update.service` and the already-listed
-   `fw-update-*` units are all on the durable list (34 units).
+   `fw-update-*` units are all on the durable list (29 units after the
+   phone-path and easysetup drops).
    `fw-usb-update-service.{service,path}` does **not exist on this unit**
    (checked 2026-10-30: no unit file, `is-enabled` errors) - if a future
    firmware ships it, add it there.  **The five tcc service candidates are

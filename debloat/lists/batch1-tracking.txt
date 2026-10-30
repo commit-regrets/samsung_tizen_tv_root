@@ -3,7 +3,8 @@
 # Generated from models/qnx1d/inventory.json (Vetro 0.2.3 catalog, 2026-10-27).
 
 adplatform.ADPlayer
-com.samsung.tizen.samsung-analytics
+# EXCLUDED 2026-10-30: com.samsung.tizen.samsung-analytics - SES privilege
+# provider for smartthings-client; disabling it makes the phone show offline.
 # COUPLED(com.samsung.tv.tvplus)
 com.samsung.tv.ad-web-framework
 com.samsung.tv.adplayer

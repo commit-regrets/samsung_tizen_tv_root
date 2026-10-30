@@ -1,8 +1,31 @@
-# SmartThings shows the TV "offline" — open issue, handoff for a fresh agent
+# SmartThings shows the TV "offline" — resolved: `org.tizen.easysetup-daemon`
 
-**Status: UNRESOLVED.** Written 2026-10-30 ~18:15 by the agent that spent the
-evening on it. Read this top to bottom before touching the TV; the point of this
-file is that you do not repeat the four wrong guesses listed in §6.
+**Status: CLOSED.** Cause is `org.tizen.easysetup-daemon`. Restore confirmed: owner, phone **online** ~18:51 after the app was re-enabled and launched.
+
+Owner-confirmed bisect, 0 masks throughout, analytics stayed enabled:
+
+| Step | Disabled | Phone |
+|---|---|---|
+| fully stock | 0 | **online** ~18:32 |
+| voice 22 | 22 | **online** ~18:35 |
+| + tier 1 (10) | 32 | **online** ~18:37 |
+| + tier 2a (6) | 38 | **offline** ~18:42 |
+| those 6 re-enabled, thing pid unchanged | 32 | **online** ~18:44 |
+| `org.tizen.easysetup-daemon` only | 33 | **offline** ~18:46 |
+| re-enabled and launched (pid 7010) | 32 | **online** ~18:51 (owner) |
+
+The thing respawn that accompanied the tier-2a disable was not the cause:
+the phone returned to online on that same pid once the 6 were re-enabled.
+The single following change, easysetup alone, flipped it offline again.
+Its manifest carries `http://tizen.org/iot/metadata/master` and `.../resource`,
+the same IoT roles `smartthings-thing` provides.
+
+Locked: denylisted in `apply.sh`, dropped from `tier2a-tcc-apps.txt`, and
+`org.tizen.easysetup-daemon.service` dropped from the mask list (masking the
+unit would stop the same daemon). Re-enabled, launched, and the phone is
+**online** again (owner, ~18:51). Voice 22 and tier 1 10 stay disabled; they
+were online. The other five tier 2a ids stay in the disable list — they were
+enabled during the online readings.
 
 ---
 
@@ -128,12 +151,17 @@ necessary but *not sufficient*. Do not treat it as the answer.
 | 17:57 | 0 | 6 | `app_launcher -s` → alive | offline (too early / lag) |
 | ~18:00 | 0 | 0 (fully stock) | alive | **online** |
 | 18:0x | 30 | 39 (tier1 11 + voice 22 + tier2a 6) | alive | **offline** |
-| 18:1x (current) | 0 | 39 | alive | **offline** (last reading, may be lag) |
+| 18:1x | 0 | 39 | alive | **offline** |
+| ~18:26 | 0 | 38 (analytics re-enabled) | restarted | **offline** (owner) |
+| ~18:32 | 0 | **0** (all `-A`, incl. adplatform) | restarted | **online** (owner) |
+| ~18:35 | 0 | 22 (voice only) | same pids | **online** (owner) — voice innocent |
+| ~18:37 | 0 | 32 (voice 22 + tier 1 10) | same pids | **online** (owner) — tier 1 innocent |
+| ~18:38 | 0 | 38 (+ tier 2a 6) | thing pid changed 28614→1777 | **offline** ~18:42 (owner) |
+| ~18:44 | 0 | 32 (6 re-enabled, no restart) | thing still 1777 | **online** (owner) — respawn ruled out |
 
-Interpretation: online states are either *fully stock* or *almost fully stock*;
-every configuration carrying a substantial debloat has read offline. The 30-mask
-+ 39-row state read offline with the stack alive, which is why §7 starts from
-"0 masks, 39 rows" rather than assuming the masks.
+Interpretation (updated 18:44): the thing respawn was not the cause. The
+phone came back with the same thing pid once the 6 were re-enabled. Next
+single variable is `org.tizen.easysetup-daemon`.
 
 ---
 
@@ -145,39 +173,28 @@ every configuration carrying a substantial debloat has read offline. The 30-mask
 | `smartthings-client` / the `samsung` area being disabled | never in any list; row `false` throughout |
 | The 4 phone-path units (`pushd`, `register-device`, `p2p-asm`) | all running in the failing states; the phone also failed with them up (18:0x); ~1.5 MB PSS anyway |
 | `msf-server` (8001/8002) / `remote-server` (7678) being down | vendor boot services, up the whole time, owned by `/usr/bin`, no relation to our lists |
-| The 6 non-stack tier 2a rows (ambient×3, waapp-contents-provider, easysetup-daemon, multi-assistant-service) | disabled while the stack stayed alive (verified by process check); inventory shows no SmartThings user |
+| The 6 non-stack tier 2a rows (inventory only) | inventory said no SmartThings user. Phone test says otherwise: adding them flipped online→offline (~18:42). Split in progress. |
 | Masking `multiscreen.service` | it is not masked now; the app is enabled |
+| Voice 22 (`batch3-optional.txt`) | disabled alone, stack pids unchanged, owner **online** ~18:35 |
+| Tier 1 tracking, 10 remaining ids (analytics stays enabled) | added on top of voice, stack pids unchanged, owner **online** ~18:37 |
+| Thing respawn | phone returned **online** on the same thing pid once the 6 were re-enabled (~18:44) |
+| The other five tier 2a ids | enabled during both online readings (18:37 and 18:44) |
 
-Still **open**: the mask list as a set, and the tier 1 / voice app rows.
+**Cause:** `org.tizen.easysetup-daemon`. Disabled alone on top of the online 32-row state → **offline** ~18:46. Re-enabled and launched (pid 7010) → **online** ~18:51 (owner). Denylisted; its unit is off the mask list.
 
 ---
 
-## 7. Current live state and where to start
+## 7. Current live state
 
-At the time of writing:
+As of 2026-10-30 ~18:51 (owner: phone **online**):
 
-* masks: **0** (`/opt/usr/data/debloat-masks.txt` holds the 30-unit list used
-  earlier; `debloat-masks.txt.bak30` is the same file after renaming)
-* app rows disabled: **39** = tier 1 (11) + voice (22) + tier 2a non-stack (6)
-* policy files: present on `/opt/usr/data` (so a reboot re-applies 30 masks)
-* SmartThings stack: client + thing + stfind **alive**, cloud links up
-
-Suggested next step (the split that is not yet answered):
-
-1. Confirm the current reading after **2 full minutes** (it may be lag from the
-   masked state).
-2. If still offline with **0 masks / 39 rows**, the app rows are the cause:
-   re-enable them in two groups, checking after each (not faster than ~2 min):
-   * tier 1's 11 (`debloat/lists/tier1-tracking.txt`),
-   * voice's 22 (`debloat/lists/batch3-optional.txt`).
-   Then bisect the guilty group by halves. Natural suspects by *name* are weak
-   here: tier 1 is ads/analytics/ACR, voice is voice. If **both** groups come back
-   online when re-enabled, the remaining suspect is the *last* group (tier 2a's 6)
-   or the masks — go back to the mask list and bisect 30 → 15 → 8 …
-3. If it comes back online when a group is re-enabled, bisect that group with
-   `pkgcmd -D` / `-A` on single ids (the owner's phone needs ~2 min per check).
-
-Every step is cheap on the TV; only the phone check is slow.
+* `org.tizen.easysetup-daemon` enabled and running (pid 7010).
+* Disabled rows: **32** (voice 22 + tier 1 10). The five other tier 2a ids
+  are enabled.
+* masks: **0**. Policy files parked; the parked mask list does not name
+  `org.tizen.easysetup-daemon.service`.
+* Both directions are confirmed: disabling this app → offline, re-enabling
+  it → online.
 
 ---
 
@@ -185,9 +202,10 @@ Every step is cheap on the TV; only the phone check is slow.
 
 * **Never disable** `com.samsung.tizen.smartthings-thing`,
   `com.samsung.tv.mde-framework`, `com.samsung.tv.tvsensor-iot-service`,
-  `com.samsung.tizen.smartthings-client`, `com.samsung.tv.smartthingsfind-daemon`
-  — this is the SmartThings stack and the owner uses SmartThings. (Add them to the
-  `apply.sh` denylist.)
+  `com.samsung.tizen.smartthings-client`, `com.samsung.tv.smartthingsfind-daemon`,
+  or `org.tizen.easysetup-daemon`
+  — SmartThings phone control. All six are on the `apply.sh` denylist.
+  Do not mask `org.tizen.easysetup-daemon.service` either.
 * **Keep `pushd`, `register-device`, `p2p-asm` out of the mask list** (push
   channel, device registration, P2P session manager; ~1.5 MB PSS total).
 * `pkgcmd -D` does **not** kill running instances; after disabling check for
@@ -207,10 +225,10 @@ Every step is cheap on the TV; only the phone check is slow.
 | `CHANGELOG.md` | the real cause, replacing the "cause unproven" entry |
 | `docs/state.json` | then `python tools/update_state.py --fix` for the AGENTS §1 row |
 | `debloat/AGENTS.md` | the never-disable rule + the mechanism |
-| `debloat/lists/services-units.txt` | 30 units (drop the 4 phone-path units) if that is what survives |
+| `debloat/lists/services-units.txt` | **29** units (drop the 4 phone-path units and `org.tizen.easysetup-daemon.service`) |
 | `debloat/lists/services-bind.txt` | 23 binaries (drop `pushd`, `register-device`, `p2p-asm`) |
-| `debloat/lists/tier2a-tcc-apps.txt` | 6 ids (drop the 3 stack ids) |
-| `tools/test_debloat.py` | locks: 30 units / 23 binaries / tier2a 6 ids incl. the stack ids asserted **absent** |
+| `debloat/lists/tier2a-tcc-apps.txt` | **5** ids (drop the 3 stack ids and `org.tizen.easysetup-daemon`) |
+| `tools/test_debloat.py` | locks: 29 units / 23 binaries / tier2a 5 ids, with the stack ids and easysetup asserted **absent** |
 
 Run `python tools/test_all.py` and
 `python tools/sanitize_for_public.py --check` before committing.
@@ -219,12 +237,14 @@ Run `python tools/test_all.py` and
 
 ## 10. One-paragraph summary for a new reader
 
-The TV is rooted and healthy; its SmartThings processes run and it holds cloud
-connections, yet the owner's phone lists it "offline". Tonight we proved the
-sharing-app batch and the four phone-facing services are innocent, that disabling
-the SmartThings stack kills its client (recoverable with
-`app_launcher -s com.samsung.tizen.smartthings-client` or a reboot), and that the
-phone's status lags ~2 minutes. The remaining variable is the debloat payload
-itself: with 39 app rows disabled and 0 masks the phone still reads offline, while
-a fully-stock TV reads online. Bisect the app rows (tier 1 then voice) and then
-the 30-unit mask list, with ≥2 minutes between a TV change and a phone judgement.
+**Solved.** The cause is `org.tizen.easysetup-daemon`: disabling it alone
+flips SmartThings from online to offline (owner-confirmed, one variable at a time,
+0 masks throughout). It is denylisted, dropped from tier 2a, and its unit is off
+the mask list - masking the unit stops the same daemon. Voice (22) and tier 1 (10)
+stay disabled; the phone was online with those on. The final standing set is 37
+app rows and 29 units. Along the way we also ruled out the sharing batch, the four
+phone-facing services, `msf-server`/`remote-server`, `samsung-analytics` (a real
+dependency, but not this cause) and the thing-agent respawn; the useful mechanism
+notes are that disabling the SmartThings stack kills its client with no unit to
+restart it (`app_launcher -s com.samsung.tizen.smartthings-client` recovers it)
+and that the phone's status lags ~2 minutes.
