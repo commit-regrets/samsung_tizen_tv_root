@@ -9,8 +9,8 @@ from the same list.
 speaking the 31337 line protocol. That shell is provided by the rooting
 toolkit in this same repository (`root.ps1` / `tools/root_shell.py`); this
 folder never roots anything itself and has no opinion about how the root
-was obtained. The payload (v42, implemented 2026-10-30, deploy pending) will
-re-assert the service mask list from the root-owned policy path at every boot.
+was obtained. The payload (v42, deployed 2026-10-30) re-asserts the service mask list
+from the root-owned policy path at every boot.
 
 ## Layout
 
@@ -79,8 +79,8 @@ picture-settings loop, and fails if a listed unit is still restart-looping.
   was verified by masking that one unit, not in a full run.
   Durable suppression = the boot
   payload re-applying the masks each boot from
-  `/opt/usr/data/debloat-masks.txt` (v42, implemented 2026-10-30; the deploy
-  is pending, so today the masks are still session-only). Full
+  `/opt/usr/data/debloat-masks.txt` (v42, deployed 2026-10-30; the next
+  mains cycle is the acceptance). Full
   falsification trail (empty /opt files, /opt symlinks and drop-ins all
   inert — `/opt` is not in systemd's UnitPath; runtime bind-mounts
   bypassed) in `models/qnx1d/run-2026-10-29-services-bind.md`.

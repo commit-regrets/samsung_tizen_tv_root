@@ -15,6 +15,50 @@ entry is an incomplete change. `AGENTS.md` repeats this rule for agents.
 
 ---
 
+## 2026-10-30 — v42 deployed; the first run found (and fixed) the stop pass
+
+Deployed over the 31337 channel with `deploy.sh`: `PREV_IL=1ab4343e..` (the v41
+rollback copy), `ALLOW`/`HOST_FILE`/`TOKEN` written, `MASKFILE=debloat-masks.txt
+24 entries` + `MASKFILE=debloat-kill.txt 24 entries`, `BOOT_ROW_COUNT=1`,
+`COPY=ok`, `DEPLOY_DONE`. The restart rooted in ~1 s.
+
+**The first mask step was wrong, and the beacon said so.** It stopped the units
+one `systemctl stop` at a time and gave up at a 45 s deadline:
+
+    masks=24 stopped=2 killed=16 fail=22 missing=0 activating=1
+    listed-activating=0 loop-check=ok newhome=set(0),loop-active
+    (masks deadline after 4/24 stops)
+
+`masks=24` was right (all symlinks up) and `listed-activating=0` was right, but
+22 units were counted "failed" because the loop ran out of time: each
+`systemctl stop` serialises behind the previous unit's ExecStop, ~11 s on this
+set, so four calls ate the budget while 16 binaries were still alive. The kill
+pass then took those 16 down; `pushd.socket` and `fw-update-service.path` have
+no process to kill and were left *active* (masked and running) until a manual
+stop — measured 0 s for both.
+
+Fix (v42.1, redeployed the same day): **one** `systemctl --no-block stop
+<all 24>` (measured 0 s to queue) followed by a bounded `list-units` poll (ten
+dumps, 2 s apart) that also produces the counters. `stopped` is now the number
+of listed units that the dump confirms are not active/activating; a listed unit
+still up after the window is a real `fail`; an unreadable dump is
+`loop-check=failed` plus a `masks counters unverified` line instead of a clean
+zero. The per-unit stopwatch/deadline is gone.
+
+Redeployed result, in 2 s:
+
+    masks=24 stopped=24 killed=0 fail=0 missing=0 activating=1
+    listed-activating=0 loop-check=ok newhome=set(0),loop-active
+
+and a `/proc` scan afterwards found **zero** processes under the 24 listed
+binaries; `newhome-fix` is active, all 20 `app_disable` rows still true, both
+sentinels present, uid 0. The lesson is in `AGENTS.md` §9 and the brief: the
+stop pass must be one batched non-blocking call confirmed from the dump, never a
+loop of blocking calls.
+
+Owed: one mains cycle to prove the masks come back from `/opt` with no PC
+(the point of v42).
+
 ## 2026-10-30 — v42: the payload re-asserts the service masks at every boot
 
 The last piece of the debloat design. The 24-unit mask list only ever lived in

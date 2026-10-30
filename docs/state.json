@@ -1,11 +1,11 @@
 {
   "repo_payload_version": "v42",
   "tv": {
-    "payload_version": "v41",
-    "md5": "1ab4343e41e35b1ef6b8c9315a758903",
-    "deployed_date": "2026-10-27",
+    "payload_version": "v42",
+    "md5": "cbf8f293c0cb9210484ec05dd588d352",
+    "deployed_date": "2026-10-30",
     "beacon_token": "<BEACON_TOKEN>",
-    "notes": "v41 cold boot verified twice on 2026-10-27: 36 s (attempt 1 fast-exit t=29, attempt 2 direct-parent t=36) and, after the uninstall/recover cycle, 49 s (AUL launched late; single direct-patch attempt at t=49). kill -9 recovery ~2 s (new pid, uid 0). Uninstall/recover verified the same day - stock IL f61f60dd.., boot row removed remain=0, 31337 stayed closed after a cold boot, stock 9197 back; recover.sh with the PC URL restored v41 (token <TOKEN>), and the following cold boot rooted again. payload_backup.dll is now v41; stock mcs_orig.dll intact. **Repo builds v42 (durable service masks, 2026-10-30) - NOT deployed yet:** deploy.sh now also installs /opt/usr/data/debloat-masks.txt + debloat-kill.txt root-owned, and the payload re-applies the 24 masks at boot and beacons masks=/stopped=/killed=/fail=/missing=/activating=/listed-activating=/loop-check=/newhome=."
+    "notes": "v42 deployed 2026-10-30 over the 31337 channel (deploy.sh: PREV_IL=1ab4343e.. = the v41 rollback copy, ALLOW/HOST_FILE/TOKEN written, MASKFILE=debloat-masks.txt 24 entries + debloat-kill.txt 24 entries installed root-owned on /opt/usr/data, BOOT_ROW_COUNT=1, COPY=ok, DEPLOY_DONE); the post-deploy restart rooted in ~1 s and the mask step beaconed `masks=24 stopped=24 killed=0 fail=0 missing=0 activating=1 listed-activating=0 loop-check=ok newhome=set(0),loop-active` in 2 s. Live after it: uid 0, 24 masks masked-runtime, ZERO processes under the 24 listed binaries, newhome-fix active, all 20 app_disable rows still true, both sentinels present. **Owed: the mains-cycle acceptance** (masks must reappear at boot from /opt with no PC involvement). First v42 run (same day, before the batched-stop fix) exposed the sequential-stop bug: stopped=2 fail=22 after a 45 s deadline while 16 binaries were still alive; v42.1 queues one `systemctl --no-block stop` and confirms from the list-units dump. Earlier v41: cold boots 36 s (attempt 1 fast-exit t=29, attempt 2 direct-parent t=36) and 49 s (AUL late); kill -9 recovery ~2 s; uninstall/recover cycle verified 2026-10-27; stock IL f61f60dd.. intact, payload_backup.dll = v41."
   },
   "memory": {
     "max_low_pfn": "0x50400",

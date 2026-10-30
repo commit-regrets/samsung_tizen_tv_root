@@ -1426,7 +1426,6 @@ internal static class Program
             return;
         }
         Beacon("masks begin n=" + units.Length);
-        var sw = System.Diagnostics.Stopwatch.StartNew();
 
         int masks = 0, stopped = 0, killed = 0, fail = 0, missing = 0;
         var live = new List<string>();
@@ -1445,24 +1444,23 @@ internal static class Program
         // ONE reload before any stop: the masks are inert until this runs.
         if (!RunOk("systemctl daemon-reload")) fail++;
 
-        for (int i = 0; i < live.Count; i++)
+        // ONE batched, NON-BLOCKING stop.  A per-unit blocking loop is wrong
+        // here: systemd serialises the calls, and one service with a slow
+        // ExecStop (measured ~11 s, several of them on this set) burns the
+        // whole budget - the first v42 run stopped 2 of 24 and still hit a
+        // 45 s deadline while 16 binaries were alive.  --no-block queues every
+        // job at once, so they stop in parallel, and the confirmation comes
+        // from the list-units dump below (not from systemctl's exit code).
+        if (live.Count > 0)
         {
-            // A hung stop must not swallow the whole step; the units are
-            // already masked (they cannot come back), so give up at 45 s and
-            // count the rest as not-stopped.
-            if (sw.ElapsedMilliseconds > 45000)
-            {
-                fail += live.Count - i;
-                Beacon("masks deadline after " + i + "/" + live.Count + " stops");
-                break;
-            }
-            if (RunOk("systemctl stop " + live[i])) stopped++;
-            else fail++;
+            string batch = "systemctl --no-block stop";
+            foreach (string u in live) batch += " " + u;
+            Run(batch);
         }
 
         // Kill stragglers: processes whose /proc/<pid>/exe is a listed binary
-        // (launchpad copies ignore systemctl stop).  Optional file: without it
-        // the pass is skipped, not failed.
+        // (launchpad copies ignore systemctl stop, and a kill also lets a slow
+        // stop job finish).  Optional file: without it the pass is skipped.
         var bins = ReadPolicy(KillList);
         if (bins != null && bins.Length > 0)
         {
@@ -1493,6 +1491,33 @@ internal static class Program
             }
             catch { }
         }
+
+        // Bounded wait for the queued stops: a .socket/.path unit has no process
+        // to kill, so only the job can take it down.  Ten dumps, 2 s apart; the
+        // last parsed dump is the measurement the beacon reports.
+        const string ListUnitsCmd = "systemctl list-units --all --no-legend --plain; echo __RC=$?";
+        int activating = 0, listedActive = 0, listedUp = -1;
+        string loopCheck = "failed";
+        for (int i = 0; i < 10; i++)
+        {
+            if (i > 0) Thread.Sleep(2000);
+            int a, la, lu;
+            if (!ParseDump(Run(ListUnitsCmd), live, out loopCheck, out a, out la, out lu))
+            {
+                loopCheck = "failed";   // unreadable dump: never a clean number
+                break;
+            }
+            activating = a; listedActive = la; listedUp = lu;
+            if (lu == 0) break;
+        }
+        if (listedUp >= 0)
+        {
+            stopped = live.Count - listedUp;
+            // A listed unit that is still active/activating after the window is
+            // a real failure of this step, not a measurement artifact.
+            fail += listedUp;
+        }
+        else Beacon("masks counters unverified (list-units failed)");
 
         // Picture guard: the avocd new_home flag can be re-set by Samsung code
         // at any time, so one SetNewHome + verify is not enough - install the
@@ -1526,28 +1551,41 @@ internal static class Program
         // restarting.  Only a LISTED unit activating is a failure - an idle boot
         // already has a couple of unrelated ones, so the global count is context
         // only.  An unreadable dump is loop-check=failed, never "no loops".
-        int activating = 0, listedActive = 0;
-        string loopCheck = "failed";
-        string dump = Run("systemctl list-units --all --no-legend --plain; echo __RC=$?");
-        int rcAt = dump.LastIndexOf("__RC=", StringComparison.Ordinal);
-        if (rcAt >= 0 && dump.Substring(rcAt + 5).Trim().StartsWith("0"))
-        {
-            loopCheck = "ok";
-            foreach (string line in dump.Substring(0, rcAt).Split('\n'))
-            {
-                if (line.IndexOf(" activating ", StringComparison.Ordinal) < 0) continue;
-                activating++;
-                string unit = line.Trim().Split(new[] { ' ', '\t' },
-                    StringSplitOptions.RemoveEmptyEntries)[0];
-                foreach (string u in live)
-                    if (u == unit) { listedActive++; break; }
-            }
-        }
+        // (The counts were taken by the bounded poll above, which uses the same
+        // dump; that poll also decides `stopped`.)
 
         Beacon("masks=" + masks + " stopped=" + stopped + " killed=" + killed +
                " fail=" + fail + " missing=" + missing +
                " activating=" + activating + " listed-activating=" + listedActive +
                " loop-check=" + loopCheck + " newhome=" + newhome);
+    }
+
+    // Parse one `systemctl list-units --all --no-legend --plain` dump:
+    //   UNIT  LOAD  ACTIVE  SUB  DESCRIPTION
+    // Returns false when the dump itself is unusable (never a silent 0).
+    static bool ParseDump(string dump, List<string> live, out string loopCheck,
+                          out int activating, out int listedActivating, out int listedUp)
+    {
+        loopCheck = "failed"; activating = 0; listedActivating = 0; listedUp = 0;
+        int rcAt = dump.LastIndexOf("__RC=", StringComparison.Ordinal);
+        if (rcAt < 0 || !dump.Substring(rcAt + 5).Trim().StartsWith("0")) return false;
+        loopCheck = "ok";
+        foreach (string line in dump.Substring(0, rcAt).Split('\n'))
+        {
+            var f = line.Split(new[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries);
+            if (f.Length < 3) continue;
+            string state = f[2];
+            bool up = state == "active" || state == "activating" || state == "deactivating";
+            if (state == "activating") activating++;
+            foreach (string u in live)
+            {
+                if (u != f[0]) continue;
+                if (state == "activating") listedActivating++;
+                if (up) listedUp++;
+                break;
+            }
+        }
+        return true;
     }
 
     static void Main()

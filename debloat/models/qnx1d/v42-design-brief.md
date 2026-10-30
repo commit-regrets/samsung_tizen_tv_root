@@ -316,3 +316,31 @@ both files (`MASKFILE=` lines), uninstall removes them, the server serves them
 byte-identical to the committed lists, and `test_constants` proves the three
 places that name the paths agree and that the list never sits under the
 browser-writable `share/`. Owed: deploy + mains-cycle acceptance.
+
+## The first live run (2026-10-30) — the stop pass was wrong
+
+Deployed the same day; the beacon exposed it immediately:
+
+    masks=24 stopped=2 killed=16 fail=22 missing=0 activating=1
+    listed-activating=0 loop-check=ok newhome=set(0),loop-active
+    (masks deadline after 4/24 stops)
+
+All 24 masks were written and no listed unit was activating, but the *stopping*
+was ~2 units per 45 s. Step 3 ("`systemctl stop` each unit") is wrong when it is
+a loop: systemd serialises the calls and each one waits out that unit's
+ExecStop, ~11 s on this set, so four calls exhausted the budget while sixteen
+listed binaries were still alive (the kill pass then took them down; the two
+`.socket`/`.path` units have no process to kill and stayed *active* while
+masked — a manual stop of each measured 0 s).
+
+The shipped form is **one** `systemctl --no-block stop <all 24>` (queues every
+job at once, measured 0 s) plus a bounded `list-units` poll (ten dumps, 2 s
+apart) that also produces `stopped`/`fail`/`listed-activating`/`loop-check`.
+A listed unit still up after the window is a real `fail`; an unreadable dump is
+`loop-check=failed` plus a `masks counters unverified` line. Result on the
+redeploy, in 2 s: `masks=24 stopped=24 killed=0 fail=0 missing=0 activating=1
+listed-activating=0 loop-check=ok newhome=set(0),loop-active`, and a `/proc`
+scan found zero processes under the 24 listed binaries.
+
+Rule for anything similar: never emit a loop of blocking `systemctl` calls from
+the payload — batch them with `--no-block` and measure the outcome from a dump.
