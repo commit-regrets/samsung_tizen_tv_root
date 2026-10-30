@@ -15,6 +15,67 @@ entry is an incomplete change. `AGENTS.md` repeats this rule for agents.
 
 ---
 
+## 2026-10-30 — v43 deployed and boot-verified; the deploy-restart wait
+
+`deploy.sh` installed v43 at 20:07 (41,472 B, md5 `85cd0120`, new beacon token
+`f6a37e0a`, PREV_IL = the v42 rollback copy). The app that the deploy kills did
+**not** come back quickly: 31337 stayed closed and no beacon appeared for ~15
+minutes (it then ran fine at 20:23), so the first conclusion - "the new DLL is
+broken" - was wrong. AUL simply relaunched late.
+
+**Trap for the log guide:** after a deploy restart, read the **on-TV marker**
+(`/opt/usr/home/owner/share/root_boot.txt`) before believing a silent
+`beacons.log`; the marker keeps every beacon regardless of server reachability.
+Do not power-cycle on a 1-2 minute silence.
+
+The 21:25:55 cold boot then verified the hardening end to end - `self-patch` at
+t=56 s, `masks=29 ... listed-activating=0 loop-check=ok` - and the marker shows
+the new accept path in the wild:
+
+```
+t=35s child=c798a280 self=00000000 pu=unread tag=exact stale=0
+t=55s child=dc069700 self=d7cd0000 pu=5001    tag=exact stale=0
+t=56s self cred=c9fc3900 real=c9fc3900  ->  self-patch uid=0
+```
+
+Attempt 1 accepted the landmark by **exact per-run tag** while its parent cred
+was unreadable - exactly the case the old code could only latch as `maybe` - and
+attempt 2 rooted through `self`. TV live: uid 0, 37 rows, 29 masks, md5
+`85cd0120`.
+
+## 2026-10-30 — payload v43: per-run landmark tags, pid/tgid accept rule, cred-pair check
+
+The `PHYRFORK`/`PHYSRPT1` comm names were **constants**, so a landmark left over
+from an earlier AUL launch was indistinguishable from this run's; the `pre`
+snapshot papered over it but could not cover a landmark created between the
+snapshot and the fork, or a reused pid. v43 makes the tags per run and adds two
+independent accept checks:
+
+- payload self tag `PHYSRPT`+hex(getpid()); landmark tag `PHYRFORK`+hex(child
+  pid), written in the child into a pre-pinned buffer with raw byte writes only
+  (no CLR allocation after `fork()`), because 16-byte comm fits 8 chars + 8 hex;
+- the hunt order is exact tag -> `task->pid == task->tgid == fork()` pid ->
+  legacy parent-uid **only when both pid words are unreadable**. A readable pid
+  that disagrees is a leftover and is **refused**, counted as `stale=` in the
+  beacon, rather than patched;
+- `O_PID 0x2E8` / `O_TGID 0x2EC` come from the same DWARF `task_struct` as the
+  TV-measured `cred 0x3F8` / `real_cred 0x3F4` / `comm 0x400`, so the check reads
+  the fingerprint-verified layout (and `pid == tgid` also rejects a pthread,
+  which would inherit the creator's tgid);
+- every task-based patch now requires **`cred == real_cred`** (`SameCredPair`).
+  The old code patched the two pointers independently, so one stale word was
+  enough to write a cred whose `real_cred` was a different object.
+
+Tests: `tools/sim_rpc.py` mirrors the accept order (`task_pid`, `hunt_new_phyrfork`
+with `expect_tag`/`expect_pid`/`stats`) and gained three v43 self-tests (exact tag
+beats an older landmark; the pid check accepts a child whose tag has not landed
+yet; unreadable pid still uses the legacy latch). `tools/test_constants.py` locks
+`O_PID`/`O_TGID`, the tag builder, the refusal and the pair check. Beacons show
+`tag=exact|pid|prefix` and `stale=` on the `child=` line.
+
+Artifact: 41,472 B, md5 `85cd0120…`. Deployment is a separate step (deploy.sh +
+a restart); the state row records which build the TV actually runs.
+
 ## 2026-10-30 — first 29-unit / 37-row cold boot: clean
 
 Mains cycle at 19:29:41, the durable test of the standing set:

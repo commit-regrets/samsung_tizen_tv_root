@@ -68,8 +68,8 @@ The on-TV marker keeps the `t=<n>s <payload line>` shape (no token).
 | `retry in <n>s` | pre-round wait (fast `{0,0,5000,5000}`, long longer) | normal |
 | `round=<n> pre=<k>` | hunt round; `k` known old PHYRFORK tasks | normal |
 | `tail: <comm,…>` | task-tail comm dump; `per/0` names are normal, even on success | normal |
-| `child=<va> self=<va> pu=<uid\|unread>` | landmark child latched; `self=00000000` is normal (stale comm/pointer line) | normal |
-| `fail no new PHYRFORK seen=<n> skip-orphan=<n> pu=<x>` | the new landmark never appeared | see `docs/OPEN-ISSUES.md` fifth pass; usually recovers next attempt |
+| `child=<va> self=<va> pu=<uid\|unread> [tag=exact\|pid\|prefix] [stale=<n>]` | landmark child latched. v43 adds `tag=` (how it was accepted: the exact per-run tag, the pid/tgid words, or the legacy parent-uid rule) and `stale=` (readable-pid landmarks **refused** as leftovers from an earlier run); `self=00000000` is normal (stale comm/pointer line) | normal |
+| `fail no new PHYRFORK seen=<n> skip-orphan=<n> stale-tag=<n> pu=<x>` | the new landmark never appeared (`stale-tag` counts leftovers the v43 pid check refused) | see `docs/OPEN-ISSUES.md` fifth pass; usually recovers next attempt |
 | `fail round <n>` | attempt ended unrooted | expected on attempt 1 (below); attempt 2+ failing repeatedly → run beacons.py, check findings |
 
 ### Patch paths (in the order they run)

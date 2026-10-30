@@ -63,6 +63,7 @@ def main() -> int:
     want = {
         "PHYS_OFF": 0xA0000000, "O_COMM": 0x400, "O_CRED": 0x3F8,
         "O_REAL": 0x3F4, "O_CHILDREN": 0x2F8, "O_SIBLING": 0x300,
+        "O_PID": 0x2E8, "O_TGID": 0x2EC,
         "SlotStride": 0x8000, "SlotCount": 2048,
     }
     for name, val in want.items():
@@ -75,6 +76,7 @@ def main() -> int:
     sim_want = {"O_TASKS": 0x23C, "O_REAL_PARENT": 0x2F0, "O_PARENT": 0x2F4,
                 "O_REAL_CRED": 0x3F4, "O_CRED": 0x3F8, "O_COMM": 0x400,
                 "O_CHILDREN": 0x2F8, "O_SIBLING": 0x300,
+                "O_PID": 0x2E8, "O_TGID": 0x2EC,
                 "PHYS_OFF": 0xA0000000}
     for name, val in sim_want.items():
         got = grab(sim, rf"^{name}\s*=\s*(0x[0-9A-Fa-f]+|\d+)")
@@ -185,6 +187,16 @@ def main() -> int:
           "not forking a second landmark" in kroot)
     check("recover.sh rewrites WANT and SIZE as well as H",
           "WANT=$want" in recover and "SIZE_WANT=$size" in recover)
+    check("v43: the payload tags itself and the landmark per run (pid in hex)",
+          'TagFor("PHYSRPT"' in prog and 'TagFor("PHYRFORK"' in prog
+          and 'WriteTag(childName, "PHYRFORK"' in prog)
+    check("v43: the latch refuses a task whose pid/tgid disagrees",
+          "tpid >= 0 && tpid == pid" in prog and "staleTags++" in prog)
+    check("v43: a cred is patched only when cred == real_cred",
+          "SameCredPair" in prog
+          and prog.count("SameCredPair(") >= 3)
+    check("sim_rpc mirrors the v43 task_pid check", "def task_pid" in sim
+          and "stale += 1" in sim)
     check("high-scan skips the child's own cred object",
           "childCredPhys" in prog and "child_cred_phys" in sim)
 

