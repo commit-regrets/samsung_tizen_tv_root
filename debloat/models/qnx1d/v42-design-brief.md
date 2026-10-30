@@ -41,7 +41,9 @@ design, or is there a better mechanism we missed?
   because its app is disabled in tier 2a and `Restart=on-failure` retries a
   launcher call that can never succeed. No reverse deps (checked live), so
   masking it completes that app disable. The restart-loop detector below is
-  what found it.
+  what found it. **Removed again the evening of 2026-10-30:** that daemon
+  must keep running for SmartThings phone status, so both its app row and
+  this mask are gone (29 units).
   `bluetooth-monitor.service` is **excluded, DO NOT MASK** — on the owner's
   instruction, not because it is proven to break anything: it is the
   boot-time Bluetooth re-activator (unit comment "check previous
@@ -267,8 +269,9 @@ Reverse-dependency gate over the then-23-entry mask list (`tools/q3deps.sh`,
 run on the TV): **5 hard couplings, all `Requires=`, zero soft-only**.
 `bluetooth-monitor.service` is EXCLUDED (BT re-activator, never masked) and
 is therefore not covered by this gate.
-**The 24th unit is not in this table either:** `org.tizen.easysetup-daemon.service`
-(added 2026-10-30) was checked with the same predicate inline on the TV —
+**A 24th unit was checked outside this table:** `org.tizen.easysetup-daemon.service`
+(added 2026-10-30, removed the same evening) was checked with the same
+predicate inline on the TV —
 no `Requires=`/`Wants=`/`BindsTo=`/`Requisite=` in any unit file references
 it — but `q3deps.sh` was not re-run over the 24.  Do not read this table as
 covering it.

@@ -59,8 +59,10 @@ All TV reads/writes go through that channel (PC-side helpers:
   masked 23/23 live (0 respawn in the 8 s check, ~192 MB sum-RSS upper bound
   across the 21 running `/usr/bin` services); the 24th,
   `org.tizen.easysetup-daemon.service`, was added 2026-10-30 after the
-  restart-loop detector found it spinning at `NRestarts=654` (its app is
-  disabled in tier 2a and `Restart=on-failure` retries forever); at **12:35
+  restart-loop detector found it spinning at `NRestarts=654` (at the time
+  its app was disabled in tier 2a and `Restart=on-failure` retried forever;
+  **both that row and this unit mask were removed on 2026-10-30 evening -
+  either one kills SmartThings phone status**); at **12:35
   that day only that one mask was up**, because `/run` masks die with the
   reboot — the session-only design v42 removed. Tooling (still the
   human-facing path): `tools/mask.sh` (masks, reload, stop, refusal test, kill
@@ -187,7 +189,7 @@ All TV reads/writes go through that channel (PC-side helpers:
    all 11 `--global` rows and both sentinels SURVIVED the reboot - the
    `--global` store and the two vendor sentinels are durable as-is, and v42
    does NOT need to re-assert app disables. v42's only job is the /run mask
-   re-assertion for the 34 service units (see rule 13 and
+   re-assertion for the 29 service units (see rule 13 and
    `models/qnx1d/v42-design-brief.md` for the reviewed design).
 12. busybox `ps` shows only ~228 of ~408 processes; idle meminfo deltas are
    dominated by TV activity. Attribute per-process from `/proc` and compare

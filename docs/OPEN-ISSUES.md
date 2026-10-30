@@ -7,10 +7,10 @@
 > Step log:
 > [docs/SMARTTHINGS-OFFLINE-2026-10-30.md](SMARTTHINGS-OFFLINE-2026-10-30.md).
 
-## Current state — 2026-10-30 (v42 verified: cold boots, 34-unit durable masks,
-58 -> 42 app rows after the batch-3 revert; test_all 14/14)
+## Current state — 2026-10-30 (v42 verified: cold boots, 29-unit durable masks,
+37 app rows, SmartThings phone control confirmed online; test_all 14/14)
 
-TV: **v41** (`1ab4343e…`, 33,792 B), rooted via 31337. Every beacon carries
+TV: **v42** (`cbf8f293…`, 39,936 B), rooted via 31337. Every beacon carries
 `tok=<BEACON_TOKEN>` (from `rootchan.token`); forged and token-less beacons are refused.
 `id -u` = 0, `CapEff=0x3fffffffff`.
 **All hardware gates are closed (2026-10-27):** v41 cold boots at **36 s**
@@ -78,13 +78,20 @@ meminfo-derived `0xE4E42000` was wrong (vendor-adjusted counters): see item 2.
    fail=0 missing=0 activating=0 listed-activating=0 loop-check=ok
    newhome=set(0),loop-active`, and a **second restart loop**
    (`vdsystem-update-manager.service`, `Restart=always`) was found and stopped
-   by it. Design: `debloat/models/qnx1d/v42-design-brief.md`
+   by it. Later that evening the list was cut to **29 units / 23 binaries**
+   (the four phone-path units plus the `org.tizen.easysetup-daemon.service`
+   mask, all removed for SmartThings), and the 37-row / 29-unit standing set
+   was applied live at 18:56: `masks=29 stopped=29 killed=4 fail=0 missing=0
+   activating=0 listed-activating=0 loop-check=ok`, SmartThings stack alive,
+   phone **online** (owner-confirmed). Design: `debloat/models/qnx1d/v42-design-brief.md`
    (reviewed, cleared, implemented as `MaskServices()`); the two policy files
    are installed by `deploy.sh` and deleted by `uninstall.sh` — that is the
    revert. **History:** round 4 (2026-10-29) masked 23/23 during that session
    (`~192 MB` sum-RSS upper bound); the 24th (`org.tizen.easysetup-daemon.service`,
-   `NRestarts=654`) was added 2026-10-30; before v42 a reboot cleared the
-   masks, which is why the 12:35 reading that day was "one mask up". Both pre-checks are closed
+   `NRestarts=654`) was added 2026-10-30 and **removed again the same evening**
+   (that daemon must keep running for SmartThings phone status, and masking its
+   unit stops it just like the app disable does); before v42 a reboot cleared
+   the masks, which is why the 12:35 reading that day was "one mask up". Both pre-checks are closed
    (2026-10-30): (a) the mains cycle
    read back **all 20** `app_disable='true'` rows with both sentinels present and
    `id -u` = 0, so the store is durable as-is; (b) `bluetooth-monitor.service` is

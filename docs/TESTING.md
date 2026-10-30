@@ -153,8 +153,8 @@ ran, in what order, with what exit code), not on output prose:
   than reading as "no loops"), and
   the kill pass kills the process whose `/proc/<pid>/exe` is the
   listed binary (POSIX only — the fixture points `PROCDIR` at a fake tree);
-- list hygiene (bare ids, no denylist entry, the 34-unit mask-list lock and
-  the 26-binary kill-list lock, with the OTA-stack names asserted by name -
+- list hygiene (bare ids, no denylist entry, the 29-unit mask-list lock and
+  the 23-binary kill-list lock, with the OTA-stack names asserted by name -
   services, timers and paths alike - plus the batch-3 list lock: exactly
   the 22 voice ids, and the reverted sharing ids must not reappear as
   active lines) and `merge.js`

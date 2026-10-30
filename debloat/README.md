@@ -66,9 +66,14 @@ picture-settings loop, and fails if a listed unit is still restart-looping.
   `models/qnx1d/run-2026-10-29-tier1.md`. ~25.9 MB running ACR/ad
   processes freed (distinct processes, measured against the pre-debloat
   baseline).
-- **Services layer: a 34-unit mask list, all of it masked durably (v42) and
-  verified on the 2026-10-30 cold boot** (`masks=24 ... listed-activating=0`,
-  then 34 after the OTA stack was added at 14:50). The verified round-4 run
+- **Services layer: a 29-unit mask list, all of it masked durably (v42) and
+  verified on the 2026-10-30 cold boot** (`masks=24 ... listed-activating=0` on
+  the then-24-unit list), then 34 with the OTA stack at 14:50, and **29 since
+  that evening** (the four phone-path units and the
+  `org.tizen.easysetup-daemon.service` mask were removed for SmartThings). The
+  standing set was applied live 18:56 (`masks=29 stopped=29 killed=4 fail=0
+  missing=0 activating=0 listed-activating=0 loop-check=ok`) with the phone
+  **online** (owner-confirmed). The verified round-4 run
   (2026-10-29) masked 23/23 and nothing respawned in the 8 s check,
   ~192 MB sum-RSS across the 21 running `/usr/bin` services (upper bound;
   the per-process dump is the evidence). The 24th,
@@ -76,12 +81,15 @@ picture-settings loop, and fails if a listed unit is still restart-looping.
   restart-loop check found its unit spinning at `NRestarts=654`
   (`activating (auto-restart)`) because its app is disabled in tier 2a and
   `Restart=on-failure` retries a launcher call that can never succeed; it
-  was verified by masking that one unit, not in a full run.
+  was verified by masking that one unit, not in a full run. **Removed again
+  2026-10-30 evening:** either the app disable or the unit mask makes the
+  owner's phone show the TV offline, so the daemon runs and its unit is not
+  masked.
   Durable suppression = the boot
   payload re-applying the masks each boot from
   `/opt/usr/data/debloat-masks.txt` (v42, deployed 2026-10-30 and **cold-boot
-  verified**: every mask back, none active, zero listed processes; 34/34 since
-  the OTA stack joined at 14:50). Full
+  verified**: every mask back, none active, zero listed processes; 29/29 since
+  the 2026-10-30 evening cuts). Full
   falsification trail (empty /opt files, /opt symlinks and drop-ins all
   inert — `/opt` is not in systemd's UnitPath; runtime bind-mounts
   bypassed) in `models/qnx1d/run-2026-10-29-services-bind.md`.
@@ -103,7 +111,8 @@ picture-settings loop, and fails if a listed unit is still restart-looping.
   Not unit-less after all (corrected 2026-10-30): `SWUCoreTV`, `SWUService`
   and `SWUVerifierTV` ship `swu-core-tv.service`, `swu-service.service` and
   `swu-verifier-tv.service`; all three units joined the durable mask list
-  together with the rest of the OTA stack (34 units total).
+  together with the rest of the OTA stack (29 units total after the evening
+  cuts).
   `p2p-asm-UI` stays genuinely unit-less (launchpad, respawns regardless).
 
 **Pre-debloat baseline captured** (`models/qnx1d/baseline-pre-debloat.txt`:

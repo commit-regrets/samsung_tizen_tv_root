@@ -123,9 +123,9 @@ Codes: `MASK-BEGIN`, `MASK-OK`, `MASK-FAIL`, `MASK-SKIP`, `MASK-UNVERIFIED`,
 | `masks deadline after <i>/<n> stops` | v42.0 only: the per-unit blocking stop loop ran out of budget | fixed in v42.1 (one batched `--no-block` stop + dump poll); an old log showing this predates the fix |
 
 Healthy v42 cold boot (2026-10-30 14:05 - the FIRST acceptance, on the
-then-24-unit list; it has been 34 units since 14:50 that day - briefly 35
-while batch 3 was live, back to 34 after the sharing revert - so a current
-boot prints `masks begin n=34`):
+then-24-unit list; 34 units from 14:50 that day, briefly 35 while batch 3 was
+live, and **29 since that evening**, so a current boot prints `masks begin
+n=29`):
 
 ```
 masks begin n=24

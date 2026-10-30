@@ -191,7 +191,8 @@ The two tcc lessons folded into the tooling before v42 was written:
    org.tizen.easysetup-daemon` failing forever under `Restart=on-failure`.
    No unit `Requires=`/`Wants=`/`BindsTo=` it (checked live), so the unit was
    added to `lists/services-units.txt` (24th entry) — the completion of an
-   app disable, not a new decision. Every other `app_launcher` unit of a
+   app disable, not a new decision. **Removed again 2026-10-30 evening:**
+   masking this unit (or disabling its app) kills SmartThings phone status. Every other `app_launcher` unit of a
    disabled app reads `NRestarts=0`.
 2. **Persistent picture loop.** `mask.sh` keeps the immediate
    `SetNewHome int32:0` + verify and then starts the `newhome-fix` 30 s loop

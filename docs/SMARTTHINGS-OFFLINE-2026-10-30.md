@@ -213,12 +213,12 @@ As of 2026-10-30 ~18:51 (owner: phone **online**):
 * Never write to `/mnt/systemrw`; never `systemctl --force reboot` from the
   payload (trap 9 / 12 in the root `AGENTS.md`).
 * Keep `CHANGELOG.md`, `docs/state.json` and `debloat/AGENTS.md` updated with
-  whatever you find — the current record says **cause unproven** and that is
-  honest, not a placeholder.
+  whatever you find. This issue is **solved** (see the header); do not leave
+  the record as "cause unproven".
 
 ---
 
-## 9. Files that will need updating when this is solved
+## 9. Files updated when this was solved (all done)
 
 | File | What |
 |---|---|

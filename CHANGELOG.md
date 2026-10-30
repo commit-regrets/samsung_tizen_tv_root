@@ -15,6 +15,26 @@ entry is an incomplete change. `AGENTS.md` repeats this rule for agents.
 
 ---
 
+## 2026-10-30 — standing set applied (37 rows / 29 units), phone confirmed online
+
+The final set is live and accepted: `masks=29 stopped=29 killed=4 fail=0
+missing=0 activating=0 listed-activating=0 loop-check=ok`, **37 `app_disable`
+rows** (tier 1 10 + tier 2a 5 + voice 22), `org.tizen.easysetup-daemon` and
+`com.samsung.tizen.samsung-analytics` both `false` with the easysetup unit
+active and unmasked, and `smartthings-client` + `smartthings-thing` +
+`stfind-daemon` running. The owner confirmed the phone **online** after the
+apply, so this is the accepted standing state (the next mains cycle is the
+first boot of it).
+
+Docs reconciled in the same pass so nothing stale survives: `OPEN-ISSUES`'s
+banner (v41/34-unit/42-row -> v42/29-unit/37-row) and its item-5 history,
+`TESTING` (29/23 locks), `debloat/README` (29 units, and the easysetup unit
+recorded as removed), `LOGGUIDE` (a current boot prints `n=29`), the root
+`AGENTS.md` §7 batch-3 entry (the cause, not "unproven") plus a new standing-set
+entry, `debloat/AGENTS`'s round-4 history, the v42 design brief and the two
+2026-10-29 run logs (the easysetup row and unit recorded as removed), and the
+investigation doc's "cause unproven" wording.
+
 ## 2026-10-30 — SmartThings phone-offline: cause is org.tizen.easysetup-daemon
 
 Owner-confirmed bisect, one variable at a time, 0 masks, analytics left

@@ -111,6 +111,11 @@ resident (~7.3 MB PSS) and was killed; the rest is "never launches again".
 The disable exposed `com.samsung.tv.multiscreen.service` restarting every 5 s -
 added to the mask list (34 -> 35), which v42 then masked (`masks=35 ... activating=0`).
 
+**Reverted the same evening.** The 16 sharing ids were re-enabled and that
+mask entry removed. The phone-offline cause turned out to be
+`org.tizen.easysetup-daemon` (tier 2a) - denylisted now, and its unit is off
+the mask list too. Final standing set: **37 app rows / 29 units**.
+
 ## Batch 3 (original menu framing, for reference)
 
 Nothing here is pre-planned: these are user-facing features. The full
