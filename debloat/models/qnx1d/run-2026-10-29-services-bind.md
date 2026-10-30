@@ -221,3 +221,55 @@ Live verification of both fixes the same day (targeted, not a full session):
   content on screen. So "CheckAutoMotionPlus = 1" is only a valid acceptance
   signal with an app/video showing; at the Home screen `0` is correct and
   must not be read as a failed fix.
+
+## Round 7 — bt-monitor: what it is, and why it stays excluded (2026-10-30)
+
+The owner asked whether BT can be debloated too. Read-only forensics, then a
+decision.
+
+**Two separate units, not one.** `bluetooth-frwk-service.service` is the stack:
+`ExecStart=/usr/bin/bt-service`, `DefaultDependencies=no`,
+`WantedBy=sysinit.target`, active. `bluetooth-monitor.service` is the helper:
+`/bin/fms_bt_monitor_launch.sh` → `/usr/bin/bt-monitor`, wanted by
+`starter.target` + `swu-standalone.target`, `Restart=on-abnormal` 2 s. Blocking
+the helper does not touch the stack.
+
+**What the helper does.** Live inspection of pid 1896 (root, 4 threads,
+194,832 B binary):
+
+- strings: **`Powered` ×196**, `vconf` ×25, **`db/bluetooth/status`**,
+  `PowerOn`/`power_on`, `bluetooth` ×9, `Adapter` ×55 — i.e. it reads the
+  **saved BT state from vconf** and tracks the adapter's BlueZ `Powered`
+  property over the system bus;
+- fds: two AF_UNIX (dbus) sockets, `/dev/micom-msg` (rw, power/standby MCU),
+  `/dev/eeprom` (**read-only**, module identity), `/dev/shm/shm_fms` +
+  rwlock, the `/dev/log_*` set, `/dev/vlog`, `/dev/smart_deadlock`,
+  `trace_marker`;
+- `vconftool get -t string db/bluetooth/status` → **`1` (on)**;
+- unit comment: "bt-service check previous BT-connection status and
+  re-activate BT when boot".
+
+So the split is: the stack brings Bluetooth up, and `bt-monitor` re-applies the
+**last saved power state** to the adapter after a boot. With `status = 1`, that
+means "turn BT back on after a power cycle" — which is how the BLE remote
+reconnects by itself.
+
+**Decision: excluded from both lists** (this was already the state; the reason
+is now specific rather than "Bluetooth is scary"). The stack is independent and
+stays untouched at runtime; the only thing forfeited is the boot-time restore,
+and that is precisely the owner's input device. Gain would be ~5.8 MB (0.3 % of
+RAM) against ~46 MB of other tcc candidates that do not touch the remote.
+
+**If it is ever wanted, the only valid test is a boot test** (a runtime kill
+proves nothing: `Restart=on-abnormal` respawns it in 2 s). That needs a durable
+mask, so it can only happen after v42: put `bluetooth-monitor.service` in the
+list for one boot, mains-cycle, check the remote reconnects, then remove it.
+Recovery is self-cleaning (`/run` masks die at the next power cycle), but the
+test boot may leave the set with no remote, so it needs the TV's own panel
+button as the fallback path.
+
+**Tooling note:** `dbus-send … org.freedesktop.DBus.ListNames` **hung twice**
+(no reply within 30 s; the channel's 120 s kill recovered it). Do not use it
+for diagnostics on this set — `/proc/<pid>/fd`, `grep -a` on the binary and
+`vconftool` answered the same questions instantly.
+

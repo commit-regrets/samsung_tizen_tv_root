@@ -15,6 +15,22 @@ entry is an incomplete change. `AGENTS.md` repeats this rule for agents.
 
 ---
 
+## 2026-10-30 — bt-monitor forensic answer: it restores the saved BT state at boot
+
+Owner question: what does `bluetooth-monitor.service` do, and should we block
+it too? Read-only forensics (run-log round 7) answered it: the **stack** is a
+separate unit (`bluetooth-frwk-service.service` → `/usr/bin/bt-service`,
+`sysinit.target`, untouched), and the **helper** (`bt-monitor`) reads the saved
+state from `vconf db/bluetooth/status` (currently **1 = on**) plus the
+adapter's `Powered` property (196 `Powered` strings, 25 `vconf` refs, two dbus
+sockets) and re-applies it after boot — its unit comment says exactly that.
+Decision recorded, not changed: it stays excluded from the mask list and the
+kill list (a runtime kill only respawns it in 2 s; the boot-time restore is the
+piece that matters, and it is the owner's remote). Any future test must be a
+mains-cycle test after v42. Also recorded: `dbus-send ListNames` hangs on this
+set (two 30 s timeouts) — use `/proc/<pid>/fd`, `grep -a` and `vconftool`
+instead.
+
 ## 2026-10-30 — second external review: q3deps contract, fail-closed loop check, truth pass
 
 The reviewer accepted the three commits and returned two P2 "do not copy this
