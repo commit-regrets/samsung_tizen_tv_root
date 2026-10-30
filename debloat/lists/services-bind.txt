@@ -12,14 +12,14 @@
 # 24 active names.  Binaries this unit does not ship (3 of 24) are skipped
 # and counted.
 # DELIBERATELY EXCLUDED (2026-10-30): bt-monitor / bluetooth-monitor.service.
-# Live inspection of the unit and the running process shows it is the
-# Bluetooth re-activation helper, not telemetry: its unit comment reads
-# "bt-service check previous BT-connection status and re-activate BT when
-# boot", it is wanted by starter.target AND swu-standalone.target, it holds
-# /dev/micom-msg + /dev/eeprom, and it restarts 2 s after any abnormal exit
-# (Restart=on-abnormal) - so the kill pass was a 2 s respawn loop, not a
-# suppression.  Killing or masking it risks the BLE remote not reconnecting
-# after a power cycle, which the owner does not want.
+# Excluded on the owner's instruction (Bluetooth must keep working).  Live
+# inspection: its unit comment reads "bt-service check previous BT-connection
+# status and re-activate BT when boot", it is wanted by starter.target AND
+# swu-standalone.target, it holds /dev/micom-msg + /dev/eeprom, and it
+# restarts 2 s after any abnormal exit (Restart=on-abnormal) - so the kill
+# pass was a 2 s respawn loop, not a suppression.  tcc blocks it and reports
+# the remote still works, but that is unverified on this set; ~5.8 MB is not
+# worth the experiment.
 
 data-service
 sp-kpi

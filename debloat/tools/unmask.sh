@@ -3,6 +3,10 @@
 # Same unit list.  Does not restart units (they come back at the next boot
 # or when something starts them).  The /opt sentinel files used by vendor
 # unit conditions are NOT touched - restore.sh removes those.
+# The picture-settings loop (transient unit `newhome-fix`) is deliberately
+# LEFT RUNNING: it is not a mask, and removing it would let the avocd
+# grey-out race come back.  Stop it yourself with `systemctl stop
+# newhome-fix` if you want it gone (it dies at reboot either way).
 #   cat tools/unmask.sh | sh -s lists/services-units.txt
 # The list MUST be a file argument - no stdin fallback, because the usual
 # invocation pipes the script in and stdin carries the script.

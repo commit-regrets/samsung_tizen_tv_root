@@ -66,15 +66,16 @@ picture-settings loop, and fails if a listed unit is still restart-looping.
   `models/qnx1d/run-2026-10-29-tier1.md`. ~25.9 MB running ACR/ad
   processes freed (distinct processes, measured against the pre-debloat
   baseline).
-- **Services layer: 24 systemd units masked live** via `/run` masks
-  (`tools/mask.sh`) — session-only by design; the verified round-4 run
+- **Services layer: a 24-unit mask list, nothing masked right now** (session
+  masks died with the 2026-10-30 reboot). The verified round-4 run
   (2026-10-29) masked 23/23 and nothing respawned in the 8 s check,
   ~192 MB sum-RSS across the 21 running `/usr/bin` services (upper bound;
   the per-process dump is the evidence). The 24th,
   `org.tizen.easysetup-daemon.service`, was added 2026-10-30: the new
   restart-loop check found its unit spinning at `NRestarts=654`
   (`activating (auto-restart)`) because its app is disabled in tier 2a and
-  `Restart=on-failure` retries a launcher call that can never succeed.
+  `Restart=on-failure` retries a launcher call that can never succeed; it
+  was verified by masking that one unit, not in a full run.
   Durable suppression = the boot
   payload re-writing the masks each boot (v42, not started). Full
   falsification trail (empty /opt files, /opt symlinks and drop-ins all
@@ -84,14 +85,14 @@ picture-settings loop, and fails if a listed unit is still restart-looping.
   `SetNewHome int32:0` + verify, and the persistent `newhome-fix` 30 s loop
   (`systemd-run`, tcc's proven form). A one-shot is not enough — the flag
   can be re-set mid-session; `systemctl stop newhome-fix` removes it.
-- `bluetooth-monitor.service` is **excluded on purpose** (mask list *and*
-  kill list). Checked live 2026-10-30: it is the boot-time Bluetooth
-  re-activator — its unit comment is "bt-service check previous
+- `bluetooth-monitor.service` is **excluded on the owner's instruction**
+  (mask list *and* kill list). Checked live 2026-10-30: it is the boot-time
+  Bluetooth re-activator — its unit comment is "bt-service check previous
   BT-connection status and re-activate BT when boot", it is wanted by
   `starter.target` + `swu-standalone.target`, the running `bt-monitor` holds
   `/dev/micom-msg` and `/dev/eeprom`, and it restarts 2 s after any abnormal
-  exit. Masking it would risk the BLE remote not reconnecting after a power
-  cycle, which is not a trade this repo makes for ~5.8 MB.
+  exit. tcc blocks it and reports the remote still works, but that is
+  unverified on this set; ~5.8 MB is not worth the experiment.
 - Formerly "unit-less" daemons resolved and on the mask list:
   TIFADaemon_L <- automation-service, TIFSDaemon <- factory-service,
   SCSAgent <- scs-agent.service, SWUAutoUpgrade <- swu-auto-upgrade.service.

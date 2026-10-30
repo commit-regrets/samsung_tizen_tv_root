@@ -42,14 +42,14 @@ design, or is there a better mechanism we missed?
   launcher call that can never succeed. No reverse deps (checked live), so
   masking it completes that app disable. The restart-loop detector below is
   what found it.
-  `bluetooth-monitor.service` is **excluded, DO NOT MASK** (checked live
-  2026-10-30): it is the boot-time Bluetooth re-activator — unit comment
-  "check previous BT-connection status and re-activate BT when boot", wanted
-  by `starter.target` + `swu-standalone.target`, `bt-monitor` holds
-  `/dev/micom-msg`. Masking it risks the BLE remote not reconnecting after a
-  power cycle; it is out of the mask list and the kill list. tcc blocks
-  `bt-monitor` and reports the remote still works — that is the test to run
-  if the ~5.8 MB is ever wanted.
+  `bluetooth-monitor.service` is **excluded, DO NOT MASK** — on the owner's
+  instruction, not because it is proven to break anything: it is the
+  boot-time Bluetooth re-activator (unit comment "check previous
+  BT-connection status and re-activate BT when boot", wanted by
+  `starter.target` + `swu-standalone.target`, `bt-monitor` holds
+  `/dev/micom-msg`). tcc blocks `bt-monitor` and reports the remote still
+  works, but that is unverified on this set and ~5.8 MB is not worth the
+  experiment; it is out of the mask list and the kill list.
 - Live run log with the full falsification trail:
   `models/qnx1d/run-2026-10-29-services-bind.md`.
 
@@ -92,6 +92,11 @@ pattern as its existing auto-update-off:
 2. `ln -sf /dev/null /run/systemd/system/<unit>` for each (skip existing —
    idempotent); then **one** `systemctl daemon-reload` before any stop
    (masks are inert until the reload).
+   **Missing name policy (differs from mask.sh on purpose):** `mask.sh`
+   aborts on a name with no unit file — a human is there and a typo must be
+   loud.  The payload, unattended, **skips** it, continues with the rest and
+   beacons `missing=<n>`: a vendor rename in an OTA must not fail the whole
+   boot step every time.
 3. `systemctl stop` each unit; kill any straggler by `/proc/<pid>/exe`
    path under the mapped binaries.
 4. Picture-guard: one `SetNewHome int32:0` + verify, **then start the
@@ -102,9 +107,16 @@ pattern as its existing auto-update-off:
 5. Restart-loop check (tcc's trap): a unit whose app is disabled restarts
    every 2–5 s forever.  After the stop pass, no *listed* unit may be
    `activating`; report the global count too (an idle boot already has a
-   couple, so only the listed set is the failure signal).
-6. Beacon the result with the existing `Beacon()` (500 ms cap):
-   `masks=<n> stopped=<k> fail=<m> loops=<n> newhome=<state>`.
+   couple, so only the listed set is the failure signal).  **If
+   `systemctl list-units` itself fails, that is `loop-check=failed`, not
+   `listed-activating=0`** — an unmeasured check must never beacon a clean
+   number.
+6. Beacon the result with the existing `Beacon()` (500 ms cap), explicit
+   names only (no ambiguous `loops=`):
+   `masks=<n> stopped=<k> fail=<m> missing=<n> activating=<global>
+   listed-activating=<n> loop-check=ok|failed|skipped newhome=<state>`,
+   where `listed-activating` is the failure signal and `activating` is
+   context only.
 
 ## Questions the review must answer
 
@@ -162,7 +174,8 @@ After a mains power-cycle, within ~90 s of power-on:
   hides;
 - the 20 `--global` app rows still true;
 - channel answering with `id -u` = 0; beacon shows
-  `masks=… stopped=… loops=… newhome=…`.
+  `masks=… stopped=… missing=… activating=… listed-activating=…
+  loop-check=ok|failed newhome=…`.
 Revert path: remove the list file from /opt → reboot → stock behavior (the
 picture loop is a transient unit and dies with the boot).
 
@@ -249,6 +262,11 @@ Reverse-dependency gate over the then-23-entry mask list (`tools/q3deps.sh`,
 run on the TV): **5 hard couplings, all `Requires=`, zero soft-only**.
 `bluetooth-monitor.service` is EXCLUDED (BT re-activator, never masked) and
 is therefore not covered by this gate.
+**The 24th unit is not in this table either:** `org.tizen.easysetup-daemon.service`
+(added 2026-10-30) was checked with the same predicate inline on the TV —
+no `Requires=`/`Wants=`/`BindsTo=`/`Requisite=` in any unit file references
+it — but `q3deps.sh` was not re-run over the 24.  Do not read this table as
+covering it.
 
 | Masked unit | Hard dependent | Consequence of masking | Verdict |
 |---|---|---|---|

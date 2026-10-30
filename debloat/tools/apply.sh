@@ -70,14 +70,19 @@ picture_guard() {
   # reset and leave motion processing forced off.  Run even on a failed
   # apply — a partial batch is enough to grey out Picture Mode.
   # See debloat/models/qnx1d/run-2026-10-29-services-bind.md round 5.
+  # ONE-SHOT only: the persistent 30 s loop lives in tools/mask.sh
+  # (`newhome-fix`), which owns the service session this race comes from.
   [ "$APPLY" = "1" ] && [ "${AVOCD:-1}" = "1" ] && command -v dbus-send >/dev/null 2>&1 || return 0
   if dbus-send --system --print-reply --dest=org.tizen.tv.avoc /org/tizen/tv/avoc \
       org.tizen.tv.avoc.AvOutputControl.SetNewHome int32:0 >/dev/null 2>&1; then
     st=$(dbus-send --system --print-reply --dest=org.tizen.tv.avoc /org/tizen/tv/avoc \
       org.tizen.tv.avoc.AvOutputControl.CheckAutoMotionPlus 2>/dev/null \
       | awk '/int32/{print $NF}')
-    echo "picture-guard: new_home=0 (CheckAutoMotionPlus=${st:-?}; 1 = picture settings available)"
-    [ "$st" = "1" ] || echo "picture-guard: WARNING - still forced off; rerun SetNewHome or use the 30 s loop (tcc ch. 6)"
+    # 1 = settings available now.  0 is NOT a failure by itself: while Samsung
+    # Home is in front, Home keeps motion processing off, so the readback is 0
+    # regardless of the flag we just cleared.  Only an empty answer is a fault.
+    echo "picture-guard: new_home=0 (CheckAutoMotionPlus=${st:-?}; 1 = settings available, 0 while Samsung Home is in front)"
+    [ -n "$st" ] || echo "picture-guard: WARNING - the verify call returned nothing"
   else
     echo "picture-guard: dbus call failed - skipped (run the SetNewHome command manually)"
   fi

@@ -159,6 +159,7 @@ class Fixture:
                           '# daemon-reload - model that with a reload marker\n'
                           'if [ "$1" = "daemon-reload" ]; then touch "$T/run/.reloaded"; fi\n'
                           'if [ "$1" = "list-units" ]; then\n'
+                          '  [ "${FAIL_LIST_UNITS:-0}" = "1" ] && exit 1\n'
                           '  [ -f "$ACTIVEUNITS" ] && cat "$ACTIVEUNITS"\n'
                           '  exit 0\n'
                           'fi\n'
@@ -365,7 +366,7 @@ def main() -> int:
     # argument.  The old `${LIST:--}` default expanded to a literal file named
     # "-", so a no-arg run printed "0 of 0" and exited 0 - and the documented
     # `cat list | sh restore.sh` form silently activated nothing.
-    for name in ("apply.sh", "restore.sh", "mask.sh", "unmask.sh"):
+    for name in ("apply.sh", "restore.sh", "mask.sh", "unmask.sh", "q3deps.sh"):
         f = Fixture(DEB / "tools" / name)
         r = f.run([])
         check(f"{name}: no list argument exits 2", r.returncode == 2,
@@ -387,6 +388,20 @@ def main() -> int:
     check("restore: a refused piped list activates nothing",
           len(fpipe.calls("pkgcmd -A")) == 0)
     fpipe.cleanup()
+
+    # q3deps.sh follows the same contract (review finding: the fifth script
+    # still printed "0 coupled of 0 checked ... dependency-safe" and exit 0).
+    fq3 = Fixture(DEB / "tools" / "q3deps.sh")
+    lstq3 = fq3.write_list("units.txt", ["data-service.service"])
+    r = fq3.run([lstq3])
+    check("q3deps: one-unit list checks one unit and exits 0",
+          r.returncode == 0 and "of 1 checked" in r.stdout, r.stdout[-120:])
+    fq3b = Fixture(DEB / "tools" / "q3deps.sh")
+    lstq3b = fq3b.write_list("empty.txt", ["# comment only", ""])
+    r = fq3b.run([lstq3b])
+    check("q3deps: a comment-only list exits 2, not '0 of 0 ... safe'",
+          r.returncode == 2 and "FAIL:" in r.stdout, str(r.returncode))
+    fq3.cleanup(); fq3b.cleanup()
 
     # the documented TV form: the SCRIPT on stdin, the list as $1.  Nothing
     # else covers this, and it is how every live run invoked the tools:
@@ -584,6 +599,19 @@ def main() -> int:
     check("mask: an unrelated activating unit is reported, not failed",
           r.returncode == 0 and "activating=1 listed-activating=0" in r.stdout,
           r.stdout[-200:])
+
+    # an unreadable systemctl dump must NOT look like "no loops" (review
+    # finding: loops/ourloops stayed 0 and the run could still exit 0)
+    tmpf13 = Fixture(DEB / "tools" / "mask.sh")
+    tmpf13.add_units(units)
+    ul13 = tmpf13.write_list("units.txt", units)
+    r = tmpf13.run([ul13], {"MASK": "1", "FAIL_LIST_UNITS": "1"})
+    check("mask: a failed list-units fails the run (fail closed)",
+          r.returncode != 0, str(r.returncode))
+    check("mask: the failed loop check is named",
+          "loop-check: FAILED" in r.stdout)
+    check("mask: summary marks loop-check=failed",
+          "loop-check=failed" in r.stdout, r.stdout[-200:])
     tmpf8 = Fixture(DEB / "tools" / "unmask.sh")
     ul8 = tmpf8.write_list("units.txt", units)
     r = tmpf8.run([ul8])
@@ -810,7 +838,7 @@ def main() -> int:
     tmpf6.cleanup(); tmpf6b.cleanup(); tmpf6c.cleanup(); tmpf6d.cleanup()
     tmpf7.cleanup(); tmpf8.cleanup(); tmpf9.cleanup(); tmpf10.cleanup()
     tmpf10b.cleanup(); tmpf10c.cleanup(); tmpf10d.cleanup(); tmpf10e.cleanup()
-    tmpf11.cleanup(); tmpf12.cleanup()
+    tmpf11.cleanup(); tmpf12.cleanup(); tmpf13.cleanup()
 
     print("\ndebloat tooling tests:", "ok" if ok else "FAILED")
     return 0 if ok else 1

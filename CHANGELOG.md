@@ -15,6 +15,48 @@ entry is an incomplete change. `AGENTS.md` repeats this rule for agents.
 
 ---
 
+## 2026-10-30 — second external review: q3deps contract, fail-closed loop check, truth pass
+
+The reviewer accepted the three commits and returned two P2 "do not copy this
+into v42" items plus doc drift. All fixed before v42 starts:
+
+- **`q3deps.sh` got the list contract too** (it was the fifth script and was
+  missed). It used to answer `q3: 0 coupled of 0 checked (0 = mask list is
+  dependency-safe)` and exit 0 for a no-arg or empty/comment-only list — the
+  same silent-success class closed in `apply/restore/mask/unmask`, on the gate
+  that cleared v42. Now: exit 2 with a usage line, and exit 2 with
+  `FAIL: … no valid unit names` when it checked zero units. Tests cover the
+  no-arg case (in the shared loop) and the comment-only list.
+- **The loop check fails closed.** If `systemctl list-units` itself fails,
+  `mask.sh` used to leave `loops/ourloops=0`, print a clean summary and could
+  exit 0. Now that is `loop-check=failed`, a `loop-check: FAILED` line, a
+  `loop-check=failed` summary field and a non-zero exit; v42 will beacon the
+  failed state instead of `listed-activating=0`. The check's counter and its
+  `LOOP:` lines now come from the same sanitized reader (an `awk` pass over the
+  raw list could disagree on CR/comment lines).
+- **Picture-guard readback aligned** between `apply.sh` and `mask.sh`: 0 is not
+  a failure while Samsung Home is in front, so only an empty answer warns.
+- **v42 spec hardened** before coding: the missing-unit policy is written down
+  (payload **skips** and beacons `missing=<n>`; `mask.sh` stays strict — a
+  human is there and a typo must be loud; an OTA rename must not fail the boot
+  step), the beacon fields are pinned to
+  `masks=… stopped=… missing=… activating=… listed-activating=…
+  loop-check=ok|failed newhome=…` (the ambiguous `loops=` is gone), and the Q3
+  table explicitly says it covers the 23-entry run only — the 24th unit was
+  checked with the same predicate inline on the TV, not by `q3deps.sh` over 24.
+- **Truth pass on "how many are masked":** `debloat/AGENTS.md`,
+  `debloat/README.md` and `docs/OPEN-ISSUES.md` now say the list is 24, only 23
+  were masked live (round 4), the 24th was a targeted remask, and **nothing is
+  masked right now** — the 2026-10-30 mains cycle cleared `/run`, which is the
+  whole point of v42. `docs/TESTING.md` says 24-unit lock; the stale "3 of 25"
+  kill-list comment is 24; `unmask.sh`'s header documents that the picture loop
+  (`newhome-fix`) is deliberately left running.
+- **Bluetooth claim softened** everywhere (AGENTS rule 4 + state, README, both
+  list headers, the v42 brief, OPEN-ISSUES, parent `AGENTS.md` §11): it is
+  excluded **on the owner's instruction**, not because it is proven to break
+  the remote — tcc blocks `bt-monitor` and reports the remote still works, but
+  that is unverified here and ~5.8 MB is not worth the experiment.
+
 ## 2026-10-30 — two tcc lessons folded in: persistent picture loop, loop detector
 
 Cross-read of both reference trees before writing v42. Nothing in

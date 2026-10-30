@@ -52,19 +52,23 @@ meminfo-derived `0xE4E42000` was wrong (vendor-adjusted counters): see item 2.
    gate (Chromium 120) and the physmap primitive are still unproven elsewhere.
    Record each unit's results there.
 5. **Debloat / v42 — durable service suppression.** 20 apps are durably
-   disabled (`pkgcmd --global`) and 23 systemd units are `/run`-masked, but the
-   masks die at reboot; v42 must re-assert them from the payload. Design is
+   disabled (`pkgcmd --global`); the mask list is **24 units** (23 masked in
+   the verified round 4; the 24th added 2026-10-30 after the loop detector
+   found `org.tizen.easysetup-daemon.service` at `NRestarts=654`), but **no
+   masks are up right now** — the 2026-10-30 mains cycle cleared `/run`, which
+   is exactly why v42 must re-assert them from the payload. Design is
    reviewed and cleared (`debloat/models/qnx1d/v42-design-brief.md`); not
    implemented. **Both pre-checks are closed (2026-10-30):** (a) the mains cycle
    read back **all 20** `app_disable='true'` rows with both sentinels present and
    `id -u` = 0, so the store is durable as-is; (b) `bluetooth-monitor.service` is
-   **excluded from the mask list and the kill list** — live inspection showed it
-   is the boot-time Bluetooth re-activator (unit comment: "check previous
+   **excluded from the mask list and the kill list on the owner's instruction** —
+   it is the boot-time Bluetooth re-activator (unit comment: "check previous
    BT-connection status and re-activate BT when boot"; wanted by
    `starter.target`; `bt-monitor` holds `/dev/micom-msg` and `/dev/eeprom`;
-   `Restart=on-abnormal`, 2 s), so masking it would risk the BLE remote not
-   reconnecting after a power cycle. The owner's remote depends on it — leave
-   it alone. Placement/state: `debloat/AGENTS.md`.
+   `Restart=on-abnormal`, 2 s). tcc blocks it and reports the remote still
+   works, but that is unverified on this set; the owner wants Bluetooth left
+   alone and ~5.8 MB is not worth the experiment. Placement/state:
+   `debloat/AGENTS.md`.
 6. **Reference-derived follow-ups, in value order:** a per-run task tag
    (`PHYSRPT`+pid) plus a pid/tgid and `real_cred == cred` check to retire the
    stale-task family for good; OTA hardening beyond the buxton key

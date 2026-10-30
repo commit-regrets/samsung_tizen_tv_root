@@ -142,9 +142,13 @@ order, with what exit code), not on output prose:
 - `restore.sh`: `-A --global` per id, sentinel removal, stop-at-first-failure;
 - `mask.sh`: `daemon-reload` before any `stop`/`start`, no start of a unit
   whose mask is ours only, `MISSING` unit names fail the run, all-missing
-  exits 2, and the kill pass kills the process whose `/proc/<pid>/exe` is the
+  exits 2, the persistent `newhome-fix` loop (started once, reported
+  `newhome=started` then `active`), the restart-loop check (a listed unit
+  still `activating` fails the run; an unrelated one only gets reported), and
+  the kill pass kills the process whose `/proc/<pid>/exe` is the
   listed binary (POSIX only — the fixture points `PROCDIR` at a fake tree);
-- list hygiene (bare ids, no denylist entry, the 23-unit lock) and `merge.js`
+- list hygiene (bare ids, no denylist entry, the 24-unit mask-list lock and
+  the 24-binary kill-list lock) and `merge.js`
   determinism: regenerating the inventory from the committed registry dump may
   flip only the two documented overrides, with matching counts and summary.
 

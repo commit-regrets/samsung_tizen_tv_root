@@ -152,7 +152,7 @@ if [ "$MASK" = "1" ] && [ "$KILL" = "1" ] && [ -n "$BIND_LIST" ]; then
     name=$(printf '%s' "$line" | tr -d '\r' | awk '{$1=$1};1')
     [ -n "$name" ] || continue
     case "$name" in *[!A-Za-z0-9@._-]*) echo "REFUSE (not a bare binary): $name"; killbad=$((killbad+1)); continue ;; esac
-    # A binary this unit does not ship is expected (3 of 25 on QNX1D) - skip
+    # A binary this unit does not ship is expected (3 of 24 on QNX1D) - skip
     # it, but count it so the summary does not read like a full pass.
     if [ ! -e "/usr/bin/$name" ] && [ ! -e "/prd/usr/bin/$name" ]; then
       absent=$((absent+1))
@@ -234,29 +234,40 @@ fi
 # tcc's S90D.  The global count is reported for context (an idle boot already
 # has a couple), but the FAILURE signal is a LISTED unit still activating -
 # that means the mask did not hold.
-loops=0; ourloops=0
+loops=0; ourloops=0; loopcheck=skipped
 if [ "$MASK" = "1" ] && command -v systemctl >/dev/null 2>&1; then
   units_file=/tmp/.dsh_units.$$
   if systemctl list-units --all --no-legend --plain > "$units_file" 2>/dev/null; then
+    loopcheck=ok
     loops=$(grep -c ' activating ' "$units_file" 2>/dev/null) || loops=0
     grep ' activating ' "$units_file" 2>/dev/null | awk '{print $1}' > "$units_file.active"
-    ourloops=$(awk 'NR==FNR{a[$1]=1; next} ($1 in a){c++} END{print c+0}' \
-      "$units_file.active" "$LIST" 2>/dev/null) || ourloops=0
+    # Count and name from the SAME sanitized reader (CR strip, comment skip) -
+    # an awk pass over the raw list used to disagree with the LOOP: lines.
     while IFS= read -r lu || [ -n "$lu" ]; do
       case "$lu" in ''|\#*) continue ;; esac
       lu=$(printf '%s' "$lu" | tr -d '\r' | awk '{$1=$1};1')
       [ -n "$lu" ] || continue
-      grep -qxF "$lu" "$units_file.active" 2>/dev/null && \
+      if grep -qxF "$lu" "$units_file.active" 2>/dev/null; then
+        ourloops=$((ourloops+1))
         echo "LOOP: $lu is still activating (the mask did not hold)"
+      fi
     done < "$LIST"
+  else
+    # Fail closed: a dump we could not read is NOT "no loops".  A manual run
+    # must not report a clean result it did not measure, and v42 must beacon
+    # loop-check=failed rather than listed-activating=0.
+    loopcheck=failed
+    echo "loop-check: FAILED - systemctl list-units did not answer; cannot prove there is no restart loop"
   fi
   rm -f "$units_file" "$units_file.active"
-  echo "loop-check: activating=$loops listed-activating=$ourloops (an idle boot already has a couple)"
+  if [ "$loopcheck" = "ok" ]; then
+    echo "loop-check: activating=$loops listed-activating=$ourloops (an idle boot already has a couple)"
+  fi
 fi
 
 echo
 if [ "$MASK" = "1" ]; then
-  echo "summary: newly-masked=$new already=$already stopped=$stopped refusal-ok=$refused missing-units=$missing symlink-fail=$bad kill-refused=$killbad start-failures=$fail killed=$killed reload_ok=$reload_ok activating=$loops listed-activating=$ourloops newhome=$newhome"
+  echo "summary: newly-masked=$new already=$already stopped=$stopped refusal-ok=$refused missing-units=$missing symlink-fail=$bad kill-refused=$killbad start-failures=$fail killed=$killed reload_ok=$reload_ok loop-check=$loopcheck activating=$loops listed-activating=$ourloops newhome=$newhome"
 else
   echo "dry run: would mask $new new units ($already already masked, $missing missing), stop + refusal-test $n"
 fi
@@ -269,7 +280,7 @@ fi
 if [ "$MASK" = "1" ]; then
   [ "$fail" = "0" ] && [ "$bad" = "0" ] && [ "$missing" = "0" ] \
     && [ "$killbad" = "0" ] && [ "$reload_ok" = "1" ] \
-    && [ "$ourloops" = "0" ] || exit 1
+    && [ "$ourloops" = "0" ] && [ "$loopcheck" != "failed" ] || exit 1
 else
   [ "$bad" = "0" ] && [ "$missing" = "0" ] || exit 1
 fi

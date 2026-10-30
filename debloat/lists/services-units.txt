@@ -66,7 +66,10 @@ org.tizen.easysetup-daemon.service
 #     /bin/fms_bt_monitor_launch.sh, Restart=on-abnormal, RestartSec=2;
 #   * the running process (seen post-boot) holds /dev/micom-msg and
 #     /dev/eeprom - it watches the power/standby micro-controller.
-# Masking it risks the BLE remote/soundbar not reconnecting after a power
-# cycle, so bt-monitor is also out of lists/services-bind.txt (kill list).
-# ~5.8 MB RSS - not worth that risk.
+# Excluded on the owner's instruction (Bluetooth must keep working):
+# tentatively, its job is exactly the boot-time BT re-activation, but that is
+# not proven to break the remote here - tcc blocks bt-monitor and reports the
+# remote still works.  Unverified on this set, and ~5.8 MB RSS is not worth
+# the experiment, so it stays out of this list AND out of the kill list
+# (lists/services-bind.txt).
 # bluetooth-monitor.service

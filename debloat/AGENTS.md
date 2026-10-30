@@ -29,20 +29,21 @@ All TV reads/writes go through that channel (PC-side helpers:
   2026-10-30 for ALL 20 rows** (mains cycle: `id -u` = 0, count = 20, both
   canalysis/pisa sentinels still present) - the store is durable as-is, no
   payload change needed for it.
-- **Services layer suppressed live (2026-10-29 evening + re-asserted
-  after the cold boot)**: 24 systemd units on `lists/services-units.txt`
-  (the 23 of the verified round-4 run plus `org.tizen.easysetup-daemon.service`,
-  added 2026-10-30 because the restart-loop detector found it spinning at
-  NRestarts=654 — its app is disabled in tier 2a and `Restart=on-failure`
-  retries forever) via
-  `/run` symlinks
-  (`tools/mask.sh` — masks, reload, stop, refusal test, kill pass, picture
-  guard with the persistent `newhome-fix` 30 s loop, restart-loop check;
-  idempotent) —
-  session-only, dies at reboot by design; 0 respawned in the verified
-  round-4 run, ~192 MB sum-RSS across the 21 running `/usr/bin` services
-  (upper bound). Durable = v42 (payload re-writes
-  masks at boot; not started). **Open:** tier 2b needs the Control Center
+- **Services layer: a 24-unit mask LIST, not 24 masks that are up now.**
+  `lists/services-units.txt` holds 24 units, but only **23 were masked live**
+  (round 4, 2026-10-29: 23/23, 0 respawn in the 8 s check, ~192 MB sum-RSS
+  across the 21 running `/usr/bin` services — upper bound). The 24th,
+  `org.tizen.easysetup-daemon.service`, was added 2026-10-30 because the
+  restart-loop detector found it spinning at `NRestarts=654` (its app is
+  disabled in tier 2a and `Restart=on-failure` retries forever); it was
+  verified by masking that one unit, not in a full run. **The 2026-10-30
+  mains cycle cleared every `/run` mask**, so as of this writing nothing is
+  masked except that one targeted test — that is the session-only design, and
+  it is what v42 fixes. Tooling: `tools/mask.sh` (masks, reload, stop,
+  refusal test, kill pass, picture guard with the persistent `newhome-fix`
+  30 s loop, restart-loop check; idempotent) and `tools/unmask.sh`.
+  Durable = v42 (payload re-writes the masks at boot; not started).
+  **Open:** tier 2b needs the Control Center
   layer; batch 3 awaits owner picks; the four former "unit-less" holdouts
   are resolved and on the mask list (TIFADaemon_L <- automation-service,
   TIFSDaemon <- factory-service, SCSAgent <- scs-agent.service,
@@ -53,10 +54,11 @@ All TV reads/writes go through that channel (PC-side helpers:
   it is the boot-time Bluetooth re-activator (unit comment: "check previous
   BT-connection status and re-activate BT when boot"; wanted by
   `starter.target` + `swu-standalone.target`; `bt-monitor` holds
-  `/dev/micom-msg` and `/dev/eeprom`; `Restart=on-abnormal`, 2 s). The owner
-  wants the BLE remote to keep working, so it is out of the mask list AND out
-  of the kill list (`services-bind.txt`); masking/killing it would risk the
-  remote not reconnecting after a power cycle.
+  `/dev/micom-msg` and `/dev/eeprom`; `Restart=on-abnormal`, 2 s). It is
+  excluded on the owner's instruction (Bluetooth must keep working): tcc
+  blocks it and reports the remote still works, but that is unverified on
+  this set, so it stays out of the mask list AND out of the kill list
+  (`services-bind.txt`) — ~5.8 MB is not worth the experiment.
 - Idle-RSS upper bounds (pre-run baseline): see
   `models/qnx1d/resource-math.md` — sum-of-RSS upper bounds, not freed
   pages. The measured result is the per-process A/B diff in the run logs
@@ -79,10 +81,12 @@ All TV reads/writes go through that channel (PC-side helpers:
    dependency (`coba.adagent`), the privacy-choice UIs, Home (`org.tizen.menu`,
    `com.samsung.tv.home.sidebar`), DRM (`unified-drm-*`),
    `com.samsung.tv.screen-analysis-dbmgr` (tcc measured picture-processing
-   breakage), Bluetooth (`bluetooth-monitor.service` / `bt-monitor` is the
-   boot-time BT re-activator — checked live 2026-10-30: it holds
-   `/dev/micom-msg`, is wanted by `starter.target`, and would otherwise leave
-   the BLE remote unconnected after a power cycle), Vetro itself.
+   breakage), Bluetooth (`bluetooth-monitor.service` / `bt-monitor`):
+   **excluded on the owner's instruction** — it is the boot-time BT
+   re-activator (holds `/dev/micom-msg`, wanted by `starter.target`); tcc
+   blocks it and reports the remote still works, but that is unverified on
+   this set and ~5.8 MB is not worth the experiment. **Vetro itself** is
+   never disabled either.
    App entries are hard-coded in `tools/apply.sh`; service entries are kept
    out of both `lists/services-units.txt` and `lists/services-bind.txt`.
 5. Disable only; uninstall is out of scope (irreversible on

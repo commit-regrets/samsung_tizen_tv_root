@@ -6,9 +6,15 @@
 # safe direction for a gate).  Searches every unit path on this firmware
 # (incl. /prd/usr/lib/systemd/system) and every unit file type.
 #   cat q3deps.sh | sh -s /tmp/units.txt
+# The list MUST be a file argument - same contract as the other TV-side
+# scripts (review 2026-10-30): no stdin fallback, because `cat script |
+# sh -s <list>` already uses stdin for the script.  A run that checks zero
+# units exits 2 instead of reporting "0 coupled of 0 ... dependency-safe"
+# (the silent-success class).
 set -u
 LIST="${1:-}"
-[ -n "$LIST" ] && [ ! -f "$LIST" ] && { echo "list not found: $LIST"; exit 2; }
+[ -n "$LIST" ] || { echo "usage: q3deps.sh <unit-list-file>  (the list must be a file; stdin carries the script when piped)"; exit 2; }
+[ -f "$LIST" ] || { echo "list not found: $LIST"; exit 2; }
 
 DIRS="/usr/lib/systemd/system /prd/usr/lib/systemd/system"
 coupled=0; checked=0
@@ -36,3 +42,7 @@ while IFS= read -r line || [ -n "$line" ]; do
 done < "$LIST"
 echo
 echo "q3: $coupled coupled of $checked checked (0 = mask list is dependency-safe)"
+if [ "$checked" = "0" ]; then
+  echo "FAIL: $LIST yielded no valid unit names (this is not a dependency-safe result)"
+  exit 2
+fi
