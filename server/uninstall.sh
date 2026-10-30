@@ -111,6 +111,10 @@ else
 fi
 
 # --- our leftovers ------------------------------------------------------
+# v42 service-mask policy: removing it is the documented revert (the payload
+# skips the mask step when the list is absent), so a stock TV never keeps a
+# debloat list on /opt.
+rm -f /opt/usr/data/debloat-masks.txt /opt/usr/data/debloat-kill.txt
 # rootchan.allow goes LAST: it fails closed, and every step above can still exit
 # non-zero.  Deleting it earlier would leave the payload running but deaf to the
 # PC, forcing a browser-lane retry.

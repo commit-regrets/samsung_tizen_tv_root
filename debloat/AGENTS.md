@@ -42,7 +42,9 @@ All TV reads/writes go through that channel (PC-side helpers:
   cleared the other 23, and that is the session-only design v42 fixes. Tooling: `tools/mask.sh` (masks, reload, stop,
   refusal test, kill pass, picture guard with the persistent `newhome-fix`
   30 s loop, restart-loop check; idempotent) and `tools/unmask.sh`.
-  Durable = v42 (payload re-writes the masks at boot; not started).
+  Durable = v42, **implemented in the payload source 2026-10-30** (deploy
+  pending): the payload re-applies this list at boot from the root-owned
+  `/opt/usr/data/debloat-masks.txt`, which `deploy.sh` installs.
   **Open:** tier 2b needs the Control Center
   layer; batch 3 awaits owner picks; the four former "unit-less" holdouts
   are resolved and on the mask list (TIFADaemon_L <- automation-service,

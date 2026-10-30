@@ -1,10 +1,11 @@
 {
-  "repo_payload_version": "v41",
+  "repo_payload_version": "v42",
   "tv": {
     "payload_version": "v41",
+    "md5": "1ab4343e41e35b1ef6b8c9315a758903",
     "deployed_date": "2026-10-27",
     "beacon_token": "<BEACON_TOKEN>",
-    "notes": "v41 cold boot verified twice on 2026-10-27: 36 s (attempt 1 fast-exit t=29, attempt 2 direct-parent t=36) and, after the uninstall/recover cycle, 49 s (AUL launched late; single direct-patch attempt at t=49). kill -9 recovery ~2 s (new pid, uid 0). Uninstall/recover verified the same day - stock IL f61f60dd.., boot row removed remain=0, 31337 stayed closed after a cold boot, stock 9197 back; recover.sh with the PC URL restored v41 (token <TOKEN>), and the following cold boot rooted again. payload_backup.dll is now v41; stock mcs_orig.dll intact."
+    "notes": "v41 cold boot verified twice on 2026-10-27: 36 s (attempt 1 fast-exit t=29, attempt 2 direct-parent t=36) and, after the uninstall/recover cycle, 49 s (AUL launched late; single direct-patch attempt at t=49). kill -9 recovery ~2 s (new pid, uid 0). Uninstall/recover verified the same day - stock IL f61f60dd.., boot row removed remain=0, 31337 stayed closed after a cold boot, stock 9197 back; recover.sh with the PC URL restored v41 (token <TOKEN>), and the following cold boot rooted again. payload_backup.dll is now v41; stock mcs_orig.dll intact. **Repo builds v42 (durable service masks, 2026-10-30) - NOT deployed yet:** deploy.sh now also installs /opt/usr/data/debloat-masks.txt + debloat-kill.txt root-owned, and the payload re-applies the 24 masks at boot and beacons masks=/stopped=/killed=/fail=/missing=/activating=/listed-activating=/loop-check=/newhome=."
   },
   "memory": {
     "max_low_pfn": "0x50400",

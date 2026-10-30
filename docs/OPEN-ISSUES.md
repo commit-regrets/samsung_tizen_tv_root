@@ -58,8 +58,14 @@ meminfo-derived `0xE4E42000` was wrong (vendor-adjusted counters): see item 2.
    that one mask is up right now** (the targeted test; `newhome-fix` is
    running) — the 2026-10-30 mains cycle cleared the other 23, which
    is exactly why v42 must re-assert them from the payload. Design is
-   reviewed and cleared (`debloat/models/qnx1d/v42-design-brief.md`); not
-   implemented. **Both pre-checks are closed (2026-10-30):** (a) the mains cycle
+   reviewed and cleared (`debloat/models/qnx1d/v42-design-brief.md`) and
+   **implemented 2026-10-30** (`MaskServices()` + the two policy files in
+   `deploy.sh`/`uninstall.sh`; the artifact md5/size live only in the
+   AGENTS.md §1 state row);
+   **owed: deploy it and run the mains-cycle acceptance** (24 units
+   masked-runtime/inactive, `listed-activating=0`, 20 app rows still true,
+   uid 0, one beacon line with all nine fields). Both pre-checks are closed
+   (2026-10-30): (a) the mains cycle
    read back **all 20** `app_disable='true'` rows with both sentinels present and
    `id -u` = 0, so the store is durable as-is; (b) `bluetooth-monitor.service` is
    **excluded from the mask list and the kill list on the owner's instruction** —

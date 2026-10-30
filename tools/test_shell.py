@@ -38,6 +38,10 @@ SERVER = ROOT / "server"
 PAYLOAD = SERVER / "payload.dll"
 STOCK_IL = b"stock-il-fixture\n"
 STOCK_NI = b"stock-ni-fixture\n"
+# v42 policy files the deploy installs for the payload (fixtures, not the real
+# lists: deploy only has to prove it fetches, installs and removes them).
+MASK_UNITS = ["data-service.service", "org.tizen.easysetup-daemon.service"]
+KILL_BINS = ["data-service"]
 
 STUBS = {
     "curl": r"""#!/bin/sh
@@ -199,6 +203,14 @@ class Fixture:
         (self.bin / ".native_image/MultiControlService.ni.dll").write_bytes(STOCK_NI)
         (self.db / ".appsvc.db").write_bytes(b"")
         shutil.copy(PAYLOAD, self.docroot / "payload.dll")
+        # v42: the deploy fetches the two policy files from the same docroot the
+        # curl stub reads, so the test exercises the real fetch/install code.
+        (self.docroot / "debloat-masks.txt").write_text(
+            "# fixtures\n" + "\n".join(MASK_UNITS) + "\n",
+            encoding="utf-8", newline="\n")
+        (self.docroot / "debloat-kill.txt").write_text(
+            "# fixtures\n" + "\n".join(KILL_BINS) + "\n",
+            encoding="utf-8", newline="\n")
         write_stubs(self.stubs)
         self.il_md5 = hashlib.md5(STOCK_IL).hexdigest()
         self.ni_md5 = hashlib.md5(STOCK_NI).hexdigest()
@@ -215,11 +227,15 @@ class Fixture:
             encoding="ascii", newline="\n")
 
     def leftovers(self):
-        """The files a real deploy leaves behind on the share/tmp."""
+        """The files a real deploy leaves behind on the share/tmp/opt."""
         (self.share / "rootchan.allow").write_text("10.0.0.1\n")
         (self.share / "rootchan.host").write_text("10.0.0.1\n")
         (self.share / "payload_backup.dll").write_bytes(b"previous-dll\n")
         (self.tmp / "mcs_payload.dll").write_bytes(b"downloaded\n")
+        data = self.root / "opt/usr/data"
+        data.mkdir(parents=True, exist_ok=True)
+        (data / "debloat-masks.txt").write_text("data-service.service\n")
+        (data / "debloat-kill.txt").write_text("data-service\n")
 
     def run(self, script, env_extra=None):
         env = dict(os.environ)
@@ -268,6 +284,17 @@ def deploy_cases(sh):
         failed += not check("deploy: backups are byte-exact stock + md5 recorded", ok)
         ok = (f.bin / "MultiControlService.dll").read_bytes() == PAYLOAD.read_bytes()
         failed += not check("deploy: payload installed", ok)
+        # v42 policy files: fetched from the docroot, installed under /opt/usr/data
+        md = f.root / "opt/usr/data/debloat-masks.txt"
+        kd = f.root / "opt/usr/data/debloat-kill.txt"
+        ok = (md.is_file() and kd.is_file()
+              and "data-service.service" in md.read_text()
+              and "data-service" in kd.read_text()
+              and "MASKFILE=debloat-masks.txt 2 entries" in out
+              and "MASKFILE=debloat-kill.txt 1 entries" in out)
+        failed += not check("deploy: mask policy files installed under /opt/usr/data",
+                            ok, " ".join(l for l in out.splitlines()
+                                         if l.startswith("MASKFILE")))
     finally:
         f.cleanup()
 
@@ -461,6 +488,9 @@ def uninstall_cases(sh):
         failed += not check("uninstall: rollback copy removed", ok)
         ok = not (f.tmp / "mcs_payload.dll").exists()
         failed += not check("uninstall: downloaded payload removed", ok)
+        ok = not ((f.root / "opt/usr/data/debloat-masks.txt").exists()
+                  or (f.root / "opt/usr/data/debloat-kill.txt").exists())
+        failed += not check("uninstall: mask policy files removed (revert to stock)", ok)
     finally:
         f.cleanup()
 

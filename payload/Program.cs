@@ -1347,6 +1347,209 @@ internal static class Program
         catch (Exception e) { Beacon("autoupdate fail " + e.Message); }
     }
 
+    // v42: durable service suppression.  The debloat tooling masks units by
+    // symlinking /dev/null into /run/systemd/system, but /run is tmpfs, so the
+    // masks die at reboot.  Re-apply them here, on a background thread, with the
+    // same sequence the manual tool uses (see debloat/models/qnx1d/
+    // v42-design-brief.md): masks -> ONE daemon-reload -> stop -> kill
+    // stragglers -> picture guard + persistent loop -> restart-loop check.
+    //
+    // Policy lives in ROOT-OWNED files on /opt, never in share/: that tree is
+    // writable by the browser app (uid 5001) and this step executes what it
+    // reads.  A missing list = skip (deleting the file is the documented
+    // revert to stock).
+    const string MaskList = "/opt/usr/data/debloat-masks.txt";
+    const string KillList = "/opt/usr/data/debloat-kill.txt";
+    const string MaskRunDir = "/run/systemd/system";
+    // /run is deliberately not searched for existence: our own mask lives there.
+    static readonly string[] UnitDirs = {
+        "/etc/systemd/system", "/usr/lib/systemd/system",
+        "/lib/systemd/system", "/prd/usr/lib/systemd/system" };
+
+    // A policy line becomes part of a shell command, so only bare names pass.
+    static bool BareName(string s)
+    {
+        if (s.Length == 0 || s.Length > 128) return false;
+        foreach (char c in s)
+            if (!((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+                  (c >= '0' && c <= '9') || c == '@' || c == '.' || c == '_' || c == '-'))
+                return false;
+        return true;
+    }
+
+    // null = file missing/unreadable (policy step skipped, fail-open)
+    static string[] ReadPolicy(string path)
+    {
+        try
+        {
+            if (!File.Exists(path)) return null;
+            var lines = File.ReadAllLines(path);
+            var kept = new List<string>();
+            foreach (string raw in lines)
+            {
+                string s = raw.Trim();
+                if (s.Length == 0 || s[0] == '#') continue;
+                if (!BareName(s)) continue;    // never execute junk from a file
+                kept.Add(s);
+            }
+            return kept.ToArray();
+        }
+        catch { return null; }
+    }
+
+    static bool ExistsAt(string p)
+    {
+        try { return File.Exists(p) || Directory.Exists(p); } catch { return false; }
+    }
+
+    static bool UnitExists(string unit)
+    {
+        foreach (string d in UnitDirs)
+            if (ExistsAt(d + "/" + unit)) return true;
+        return false;
+    }
+
+    // Run() returns the command's output but not its status; make the status
+    // explicit so a failure is never mistaken for silence.
+    static bool RunOk(string cmd)
+    {
+        return Run(cmd + " && echo __OK || echo __FAIL").Contains("__OK");
+    }
+
+    static void MaskServices()
+    {
+        if (getuid() != 0) { Beacon("masks skip uid=" + getuid()); return; }
+        var units = ReadPolicy(MaskList);
+        if (units == null || units.Length == 0)
+        {
+            Beacon("masks skip (no " + MaskList + ")");
+            return;
+        }
+        Beacon("masks begin n=" + units.Length);
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+
+        int masks = 0, stopped = 0, killed = 0, fail = 0, missing = 0;
+        var live = new List<string>();
+        foreach (string u in units)
+        {
+            // The payload SKIPS a name with no unit file and keeps going: this
+            // runs unattended at boot, and a vendor rename in an OTA must not
+            // fail the whole step every time (mask.sh, which has a human at the
+            // keyboard, aborts instead - the difference is deliberate).
+            if (!UnitExists(u)) { missing++; continue; }
+            live.Add(u);
+            if (ExistsAt(MaskRunDir + "/" + u)) { masks++; continue; }   // idempotent
+            if (RunOk("ln -sf /dev/null " + MaskRunDir + "/" + u)) masks++;
+            else fail++;
+        }
+        // ONE reload before any stop: the masks are inert until this runs.
+        if (!RunOk("systemctl daemon-reload")) fail++;
+
+        for (int i = 0; i < live.Count; i++)
+        {
+            // A hung stop must not swallow the whole step; the units are
+            // already masked (they cannot come back), so give up at 45 s and
+            // count the rest as not-stopped.
+            if (sw.ElapsedMilliseconds > 45000)
+            {
+                fail += live.Count - i;
+                Beacon("masks deadline after " + i + "/" + live.Count + " stops");
+                break;
+            }
+            if (RunOk("systemctl stop " + live[i])) stopped++;
+            else fail++;
+        }
+
+        // Kill stragglers: processes whose /proc/<pid>/exe is a listed binary
+        // (launchpad copies ignore systemctl stop).  Optional file: without it
+        // the pass is skipped, not failed.
+        var bins = ReadPolicy(KillList);
+        if (bins != null && bins.Length > 0)
+        {
+            var want = new HashSet<string>();
+            foreach (string b in bins) { want.Add("/usr/bin/" + b); want.Add("/prd/usr/bin/" + b); }
+            try
+            {
+                foreach (string dir in Directory.GetDirectories("/proc"))
+                {
+                    string pid = Path.GetFileName(dir);
+                    if (pid == "1" || pid.Length == 0) continue;
+                    bool numeric = true;
+                    foreach (char c in pid) if (c < '0' || c > '9') { numeric = false; break; }
+                    if (!numeric) continue;
+                    string target;
+                    try
+                    {
+                        var fi = new FileInfo(dir + "/exe");
+                        target = fi.LinkTarget;
+                    }
+                    catch { continue; }
+                    if (target == null) continue;
+                    int cut = target.IndexOf(" (deleted)", StringComparison.Ordinal);
+                    if (cut > 0) target = target.Substring(0, cut);
+                    if (!want.Contains(target)) continue;
+                    if (RunOk("kill -9 " + pid)) killed++;
+                }
+            }
+            catch { }
+        }
+
+        // Picture guard: the avocd new_home flag can be re-set by Samsung code
+        // at any time, so one SetNewHome + verify is not enough - install the
+        // persistent 30 s loop (tcc's proven form) as a transient unit.
+        string newhome = "off";
+        if (RunOk("dbus-send --system --dest=org.tizen.tv.avoc /org/tizen/tv/avoc " +
+                  "org.tizen.tv.avoc.AvOutputControl.SetNewHome int32:0"))
+        {
+            string st = Run("dbus-send --system --print-reply --dest=org.tizen.tv.avoc " +
+                            "/org/tizen/tv/avoc org.tizen.tv.avoc.AvOutputControl.CheckAutoMotionPlus" +
+                            " | awk '/int32/{print $NF}'").Trim();
+            // 1 = picture settings available; 0 = Samsung Home in front (Home
+            // keeps motion processing off, so 0 is expected, not a failure);
+            // empty = the verify call itself answered nothing.
+            newhome = st.Length == 0 ? "unverified" : "set(" + st + ")";
+        }
+        else newhome = "dbus-fail";
+        const string LoopCmd =
+            "if systemctl is-active --quiet newhome-fix.service; then echo __ACTIVE; " +
+            "elif systemctl start newhome-fix.service 2>/dev/null; then echo __STARTED; " +
+            "elif systemd-run --unit=newhome-fix /usr/bin/awk 'BEGIN { while (1) { " +
+            "system(\"dbus-send --system --dest=org.tizen.tv.avoc /org/tizen/tv/avoc " +
+            "org.tizen.tv.avoc.AvOutputControl.SetNewHome int32:0\"); system(\"sleep 30\") } }'" +
+            " >/dev/null 2>&1; then echo __STARTED; else echo __FAIL; fi";
+        string loopOut = Run(LoopCmd);
+        if (loopOut.Contains("__ACTIVE")) newhome += ",loop-active";
+        else if (loopOut.Contains("__STARTED")) newhome += ",loop-started";
+        else { newhome += ",loop-failed"; fail++; }
+
+        // Restart-loop check (tcc's trap): a unit whose app is disabled keeps
+        // restarting.  Only a LISTED unit activating is a failure - an idle boot
+        // already has a couple of unrelated ones, so the global count is context
+        // only.  An unreadable dump is loop-check=failed, never "no loops".
+        int activating = 0, listedActive = 0;
+        string loopCheck = "failed";
+        string dump = Run("systemctl list-units --all --no-legend --plain; echo __RC=$?");
+        int rcAt = dump.LastIndexOf("__RC=", StringComparison.Ordinal);
+        if (rcAt >= 0 && dump.Substring(rcAt + 5).Trim().StartsWith("0"))
+        {
+            loopCheck = "ok";
+            foreach (string line in dump.Substring(0, rcAt).Split('\n'))
+            {
+                if (line.IndexOf(" activating ", StringComparison.Ordinal) < 0) continue;
+                activating++;
+                string unit = line.Trim().Split(new[] { ' ', '\t' },
+                    StringSplitOptions.RemoveEmptyEntries)[0];
+                foreach (string u in live)
+                    if (u == unit) { listedActive++; break; }
+            }
+        }
+
+        Beacon("masks=" + masks + " stopped=" + stopped + " killed=" + killed +
+               " fail=" + fail + " missing=" + missing +
+               " activating=" + activating + " listed-activating=" + listedActive +
+               " loop-check=" + loopCheck + " newhome=" + newhome);
+    }
+
     static void Main()
     {
         AppDomain.CurrentDomain.UnhandledException += (s, e) => { };
@@ -1824,6 +2027,15 @@ internal static class Program
 
                 // free the physmap node so the browser path works again
                 CloseDevice();
+
+                // v42: re-assert the service masks (own thread, after
+                // CloseDevice, never in front of the listener; a slow systemctl
+                // or a hung dbus call must not delay the channel).
+                new Thread(() =>
+                {
+                    try { MaskServices(); }
+                    catch (Exception e) { Beacon("masks exception " + e.GetType().Name); }
+                }).Start();
 
                 // Landmark children sleep 120 s; a later kill -9 reparents them
                 // to init and the next AUL launch wastes fast attempts on them.

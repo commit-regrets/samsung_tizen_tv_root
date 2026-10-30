@@ -104,6 +104,19 @@ def main() -> int:
     check("payload allows four fast attempts",
           "attempt <= 4" in prog)
 
+    # --- v42: the mask policy paths must agree across the three places that
+    # name them (payload reads, deploy installs, uninstall removes) -----------
+    deploy_sh = (ROOT / "server" / "deploy.sh").read_text(encoding="utf-8")
+    uninstall_sh = (ROOT / "server" / "uninstall.sh").read_text(encoding="utf-8")
+    for f in ("debloat-masks.txt", "debloat-kill.txt"):
+        path = "/opt/usr/data/" + f
+        check(f"v42 policy {f}: payload, deploy and uninstall agree",
+              f'"{path}"' in prog and f in deploy_sh and path in uninstall_sh,
+              f"prog={path in prog} deploy={f in deploy_sh} "
+              f"uninstall={path in uninstall_sh}")
+    check("v42 refuses a policy path under the browser-writable share/",
+          "share" not in re.search(r'const string MaskList\s*=\s*"([^"]+)"', prog).group(1))
+
     # --- kernel_root / physmap offsets -------------------------------------
     check("kernel_root O_COMM/O_CRED/O_REAL match the payload",
           grab(kroot, r"^O_COMM\s*=\s*(0x[0-9A-Fa-f]+)") == 0x400

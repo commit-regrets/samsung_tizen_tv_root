@@ -217,6 +217,24 @@ printf '%s\n' "$TOKEN" > "$S/rootchan.token" || { echo TOKEN_FILE_FAIL; exit 1; 
 chmod 644 "$S/rootchan.token" 2>/dev/null
 echo "TOKEN_FILE=$TOKEN"
 
+# v42 service-mask policy.  Root-owned on /opt on purpose: the payload executes
+# what it reads, and share/ is writable by the browser app (uid 5001).  Not part
+# of the rollback: a missing list only makes the payload skip the step (which is
+# the documented revert to stock), so a failed fetch here is not fatal.
+DATADIR=/opt/usr/data
+mkdir -p "$DATADIR" 2>/dev/null
+for f in debloat-masks.txt debloat-kill.txt; do
+  if curl -fsS --max-time 20 -o "$DATADIR/$f.tmp" "$H/$f" 2>/dev/null &&
+     [ -s "$DATADIR/$f.tmp" ]; then
+    chmod 0644 "$DATADIR/$f.tmp" 2>/dev/null
+    mv "$DATADIR/$f.tmp" "$DATADIR/$f" || { rm -f "$DATADIR/$f.tmp"; echo "MASKFILE=$f write-fail"; continue; }
+    echo "MASKFILE=$f $(grep -c '^[^#]' "$DATADIR/$f" 2>/dev/null) entries"
+  else
+    rm -f "$DATADIR/$f.tmp"
+    echo "MASKFILE=$f not-installed (payload skips the step)"
+  fi
+done
+
 # --- boot row first: harmless while the stock app is still in place ------------
 if ! sqlite3 "$DB" ".timeout 5000" "insert or replace into boot_sequence(package,appid,after,before,requires,conflicts,vconf,path_exists,args,background_launch,wait_until_ready,timeout) values('com.samsung.tv.MultiControl-Service','com.samsung.tv.MultiControl-Service','','','','','','','','false','true','10');"; then
   echo BOOT_ROW_FAIL

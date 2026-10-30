@@ -280,3 +280,39 @@ covering it.
 commercial) or accepted owner trade-offs. One real feature loss identified
 and documented (DLNA via `vd_dmr`). The mask list may now be written by the
 v42 payload.
+
+## Implementation (2026-10-30) — what landed, and the deviations
+
+`payload/Program.cs` → `MaskServices()`, on its own background thread in the
+SUCCESS-R00T branch, after `CloseDevice()` and never in front of
+`RootChannel()`. Files: masks at `/opt/usr/data/debloat-masks.txt` (required,
+missing ⇒ skip), kill list at `/opt/usr/data/debloat-kill.txt` (optional,
+missing ⇒ kill pass skipped). `server.py` serves both from the committed
+`debloat/lists/` files at `/debloat-masks.txt` + `/debloat-kill.txt`;
+`deploy.sh` installs them 0644 root-owned (a failed fetch is non-fatal);
+`uninstall.sh` deletes them (the revert).
+
+Deviations from the text above, all deliberate:
+
+1. **A second policy file for the kill pass.** Step 3 says "kill any straggler
+   by `/proc/<pid>/exe` under the mapped binaries" — the binary names are not
+   derivable from unit names, so they ship as their own optional file rather
+   than being compiled in. No file ⇒ no kill pass, still a clean beacon.
+2. **`killed=` added to the beacon** (the pinned shape gained one field, and
+   all three definitions were updated together). Without it the kill pass would
+   have to hide its count inside `stopped=`/`fail=`.
+3. **45 s stop budget.** `Run()` has no per-call timeout knob and this busybox
+   has **no `timeout` applet** (measured 2026-10-30), so the stop loop checks a
+   stopwatch and counts the remaining units as not-stopped instead of letting
+   one hung `systemctl stop` eat the whole step.
+4. **One command per `Run()` call.** The channel is line-based: a multi-line
+   command string executes only its first line (measured 2026-10-30). The
+   builder therefore emits single-line commands only, and every status is made
+   explicit with `&& echo __OK || echo __FAIL` because `Run()` returns text,
+   not an exit code.
+
+Offline verification: `test_all.py` green, including new locks — deploy installs
+both files (`MASKFILE=` lines), uninstall removes them, the server serves them
+byte-identical to the committed lists, and `test_constants` proves the three
+places that name the paths agree and that the list never sits under the
+browser-writable `share/`. Owed: deploy + mains-cycle acceptance.

@@ -367,6 +367,25 @@ def serve_http(conn, req):
             print(f"[http] {path} {len(body_out)}B (rendered for host)", flush=True)
             return
 
+        # --- debloat policy files: served from the committed lists, so there is
+        # no generated copy that can go stale (same reasoning as deploy.sh).
+        # deploy.sh installs them root-owned on /opt for the v42 payload step. ---
+        if path in ("/debloat-masks.txt", "/debloat-kill.txt"):
+            src = (ROOT.parent / "debloat" / "lists" /
+                   ("services-units.txt" if path == "/debloat-masks.txt"
+                    else "services-bind.txt"))
+            try:
+                data = src.read_bytes()
+            except OSError:
+                conn.sendall(b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n")
+                return
+            hdr = (f"HTTP/1.1 200 OK\r\nContent-Type: text/plain; charset=utf-8\r\n"
+                   f"Content-Length: {len(data)}\r\nCache-Control: no-store\r\n"
+                   f"Connection: close\r\n\r\n").encode()
+            conn.sendall(hdr + data)
+            print(f"[http] {path} {len(data)}B (debloat list)", flush=True)
+            return
+
         if path == "/":
             path = "/index.html"
         target = (ROOT / path.lstrip("/")).resolve()

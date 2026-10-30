@@ -15,6 +15,55 @@ entry is an incomplete change. `AGENTS.md` repeats this rule for agents.
 
 ---
 
+## 2026-10-30 — v42: the payload re-asserts the service masks at every boot
+
+The last piece of the debloat design. The 24-unit mask list only ever lived in
+`/run` (tmpfs), so every mains cycle silently restored 23 services — the biggest
+remaining debloat win (~192 MB sum-RSS at idle) was session-only, and the one
+manual re-run per reboot is exactly the kind of step that decays.
+
+`payload/Program.cs` gains `MaskServices()`, run on its own background thread
+after SUCCESS-R00T + `CloseDevice()` (never in front of `RootChannel()`, so a
+slow `systemctl` cannot delay the listener): read the root-owned
+`/opt/usr/data/debloat-masks.txt` → symlink `/dev/null` into
+`/run/systemd/system` → **one** `daemon-reload` → `systemctl stop` each (45 s
+budget) → kill stragglers from the optional `/opt/usr/data/debloat-kill.txt` by
+`/proc/<pid>/exe` → `SetNewHome` + verify, then start the persistent
+`newhome-fix` 30 s loop → restart-loop check → one beacon:
+`masks= stopped= killed= fail= missing= activating= listed-activating=
+loop-check= newhome=`.
+
+Deliberate properties (each one is load-bearing, see `AGENTS.md` §9):
+
+- **Policy on `/opt`, root-owned — never `share/`.** `share/` is writable by the
+  browser app (uid 5001) and this step executes what it reads; a missing list
+  skips the step, which is also the documented revert.
+- **A name with no unit file is skipped and counted (`missing=`), not fatal** —
+  the opposite of `mask.sh`, which aborts because a human is watching. An
+  unattended boot step must survive a vendor rename in an OTA.
+- **`loop-check=failed` when `list-units` itself fails** — an unmeasured check
+  never beacons a clean number.
+- **Picture guard is the persistent loop**, not a one-shot: the avocd flag can
+  be re-set mid-session (tcc).
+
+Shipped alongside: `server.py` serves `/debloat-masks.txt` and
+`/debloat-kill.txt` from the committed `debloat/lists/` files (no generated
+copy to go stale), `deploy.sh` installs both under `/opt/usr/data` 0644
+root-owned (a failed fetch is a warning, not a deploy failure), and
+`uninstall.sh` deletes them.
+
+Offline coverage: `test_shell` (deploy installs both, `MASKFILE=` lines,
+uninstall removes them), `test_gateway` (both routes serve the committed lists
+byte-identically), `test_constants` (payload, deploy and uninstall name the same
+two paths; the list must not be under `share/`), `test_all` 14/14. The
+payload-level shell constructs were also exercised on the live TV before the
+build: `__OK`/`__FAIL` wrapper, `list-units … ; echo __RC=$?` (920 lines,
+`__RC=0`), the loop-start chain (`__ACTIVE`) and `SetNewHome` + verify
+(`__OK`, `st=0` on Home — expected).
+
+Build: `34710b0e69ccd54d54715c16bf43f183`, 39,936 B. **Not deployed yet**;
+the mains-cycle acceptance is the remaining step.
+
 ## 2026-10-30 — review residuals: one live-state truth, one beacon shape, TESTING 4c
 
 Three P3 consistency residuals from the second review:

@@ -167,6 +167,16 @@ def main() -> int:
                             b"409" in status and b"@HOST@" not in body,
                             status.decode("latin-1"))
 
+        # 0b) v42 policy files: served verbatim from the committed debloat lists
+        #     (no generated copy that can go stale, same reasoning as deploy.sh).
+        for path, src in (("/debloat-masks.txt", "services-units.txt"),
+                          ("/debloat-kill.txt", "services-bind.txt")):
+            want = (ROOT / "debloat" / "lists" / src).read_bytes()
+            status, _, body = get(http_port, path)
+            failed += not check(f"GET {path} serves the committed list",
+                                b"200" in status and body == want,
+                                f"{status.decode('latin-1')} {len(body)}B vs {len(want)}B")
+
         # 1) any HTTP method must be answered as HTTP, never as the TV shell.
         status, _, _ = http_exchange(
             http_port, b"PATCH / HTTP/1.1\r\nHost: t\r\nContent-Length: 0\r\n\r\n")
