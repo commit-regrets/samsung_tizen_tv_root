@@ -15,6 +15,29 @@ entry is an incomplete change. `AGENTS.md` repeats this rule for agents.
 
 ---
 
+## 2026-10-30 — first 29-unit / 37-row cold boot: clean
+
+Mains cycle at 19:29:41, the durable test of the standing set:
+
+`
+t=49s  direct-patch, ROOTCHAN 31337
+t=49s  masks begin n=29
+t=54s  masks=29 stopped=29 killed=4 fail=0 missing=0 activating=1
+       listed-activating=0 loop-check=ok newhome=set(0),loop-started
+`
+
+Live afterwards: uid 0, **37 pp_disable rows**, **29 masks**,
+org.tizen.easysetup-daemon row alse with its **unit active and
+NRestarts=0** (the 5 s loop the mask used to freeze is gone because the
+daemon now runs), samsung-analytics false, smartthings-client +
+smartthings-thing + stfind-daemon alive, and the global ctivating count
+back to 0 once the vendor's sleep 100 oneshot finished - the ctivating=1 in
+the beacon is that oneshot (see the 16:08 entry), not a loop.
+
+This is the state to reason from: 37 rows / 29 units / 23 binaries, with the
+SmartThings stack and the phone-path services untouched, and the phone online
+(owner-confirmed before and after this boot).
+
 ## 2026-10-30 — standing set applied (37 rows / 29 units), phone confirmed online
 
 The final set is live and accepted: `masks=29 stopped=29 killed=4 fail=0

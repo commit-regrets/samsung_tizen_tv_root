@@ -73,7 +73,10 @@ picture-settings loop, and fails if a listed unit is still restart-looping.
   `org.tizen.easysetup-daemon.service` mask were removed for SmartThings). The
   standing set was applied live 18:56 (`masks=29 stopped=29 killed=4 fail=0
   missing=0 activating=0 listed-activating=0 loop-check=ok`) with the phone
-  **online** (owner-confirmed). The verified round-4 run
+  **online** (owner-confirmed). The **first 29-unit cold boot passed
+  2026-10-30 19:29:41** (`masks begin n=29`, `masks=29 stopped=29 killed=4
+  fail=0 missing=0 activating=1 listed-activating=0 loop-check=ok`, with the
+  easysetup unit active and `NRestarts=0`). The verified round-4 run
   (2026-10-29) masked 23/23 and nothing respawned in the 8 s check,
   ~192 MB sum-RSS across the 21 running `/usr/bin` services (upper bound;
   the per-process dump is the evidence). The 24th,
