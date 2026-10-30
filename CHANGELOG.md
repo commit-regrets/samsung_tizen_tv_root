@@ -15,6 +15,36 @@ entry is an incomplete change. `AGENTS.md` repeats this rule for agents.
 
 ---
 
+## 2026-10-30 — cold-boot readback closes the disable store; Bluetooth excluded
+
+The owner power-cycled the set and the readback settled both debloat questions.
+
+- **All 20 disabled app rows are cold-boot verified.** After the mains cycle:
+  channel answers with `id -u` = 0, `select count(*) ... where
+  app_disable='true'` = **20**, and both vendor sentinels
+  (`/opt/usr/share/systemd/system/canalysis-daemon`, `pisa-service`) are still
+  present with their 2026-10-29 timestamps. So the 9 tier-2a rows are no longer
+  "inferred from the same store" — the whole store is durable as-is and v42
+  does not need to re-assert app disables. Docs updated (`debloat/AGENTS.md`,
+  `debloat/README.md`, `docs/OPEN-ISSUES.md`, parent `AGENTS.md` §11).
+- **`bluetooth-monitor.service` is excluded, not deferred.** Live inspection
+  answers "what does it do": `systemctl cat` shows
+  `ExecStart=/bin/sh -c '/bin/fms_bt_monitor_launch.sh ... /usr/bin/bt-monitor'`
+  and the unit's own comment is *"bt-service check previous BT-connection
+  status and re-activate BT when boot"*; it is wanted by `starter.target`
+  **and** `swu-standalone.target`, so it starts at every boot even though
+  `is-enabled` says disabled; `Restart=on-abnormal`, `RestartSec=2`; and the
+  running process (seen after the reboot; it holds `/dev/micom-msg` and
+  `/dev/eeprom`) is the power/standby side of the BT state machine. Masking it
+  risks the BLE remote not reconnecting after a power cycle, so it is **out of
+  the mask list and out of the kill list** — the kill pass was in any case a
+  2 s respawn loop (`on-abnormal` restarts on SIGKILL), not a suppression.
+- **`lists/services-bind.txt` is 24 active binaries** (was 25): `bt-monitor`
+  removed with the reason recorded in the file, `test_debloat.py` now locks
+  both "24 active" and "bt-monitor is not an active entry", and the README,
+  `debloat/AGENTS.md` rule 4, the v42 brief and the Q3/Q5 notes say
+  DO NOT MASK instead of "candidate, verify first".
+
 ## 2026-10-30 — review pass: list contract, mask evidence, 23-unit truth, docs
 
 A third independent review of `debloat/` (after the two 2026-10-30 fix

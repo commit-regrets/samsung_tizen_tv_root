@@ -25,10 +25,10 @@ All TV reads/writes go through that channel (PC-side helpers:
 - **Disable store found:** `pkgcmd -D -t app -n <id> --global` writes
   `package_app_info.app_disable='true'` in `/opt/dbspace/.pkgmgr_parser.db`
   and the launcher then reports "not available". `--uid` (what tier 1 used
-  first) returns ok and writes nothing. Cold-boot readback CONFIRMED
-  2026-10-29 for the 11 tier-1 rows; the 9 tier-2a rows were read back after
-  their run but have no separate cold-boot readback (same store, same
-  mechanism - do the readback after the next boot).
+  first) returns ok and writes nothing. **Cold-boot readback CONFIRMED
+  2026-10-30 for ALL 20 rows** (mains cycle: `id -u` = 0, count = 20, both
+  canalysis/pisa sentinels still present) - the store is durable as-is, no
+  payload change needed for it.
 - **Services layer suppressed live (2026-10-29 evening + re-asserted
   after the cold boot)**: 23 systemd units on `lists/services-units.txt`
   (23/23 masked in the verified round-4 run) via
@@ -44,10 +44,14 @@ All TV reads/writes go through that channel (PC-side helpers:
   SWUAutoUpgrade <- swu-auto-upgrade.service); `cis-api-service-app` churn
   stops in masked sessions (its unit is on the list); SWUCoreTV/SWUService/
   SWUVerifierTV are launchpad-launched with no units (suppression route
-  still open). `bluetooth-monitor.service` is a COMMENTED candidate, not an
-  active mask (added after the verified run, never masked live, contradicts
-  the "never disable Bluetooth" rule, no Q3 gate) - enable only after one
-  live mask with the BLE remote/audio checked.
+  still open). `bluetooth-monitor.service` is **excluded, not a candidate**:
+  it is the boot-time Bluetooth re-activator (unit comment: "check previous
+  BT-connection status and re-activate BT when boot"; wanted by
+  `starter.target` + `swu-standalone.target`; `bt-monitor` holds
+  `/dev/micom-msg` and `/dev/eeprom`; `Restart=on-abnormal`, 2 s). The owner
+  wants the BLE remote to keep working, so it is out of the mask list AND out
+  of the kill list (`services-bind.txt`); masking/killing it would risk the
+  remote not reconnecting after a power cycle.
 - Idle-RSS upper bounds (pre-run baseline): see
   `models/qnx1d/resource-math.md` — sum-of-RSS upper bounds, not freed
   pages. The measured result is the per-process A/B diff in the run logs
@@ -70,8 +74,12 @@ All TV reads/writes go through that channel (PC-side helpers:
    dependency (`coba.adagent`), the privacy-choice UIs, Home (`org.tizen.menu`,
    `com.samsung.tv.home.sidebar`), DRM (`unified-drm-*`),
    `com.samsung.tv.screen-analysis-dbmgr` (tcc measured picture-processing
-   breakage), Vetro itself.
-   These are hard-coded in `tools/apply.sh`.
+   breakage), Bluetooth (`bluetooth-monitor.service` / `bt-monitor` is the
+   boot-time BT re-activator — checked live 2026-10-30: it holds
+   `/dev/micom-msg`, is wanted by `starter.target`, and would otherwise leave
+   the BLE remote unconnected after a power cycle), Vetro itself.
+   App entries are hard-coded in `tools/apply.sh`; service entries are kept
+   out of both `lists/services-units.txt` and `lists/services-bind.txt`.
 5. Disable only; uninstall is out of scope (irreversible on
    preloaded/system packages).
 6. Lists are validated bare app_ids only — nothing else reaches a command

@@ -9,7 +9,17 @@
 # every process whose /proc/<pid>/exe is /usr/bin/<name> here.
 # NOTE: covers SWU*/fw-update* = firmware auto-update stays off (intended;
 # see the toolkit trap 10).  Session-only; a masked unit cannot respawn.
-# Binaries this unit does not ship (3 of 25) are skipped and counted.
+# 24 active names.  Binaries this unit does not ship (3 of 24) are skipped
+# and counted.
+# DELIBERATELY EXCLUDED (2026-10-30): bt-monitor / bluetooth-monitor.service.
+# Live inspection of the unit and the running process shows it is the
+# Bluetooth re-activation helper, not telemetry: its unit comment reads
+# "bt-service check previous BT-connection status and re-activate BT when
+# boot", it is wanted by starter.target AND swu-standalone.target, it holds
+# /dev/micom-msg + /dev/eeprom, and it restarts 2 s after any abnormal exit
+# (Restart=on-abnormal) - so the kill pass was a 2 s respawn loop, not a
+# suppression.  Killing or masking it risks the BLE remote not reconnecting
+# after a power cycle, which the owner does not want.
 
 data-service
 sp-kpi
@@ -23,7 +33,6 @@ ambient-ua-agent
 pushd
 register-device
 SWUAutoUpgrade
-bt-monitor
 wifi-monitor
 SWUService
 SWUCoreTV

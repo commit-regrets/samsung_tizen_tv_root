@@ -49,10 +49,17 @@ swu-auto-upgrade.service
 emergency-log-transmitter.service
 com.samsung.tv.cis-api-service-app.service
 
-# CANDIDATE - deliberately NOT active (review 2026-10-30).  `bt-monitor`
-# is bluetooth-monitor.service (not bt-service), but it was added after the
-# verified round-4 run, has never been masked live, was not in the Q3
-# reverse-dependency gate, and the v42 brief says never disable Bluetooth.
-# Verify `systemctl stop bluetooth-monitor.service` leaves the BLE remote
-# and audio working, mask it by hand once, and only then move it up.
+# DO NOT MASK - checked live 2026-10-30: bluetooth-monitor.service is the
+# Bluetooth re-activation helper, not a telemetry monitor.
+#   * its own unit comment: "bt-service check previous BT-connection status
+#     and re-activate BT when boot";
+#   * wanted by starter.target and swu-standalone.target, so it runs at every
+#     boot even though `is-enabled` says disabled (vendor preset);
+#   * `systemctl cat`: ExecStart runs /usr/bin/bt-monitor via
+#     /bin/fms_bt_monitor_launch.sh, Restart=on-abnormal, RestartSec=2;
+#   * the running process (seen post-boot) holds /dev/micom-msg and
+#     /dev/eeprom - it watches the power/standby micro-controller.
+# Masking it risks the BLE remote/soundbar not reconnecting after a power
+# cycle, so bt-monitor is also out of lists/services-bind.txt (kill list).
+# ~5.8 MB RSS - not worth that risk.
 # bluetooth-monitor.service

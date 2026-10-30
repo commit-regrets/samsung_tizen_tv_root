@@ -668,10 +668,13 @@ that downloads it) and reboot. Things to preserve when editing `Program.cs`:
   `AutoUpdateOff()`, never in front of `RootChannel()`): read the 23-unit mask
   list shipped on `/opt`, write the `/run` masks, one `systemctl daemon-reload`,
   stop each unit, kill leftover `/usr/bin/<name>` processes, beacon a summary,
-  fail open on a missing list. Before touching `Program.cs`: one cold-boot
-  readback of all 20 disabled app rows (only the 11 tier-1 rows have had one),
-  and — only if wanted — one live `bluetooth-monitor.service` mask to decide
-  whether it graduates from candidate to active. Owner-facing state:
+  fail open on a missing list. Both pre-checks are now closed (2026-10-30):
+  the cold-boot readback shows **all 20** disabled app rows still true, both
+  sentinels present, channel at uid 0; and `bluetooth-monitor.service` is
+  **excluded** — it is the boot-time Bluetooth re-activator (wanted by
+  `starter.target`, `bt-monitor` holds `/dev/micom-msg`), so it stays out of
+  the mask list **and** the kill list, to keep the BLE remote reconnecting
+  after a power cycle. Owner-facing state:
   [`debloat/AGENTS.md`](debloat/AGENTS.md); placement and diagnostics:
   [`debloat/README.md`](debloat/README.md).
 - ~~Bind 31337 to a single address~~ — **done in v16**: the listener binds the TV address derived from the route to the recorded PC (re-derived every 30 s, `Any` fallback with a beacon if there is no route), so it is off Wi-Fi Direct/tethering while staying portable. `/proc/net/tcp` shows the TV's own address on 31337, not `00000000:7A69`.

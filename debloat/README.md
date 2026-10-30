@@ -59,11 +59,10 @@ leftover `/usr/bin/<name>` processes after stop.
 ## Status
 
 - **Tiers 1+2a (20 packages) applied live 2026-10-29** — durably disabled
-  via `pkgcmd -D --global`. Post-boot readback: the 11 tier-1 rows are
-  **cold-boot verified** (2026-10-29 mains cycle); the 9 tier-2a rows were
-  read back after the run but have not had their own cold-boot readback —
-  the store and the mechanism are the same (run log:
-  `models/qnx1d/run-2026-10-29-tier1.md`). ~25.9 MB running ACR/ad
+  via `pkgcmd -D --global`. **All 20 rows are cold-boot verified**
+  (2026-10-30 mains cycle: `id -u` = 0, count = 20, both sentinels present;
+  the 11 tier-1 rows were first confirmed 2026-10-29). Run log:
+  `models/qnx1d/run-2026-10-29-tier1.md`. ~25.9 MB running ACR/ad
   processes freed (distinct processes, measured against the pre-debloat
   baseline).
 - **Services layer: 23 systemd units masked live** via `/run` masks
@@ -75,11 +74,14 @@ leftover `/usr/bin/<name>` processes after stop.
   falsification trail (empty /opt files, /opt symlinks and drop-ins all
   inert — `/opt` is not in systemd's UnitPath; runtime bind-mounts
   bypassed) in `models/qnx1d/run-2026-10-29-services-bind.md`.
-- `bluetooth-monitor.service` is a **commented candidate**, not an active
-  mask: it was added after the verified run, has never been masked live,
-  was not in the Q3 reverse-dependency gate, and the v42 brief says never
-  disable Bluetooth. Enable it only after one manual mask with the BLE
-  remote/audio checked.
+- `bluetooth-monitor.service` is **excluded on purpose** (mask list *and*
+  kill list). Checked live 2026-10-30: it is the boot-time Bluetooth
+  re-activator — its unit comment is "bt-service check previous
+  BT-connection status and re-activate BT when boot", it is wanted by
+  `starter.target` + `swu-standalone.target`, the running `bt-monitor` holds
+  `/dev/micom-msg` and `/dev/eeprom`, and it restarts 2 s after any abnormal
+  exit. Masking it would risk the BLE remote not reconnecting after a power
+  cycle, which is not a trade this repo makes for ~5.8 MB.
 - Formerly "unit-less" daemons resolved and on the mask list:
   TIFADaemon_L <- automation-service, TIFSDaemon <- factory-service,
   SCSAgent <- scs-agent.service, SWUAutoUpgrade <- swu-auto-upgrade.service.
@@ -102,11 +104,12 @@ leftover `/usr/bin/<name>` processes after stop.
   - `lists/tier2b-home-dependent.txt` (22, commented): tcc apps that are
     Vetro-keep or keeper-coupled — only with Home replacement or explicit
     owner acceptance.
-  - `lists/services-units.txt` (23 masked units, plus a commented
-    `bluetooth-monitor.service` candidate) + `lists/services-bind.txt`
-    (25 `/usr/bin` binaries — now the **kill list** for `mask.sh`, not a
-    bind-mount list; bind-mount overlaying was falsified, respawner bypass,
-    and its scripts were removed). The runtime tool is
+  - `lists/services-units.txt` (23 masked units; `bluetooth-monitor.service`
+    is a commented DO-NOT-MASK note with the evidence) +
+    `lists/services-bind.txt` (24 `/usr/bin` binaries — the **kill list** for
+    `mask.sh`, not a bind-mount list; `bt-monitor` is commented out for the
+    same reason; bind-mount overlaying was falsified, respawner bypass, and
+    its scripts were removed). The runtime tool is
     `tools/mask.sh` / `tools/unmask.sh` (**working**: `/run` masks,
     session-only — mask + reload + stop + refusal test, idempotent; it
     refuses unit names with no unit file). `tools/q3deps.sh` is the

@@ -665,16 +665,24 @@ def main() -> int:
                   .read_text(encoding="utf-8").splitlines()
                   if l.strip() and not l.strip().startswith("#")]
     # 23 verified live in round 4 (2026-10-29) + cis-api.  bluetooth-monitor
-    # is a COMMENTED candidate: added after the verified run, never masked
-    # live, and the brief says never disable Bluetooth (review 2026-10-30).
+    # is EXCLUDED (not merely commented-optional): live inspection 2026-10-30
+    # showed it is the boot-time Bluetooth re-activator, and the owner's BLE
+    # remote depends on it.
     check("services-units.txt is 23 active entries incl. cis-api",
           len(units_list) == 23
           and "com.samsung.tv.cis-api-service-app.service" in units_list,
           str(len(units_list)))
-    check("bluetooth-monitor is a commented candidate, not an active mask",
+    check("bluetooth-monitor is a commented DO-NOT-MASK note, never an active mask",
           "bluetooth-monitor.service" not in units_list
           and "# bluetooth-monitor.service" in
           (DEB / "lists" / "services-units.txt").read_text(encoding="utf-8"))
+    bind_txt = (DEB / "lists" / "services-bind.txt").read_text(encoding="utf-8")
+    bind_list = [l.strip() for l in bind_txt.splitlines()
+                 if l.strip() and not l.strip().startswith("#")]
+    check("services-bind.txt is 24 active binaries", len(bind_list) == 24,
+          str(len(bind_list)))
+    check("services-bind.txt: bt-monitor is not an active kill-list entry",
+          "bt-monitor" not in bind_list and "bt-monitor" in bind_txt)
 
     # 10. merge determinism: regenerating the inventory from the committed
     # registry dump must reproduce it EXCEPT the two documented manual

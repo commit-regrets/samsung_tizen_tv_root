@@ -36,9 +36,12 @@ design, or is there a better mechanism we missed?
   `scs-agent.service`, `swu-auto-upgrade.service`,
   `emergency-log-transmitter.service`) plus
   `com.samsung.tv.cis-api-service-app.service`. Round 4 live-masked all 23.
-  `bluetooth-monitor.service` is a COMMENTED candidate, not active: it was
-  added after the verified run, never masked live, is not in the Q3 gate,
-  and rule "never disable Bluetooth" applies — verify by hand first.
+  `bluetooth-monitor.service` is **excluded, DO NOT MASK** (checked live
+  2026-10-30): it is the boot-time Bluetooth re-activator — unit comment
+  "check previous BT-connection status and re-activate BT when boot", wanted
+  by `starter.target` + `swu-standalone.target`, `bt-monitor` holds
+  `/dev/micom-msg`. Masking it risks the BLE remote not reconnecting after a
+  power cycle; it is out of the mask list and the kill list.
 - Live run log with the full falsification trail:
   `models/qnx1d/run-2026-10-29-services-bind.md`.
 
@@ -139,7 +142,9 @@ busybox `ps` undercounts (use `/proc`); `pkgcmd -k` no-op; `aulctl
 is-active` blind for svcapps; `/proc/mounts` does not list bind mounts
 (verify by content md5); never disable `MultiControl-Service` (our
 carrier), `coba.adagent`, `org.tizen.menu`/`home.sidebar`, DRM or
-Bluetooth; the two privacy-choice UIs stay.
+Bluetooth (`bluetooth-monitor.service` / `bt-monitor` is the boot-time BT
+re-activator — the BLE remote depends on it); the two privacy-choice UIs
+stay.
 
 ---
 
@@ -176,9 +181,9 @@ Per-question verdicts:
 **List gaps found by the review (fixed in lists/services-units.txt):**
 `com.samsung.tv.cis-api-service-app.service` added (launchpad + Restart=
 on-failure every 90 s — masking it is how the churn stops; the app row
-alone does not). `bt-monitor` = `bluetooth-monitor.service` (candidate,
-commented — not `bt-service`). Still unit-less (launchpad, no systemd
-unit): `SWUCoreTV`, `SWUService`, `SWUVerifierTV`.
+alone does not). `bt-monitor` = `bluetooth-monitor.service` — **excluded**
+(see the DO NOT MASK note above; not `bt-service`). Still unit-less
+(launchpad, no systemd unit): `SWUCoreTV`, `SWUService`, `SWUVerifierTV`.
 
 **Acceptance criteria amended:** "zero processes under the listed binaries
 within ~90 s" holds only after the kill pass, and only for the units
@@ -202,8 +207,8 @@ checklist (Q5 grep, Q3 reverse-deps, SWU/bt-monitor mapping) is closed.
   feature loss: DLNA via vd_dmr depends on register-device — owner
   trade-off, recorded in the list header).
 - **SWU mapping done:** SWUCoreTV / SWUService / SWUVerifierTV have no
-  units (launchpad); bt-monitor = bluetooth-monitor.service (commented
-  candidate — never masked live, see the list).
+  units (launchpad); bt-monitor = bluetooth-monitor.service, explicitly
+  EXCLUDED (BT re-activator, see the DO NOT MASK note above).
 - **v42 is cleared for implementation** per the confirmed design above.
 
 
@@ -211,7 +216,7 @@ checklist (Q5 grep, Q3 reverse-deps, SWU/bt-monitor mapping) is closed.
 
 Reverse-dependency gate over the then-23-entry mask list (`tools/q3deps.sh`,
 run on the TV): **5 hard couplings, all `Requires=`, zero soft-only**.
-`bluetooth-monitor.service` is a commented candidate (never masked live) and
+`bluetooth-monitor.service` is EXCLUDED (BT re-activator, never masked) and
 is therefore not covered by this gate.
 
 | Masked unit | Hard dependent | Consequence of masking | Verdict |

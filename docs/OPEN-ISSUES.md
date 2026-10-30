@@ -55,14 +55,16 @@ meminfo-derived `0xE4E42000` was wrong (vendor-adjusted counters): see item 2.
    disabled (`pkgcmd --global`) and 23 systemd units are `/run`-masked, but the
    masks die at reboot; v42 must re-assert them from the payload. Design is
    reviewed and cleared (`debloat/models/qnx1d/v42-design-brief.md`); not
-   implemented. **Two live checks first, both cheap:** (a) after the next mains
-   cycle read back all 20 `app_disable='true'` rows (only the 11 tier-1 rows
-   have had a post-boot readback - the 9 tier-2a rows are inferred from the same
-   store); (b) decide `bluetooth-monitor.service` — it is a commented candidate
-   because it was never masked live and the brief says never disable Bluetooth:
-   mask it once by hand, confirm the BLE remote/audio still work, then move it
-   into `debloat/lists/services-units.txt`. Placement/state:
-   `debloat/AGENTS.md`.
+   implemented. **Both pre-checks are closed (2026-10-30):** (a) the mains cycle
+   read back **all 20** `app_disable='true'` rows with both sentinels present and
+   `id -u` = 0, so the store is durable as-is; (b) `bluetooth-monitor.service` is
+   **excluded from the mask list and the kill list** — live inspection showed it
+   is the boot-time Bluetooth re-activator (unit comment: "check previous
+   BT-connection status and re-activate BT when boot"; wanted by
+   `starter.target`; `bt-monitor` holds `/dev/micom-msg` and `/dev/eeprom`;
+   `Restart=on-abnormal`, 2 s), so masking it would risk the BLE remote not
+   reconnecting after a power cycle. The owner's remote depends on it — leave
+   it alone. Placement/state: `debloat/AGENTS.md`.
 6. **Reference-derived follow-ups, in value order:** a per-run task tag
    (`PHYSRPT`+pid) plus a pid/tgid and `real_cred == cred` check to retire the
    stale-task family for good; OTA hardening beyond the buxton key
