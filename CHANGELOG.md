@@ -15,6 +15,34 @@ entry is an incomplete change. `AGENTS.md` repeats this rule for agents.
 
 ---
 
+## 2026-10-30 — correction: the SmartThings dependency arrow was inverted, cause unproven
+
+`c09340d`'s subject ("smartthings-client -> multiscreen") and the sentence
+"smartthings-client declares multiscreen as a package it uses" describe the
+graph **backwards**.  Vetro maps `usedBy` -> inventory `referencedBy`, which
+answers *who uses this package*: `multiscreen` appearing in
+`smartthings-client.referencedBy` means **multiscreen uses the client**, not
+that the client needs multiscreen.  The Q80A menu's COUPLED column never
+missed an edge - it is a subset of the same list.
+
+What that leaves: the sharing revert was prudence on a plausible path
+(Multi-Screen / D2D is how a phone reaches a Samsung TV on the LAN), not a
+proof.  And the phone is **still dead** after the revert and a cold boot, with
+every sharing app re-enabled and `multiscreen.service` active - so the cause is
+somewhere else and is now being found by bisection:
+
+- baseline live: **0 masks** (session-only; the payload re-masks at next boot),
+  every previously masked unit started, 42 app rows untouched;
+- `pushd` (the cloud->TV push daemon), `register-device` and `p2p-asm` were
+  unmasked and started for the test (PSS 203 / 387 / 901 KB) - all three had
+  been down since round 4, which predates batch 3;
+- next, if the phone is still dead: the 20 tier 1+2a rows, then the 22 voice
+  rows, each with one phone test in between.
+
+The lesson is *not* "the menu is incomplete" (it is not); it is "read
+`referencedBy` in the right direction, and do not assert a cause from a graph
+you have not checked the direction of".
+
 ## 2026-10-30 — batch 3's sharing half REVERTED: it broke SmartThings
 
 The owner reported SmartThings phone control no longer worked after batch 3.

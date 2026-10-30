@@ -66,19 +66,22 @@ All TV reads/writes go through that channel (PC-side helpers:
   restart-loop check; idempotent) and `tools/unmask.sh`.
   **Batch 3 REALITY (2026-10-30): 22 voice ids, sharing reverted.** The first
   run disabled 38 ids (voice 22 + sharing 16) and **SmartThings phone control
-  stopped working**: `com.samsung.tizen.smartthings-client` declares
-  `com.samsung.tv.multiscreen` as a package it uses (inventory `referencedBy`),
-  and multiscreen was in the set. All 16 sharing ids were re-enabled
+  stopped working**.  **The cause is UNPROVEN.**  An earlier note here said
+  `smartthings-client` "declares multiscreen" - that is the arrow BACKWARDS:
+  `referencedBy` is who USES this package, so multiscreen using the client is
+  the direction, not the reverse. All 16 sharing ids were re-enabled
   (`pkgcmd -A`), rows are back to **42** (20 tiers 1+2a + 22 voice), and the
   `multiscreen` mask entry was removed with the unit unmasked+started - the
   mask list is **34 units / 26 binaries** again. The AirPlay receiver's
   ~7.3 MB PSS came back with it; the voice stack (~7 MB PSS) is the win.
   A 16:08 cold boot ran the temporary 35/58 state cleanly, but the CURRENT
   34/42 state is not boot-verified yet.
-  **Lesson:** the Q80A menu's COUPLED column is incomplete (it did not list
-  smartthings-client for multiscreen); the inventory's `referencedBy` is the
-  authority. Before disabling any optional id, grep the inventory for declared
-  users - a keep-side user means a phone/cloud feature may depend on it.
+  **Lesson:** `referencedBy` = who uses the package, so read it as "these
+  packages call this one".  Do not invert it (we did once).  A package that a
+  keep-side app USES is a risk to that app; a package that USES a keep-side app
+  is not.  And the phone-control path is not fully mapped: after the whole
+  sharing area came back and the TV rebooted, phone control was still dead, so
+  the dependency is somewhere else - find it by bisection, not by assertion.
   **Rule:** every mask-list addition needs the q3deps gate run *before* the
   add (the multiscreen entry went in without one; it was removed again, so the
   34-entry list still has no un-gated name).
