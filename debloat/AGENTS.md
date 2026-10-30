@@ -64,6 +64,17 @@ All TV reads/writes go through that channel (PC-side helpers:
   human-facing path): `tools/mask.sh` (masks, reload, stop, refusal test, kill
   pass, picture guard with the persistent `newhome-fix` 30 s loop,
   restart-loop check; idempotent) and `tools/unmask.sh`.
+  **Batch 3 applied 2026-10-30** (`lists/batch3-optional.txt`, 38 ids: the
+  voice area minus the one already disabled in tier 2a, plus the sharing area
+  minus the phone-control pieces - the owner does not use voice, AirPlay,
+  Multi View or mirroring, and DOES use SmartThings, so the `samsung` area and
+  `com.samsung.tv.coba.mobilebff` were left alone).  38/38 disabled, 20 -> 58
+  rows; undo recorded at `/opt/usr/data/debloat-undo-20261030-155433.sh`.
+  The only one resident was `com.samsung.tv.airplay-app-2` (~7.3 MB PSS, 2
+  procs) - killed after the disable; the rest was "never launches again".
+  **Trap-14a hit again:** the disable left `com.samsung.tv.multiscreen.service`
+  restarting every 5 s (`Restart=always`, `app_launcher -r`), so the mask list
+  grew 34 -> 35 with it.  Always run the unit scan after an app batch.
   **Open:** tier 2b needs the Control Center
   layer; batch 3 awaits owner picks; **tcc's five extra service candidates are
   EVALUATED AND REJECTED (2026-10-30)**: measured live, their sum-RSS (~35.5 MB)

@@ -81,7 +81,26 @@ keep set: 30 reference nothing we keep. Skipped as coupled: `org.tizen.ep-hotel-
 | 29 | org.tizen.rscm-screensaver | Remote Shop Content Management | `pkgcmd -D -t app -n org.tizen.rscm-screensaver --global` | `pkgcmd -A -t app -n org.tizen.rscm-screensaver --global` |
 | 30 | org.tizen.widget_viewer_sdk | Widget Viewer for SDK | `pkgcmd -D -t app -n org.tizen.widget_viewer_sdk --global` | `pkgcmd -A -t app -n org.tizen.widget_viewer_sdk --global` |
 
-## Batch 3 — optional menu (awaiting owner selection)
+## Batch 3 — EXECUTED 2026-10-30 (`lists/batch3-optional.txt`)
+
+Owner decisions: **no voice**, **no AirPlay / Multi View / screen mirroring**,
+**SmartThings IS used** (phone control), so:
+- voice: all 23 ids minus `org.tizen.multi-assistant-service` (already disabled
+  in tier 2a) = 22;
+- sharing: 16 of 18 - `com.samsung.tv.coba.mobilebff` kept (CoBA mobile backend,
+  a phone-control path could ride on it) and `org.tizen.5-way-function` /
+  `...airplay-app-2-dummy` skipped because they are not installed here (the
+  *real* `com.samsung.tv.airplay-app-2` was added instead - the menu only lists
+  the dummy);
+- **`samsung` untouched** (SmartThings, Samsung account, Cloud, Pass, SSO).
+
+Result: dry run 38/38, real run 38/38 disabled, 0 failed, rows 20 -> 58, undo
+`/opt/usr/data/debloat-undo-20261030-155433.sh`. Only `airplay-app-2` was
+resident (~7.3 MB PSS) and was killed; the rest is "never launches again".
+The disable exposed `com.samsung.tv.multiscreen.service` restarting every 5 s -
+added to the mask list (34 -> 35), which v42 then masked (`masks=35 ... activating=0`).
+
+## Batch 3 (original menu framing, for reference)
 
 Nothing here is pre-planned: these are user-facing features. The full
 menu with purposes and reverse-dependencies is in

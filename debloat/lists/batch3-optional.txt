@@ -1,0 +1,78 @@
+# Batch 3 — optional features this household does not use.
+#
+# OWNER DECISIONS (2026-10-30):
+#   * voice: NOT used  -> the whole voice area (23 ids).  The remote's mic
+#     button stops working; Bixby/Alexa/wake-word engines stop.
+#   * SmartThings: USED (phone control) -> the `samsung` area is NOT touched,
+#     and `com.samsung.tv.coba.mobilebff` is deliberately left out of the
+#     sharing list below (it is the CoBA mobile backend that a phone-side
+#     control path could ride on; not worth the risk for 0 MB).
+#   * AirPlay / Multi View / screen mirroring: NOT used -> the sharing area,
+#     minus the mobile-control pieces above.
+#
+# MEASURED COST (PSS, this unit, 2026-10-30): the only one actually resident
+# is the AirPlay receiver `com.samsung.tv.airplay-app-2` at ~7.3 MB PSS
+# (2 procs).  The voice stack is ~7 MB PSS in total while active; most of these
+# ids are not running right now, so the rest of this list buys "never launches
+# again" (no wakeups, no telemetry) rather than RAM today.
+#
+# WHAT BREAKS: phone->TV casting/mirroring (Smart View, AirPlay), Multi View,
+# USB-camera view, Remote PC / Remote Workspace, and every voice feature.
+#
+# NOT IN THIS LIST ON PURPOSE:
+#   * com.samsung.tizen.smartthings-client, smartthingsfind-daemon, ssoservice,
+#     samsung-cloud, samsung-pass-agent  (SmartThings + Samsung account;
+#     owner uses phone control);
+#   * com.samsung.tv.coba.mobilebff (see above);
+#   * org.tizen.5-way-function, com.samsung.tv.airplay-app-2-dummy - the menu
+#     lists them but they are NOT installed on this unit (no inventory row);
+#     `pkgcmd -D` on a missing id fails the batch.
+#   * com.samsung.tv.slive-daemon / tvplus / channel-list / NetworkSetting -
+#     keep-side packages, not app rows in this list; they merely have optional
+#     integrations with voice/multiscreen and degrade gracefully.
+#
+# REVERT: `sh tools/restore.sh lists/batch3-optional.txt` (pkgcmd -A --global,
+# same list).  Undo lines are written under /opt/usr/data/ by apply.sh.
+#
+# --- voice (22; org.tizen.multi-assistant-service was already disabled in
+# tier 2a, so it is not repeated here) -------------------------------------
+com.samsung.tv.alexa-fullscreen-app
+com.samsung.tv.aov-dashboard
+com.samsung.tv.aov-service
+com.samsung.tv.bixby-context-client
+com.samsung.tv.bixby-prov
+com.samsung.tv.bixbycapsuleviewer
+com.samsung.tv.farfieldvoice
+com.samsung.tv.fuzzy-search-engine
+com.samsung.tv.intelligent-action-app
+com.samsung.tv.mybixby
+com.samsung.tv.ondevice-voice
+com.samsung.tv.utterance-recommender-app
+com.samsung.tv.vif
+com.samsung.tv.voice-instant-app
+com.samsung.tv.voiceassistant-music
+com.samsung.tv.voiceid-service
+com.samsung.tv.wakeup-engine-alexa
+com.samsung.tv.wakeup-engine-bixby
+org.tizen.tts-download-ui
+org.tizen.voice-app
+org.tizen.voice-client
+org.tizen.voice-onboarding
+# --- sharing: casting / mirroring / multi view / remote pc (16) --------------
+# the real AirPlay receiver; the menu only lists the -dummy placeholder
+com.samsung.tv.airplay-app-2
+org.tizen.ScreenMirroring-app-tv
+org.tizen.SMSourceAPP
+com.samsung.tv.multiscreen
+com.samsung.tv.coba.multiscreen
+com.samsung.tv.multiviewsetupapp
+com.samsung.tv.multiview-bluetooth-audio
+com.samsung.tv.coba.mvcontents
+com.samsung.tv.coba.mvicon
+com.samsung.tv.coba.mvmobile
+com.samsung.tv.coba.mviotcamera
+com.samsung.tv.coba.usbcam
+com.samsung.tv.coba.remoteworkspace
+com.samsung.tv.coss.provider.d2d
+com.samsung.tv.remoteapp
+org.tizen.remotepc

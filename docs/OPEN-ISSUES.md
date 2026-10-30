@@ -52,8 +52,8 @@ meminfo-derived `0xE4E42000` was wrong (vendor-adjusted counters): see item 2.
    gate (Chromium 120) and the physmap primitive are still unproven elsewhere.
    Record each unit's results there.
 5. **Debloat — durable; service suppression is live (RESOLVED 2026-10-30).**
-   20 apps are durably disabled (`pkgcmd --global`) and **all 34 units are
-   masked**, re-applied at every boot by the payload from
+   **58 apps are durably disabled** (`pkgcmd --global`; 20 from tiers 1+2a,
+   38 from batch 3 on 2026-10-30) and **all 35 units are masked**, re-applied at every boot by the payload from
    `/opt/usr/data/debloat-masks.txt`. **Cold-boot acceptance PASSED
    2026-10-30 14:05:40** (mains cycle, no PC involved): `masks=24 stopped=24
    killed=3 fail=0 missing=0 listed-activating=0 loop-check=ok

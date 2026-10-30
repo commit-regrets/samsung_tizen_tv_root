@@ -15,6 +15,44 @@ entry is an incomplete change. `AGENTS.md` repeats this rule for agents.
 
 ---
 
+## 2026-10-30 — batch 3: the optional features this household does not use
+
+**Owner's decisions:** no voice; no AirPlay / Multi View / screen mirroring;
+**SmartThings is used** (phone control). Everything follows from those three
+sentences.
+
+`lists/batch3-optional.txt` (new, 38 ids):
+- **voice, 22 ids** - the whole area minus `org.tizen.multi-assistant-service`,
+  which tier 2a already disabled (a repeat `--global` exits 25 mid-batch, so it
+  is not repeated). Kills Bixby/Alexa/wake-word engines and the remote's mic
+  button.
+- **sharing, 16 ids** - casting, mirroring, Multi View, USB-cam view, Remote
+  PC/Workspace. **`com.samsung.tv.coba.mobilebff` is deliberately kept** (the
+  CoBA mobile backend a phone-side control path could ride on), and
+  `org.tizen.5-way-function` / `airplay-app-2-dummy` are skipped because they
+  are **not installed on this unit**. The *real* `com.samsung.tv.airplay-app-2`
+  is in the list - the vendor menu only carries the `-dummy` placeholder, and
+  the receiver was the only resident one (~7.3 MB PSS, 2 procs).
+- **the `samsung` area is untouched** - SmartThings, Samsung account, Cloud,
+  Pass, SSO all stay.
+
+Applied through the tested script, not by hand: pushed `apply.sh` + the list
+over the channel in base64 chunks (the channel is line-based), dry run
+`would disable 38 of 38`, then the real run `disabled=38 failed=0`, rows
+**20 -> 58**, undo `cat /opt/usr/data/debloat-undo-20261030-155433.sh | sh`.
+`pkgcmd -D` does not kill running instances, so the kill pass ran separately:
+one process (the AirPlay receiver) was alive and is gone.
+
+**The unit scan found a third restart loop** - trap 14a, exactly as documented:
+`com.samsung.tv.multiscreen.service` has `Restart=always`, `RestartSec=5`, and
+its `ExecStart` runs `app_launcher -r`; with the app disabled it looped
+(7 -> 39 restarts while we watched). It joined the durable mask list
+(34 -> **35**) and v42 re-ran: `masks=35 stopped=35 killed=0 fail=0 missing=0
+activating=0 listed-activating=0 loop-check=ok newhome=set(1),loop-active`.
+
+To verify by hand: SmartThings phone control should still work (that is what
+was kept); anything sharing/voice-related is expected to be gone.
+
 ## 2026-10-30 — the five tcc service candidates: measured, and rejected
 
 The next debloat step was meant to be the five extra service candidates from

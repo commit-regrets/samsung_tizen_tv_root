@@ -766,12 +766,14 @@ def main() -> int:
     update_units = {"vdsystem-update-manager.service", "was-background-update.service",
                     "swu-verifier-tv.service", "swu-core-tv.service",
                     "swu-service.service", "vdca-update.service",
+                    # the batch-3 companion loop
+                    "com.samsung.tv.multiscreen.service",
                     # the triggers too: a listed timer/path cannot sit in a
                     # fail-loop the way the unmasked ones did
                     "vdsystem-update-manager.timer", "was-background-update.path",
                     "swu-verifier-tv.timer", "swu-auto-upgrade.timer"}
-    check("services-units.txt is 34 active entries incl. easysetup + the OTA stack",
-          len(units_list) == 34
+    check("services-units.txt is 35 active entries incl. easysetup + OTA + batch-3 loop",
+          len(units_list) == 35
           and "com.samsung.tv.cis-api-service-app.service" in units_list
           and "org.tizen.easysetup-daemon.service" in units_list
           and update_units <= set(units_list),
