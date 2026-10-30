@@ -15,6 +15,27 @@ entry is an incomplete change. `AGENTS.md` repeats this rule for agents.
 
 ---
 
+## 2026-10-30 — first 35-unit / 58-app cold boot: clean
+
+The mains cycle after the OTA stack and batch 3 (16:08:54). Rooted
+direct-patch at t=49 s and the mask step finished at t=52 s:
+
+    masks=35 stopped=35 killed=4 fail=0 missing=0 activating=1
+    listed-activating=0 loop-check=ok newhome=set(0),loop-started
+
+All 35 units are `masked-runtime` with none active (24 `inactive` + 11
+`failed`), all 58 `app_disable` rows are true, both sentinels are present,
+uid 0, and the picture loop restarted itself (`loop-started`, since the
+transient unit dies with the boot). The 38 batch-3 apps stayed down -
+the `/proc` scan for `/opt/usr/apps/<disabled id>` found none.
+
+**`activating=1` is `security-emdaemon.service`, and it is not a loop:** a
+vendor `Type=oneshot` whose `ExecStart` is `/usr/bin/sleep 100` (a boot delay,
+`WantedBy=sysinit.target`, `After=secure-clock.service`). It sits in
+`activating start` for ~100 s after every boot and then goes inactive; it is not
+on our list and our masks do not touch anything it requires. Recorded here so
+the next reader does not chase it as a fourth restart loop.
+
 ## 2026-10-30 — batch 3: the optional features this household does not use
 
 **Owner's decisions:** no voice; no AirPlay / Multi View / screen mirroring;
