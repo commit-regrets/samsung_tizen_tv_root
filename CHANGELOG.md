@@ -36,7 +36,7 @@ the beacon is that oneshot (see the 16:08 entry), not a loop.
 
 This is the state to reason from: 37 rows / 29 units / 23 binaries, with the
 SmartThings stack and the phone-path services untouched, and the phone online
-(owner-confirmed before and after this boot).
+(the owner confirmed it again after this boot, ~19:44).
 
 ## 2026-10-30 — standing set applied (37 rows / 29 units), phone confirmed online
 
