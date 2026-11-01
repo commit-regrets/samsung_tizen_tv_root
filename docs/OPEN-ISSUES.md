@@ -68,12 +68,14 @@ payload hunted for five minutes), and `deploy.sh` clears `/tmp/.dsh_try` before
 its restart so a deploy after a bad boot gets a fresh fast budget.
 **~~Residual: `RESTART_KILL=` / `RESTART_START=` vanish into `/dev/null`; "old
 app never died, new DLL not loaded" passes the `id -u` gate~~ — done, built +
-offline-verified 2026-11-01 (repo v46/v46.1; **deployed 2026-11-01 21:01, cold
-boot still owed**).** The restart
+offline-verified, deployed 2026-11-01 21:01 and cold-boot accepted 21:10
+(repo v46/v46.1).** The restart
 subshell now writes to `share/restart.log` (echoed `RESTART_LOG=`) and
 `tools/wait_rooted.py` reads it back after a rooted answer; the payload beacons
 `art=<md5>` (read once at startup from the deploy-rendered `rootchan.art`) on
 its start beacon, so `beacons.log` proves which DLL each process started with.
+**Deployed 2026-11-01 21:01 and cold-boot accepted 21:10** (both launches
+carried `tok=` + `art=c540a6ab…`).
 **v46.1, after the second review (2026-11-01):** the freshness proof uses TWO
 witnesses — the newest launch's `tok=` against the deploy's `TOKEN_FILE=` (the
 token is rendered fresh per deploy, so this survives redeploying identical
@@ -83,9 +85,10 @@ DLL it read); `root.ps1` gets the "newest launch" from
 instead of claiming success. `deploy.sh`'s rollback removes `rootchan.art` /
 `restart.log` only when THIS attempt wrote them (`ART_WRITTEN` /
 `RESTART_ARMED`) — it used to delete the previous deploy's still-accurate marker
-when a failure landed before the write. The live proof (a real deploy + boot
-showing both witnesses match) still needs hardware; its acceptance line goes to
-`CHANGELOG.md` when it happens. The artifact-md5 beacon was designed fresh in
+when a failure landed before the write. **The live proof is in** (deploy 21:01,
+mains-cycle boot 21:10: both fresh launches carried `tok=<deploy token>` and
+`art=c540a6ab…`, and `root.ps1` printed the `proven` line). The artifact-md5
+beacon was designed fresh in
 v46 — it was never a proposal in `docs/V45-BLIND-WALK.md`.
 
 **v45 — deployed and cold-boot verified 2026-11-01.** Exit long mode on a

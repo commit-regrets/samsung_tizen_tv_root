@@ -53,7 +53,7 @@ Session history and *why* each change exists: `CHANGELOG.md` (eight entries,
    `tools/test_hygiene.py`, `tools/test_wait_rooted.py`; the analyzer fixtures
    grew the v45 boot shape and the deploy-script `dsh_try` case.
 7. **The stale-process proof (repo v46 + v46.1 — deployed 2026-11-01 21:01,
-   cold boot owed)** — the
+   cold-boot accepted 21:10)** — the
    payload reads the deploy-rendered artifact md5 from `rootchan.art` once at
    startup and appends `art=<md5>` to its start beacon, so `beacons.log` proves
    which DLL each process started with (a stale old process beaconed the
