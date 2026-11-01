@@ -33,6 +33,14 @@ here.
 
 Deploy + cold-boot acceptance owed (recorded in HANDOFF pending).
 
+**Deployed 2026-11-02 00:00** over 31337: `PREV_IL=c540a6ab` (the v46 rollback
+copy), `TOKEN_FILE=e357b74c`, `ART_FILE=0df29b15`, `MASKFILE` 29 units / 23
+binaries, `COPY=ok`, `DEPLOY_DONE`. The relaunch rooted after 52 s (attempt 1
+fast-exit, attempt 2 rooted) and `root.ps1` printed the two-witness `proven`
+line. The mask step ran on the new dump: `masks=29 stopped=29 killed=1 fail=0
+missing=0 activating=0 listed-activating=0 loop-check=ok
+newhome=set(1),loop-active`; live `tv_health` 12/12. **Cold boot still owed.**
+
 ## 2026-11-01 — live-stub layer passed; the preloaded renderer trap
 
 The last SKIPped layer is green.  With the TV browser fully quit and reopened
