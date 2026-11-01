@@ -128,15 +128,16 @@ while IFS= read -r line || [ -n "$line" ]; do
   fi
   if systemctl stop "$u" 2>/dev/null; then
     # A stop that exits 0 does not prove the unit is down: a Restart= unit can
-    # already be re-arming, and counting it stopped hid a running service
-    # (2026-11-01 review).  Ask the unit itself; anything other than a clean
-    # inactive/failed is a failure of this run.
-    if systemctl is-active --quiet "$u" 2>/dev/null; then
-      echo "FAIL: $u is still active after a successful stop"
-      fail=$((fail+1))
-    else
-      stopped=$((stopped+1))
-    fi
+    # already be re-arming.  `is-active --quiet` is not enough - it exits 0 only
+    # for active/reloading, so a unit in `activating` reads as "not active" and
+    # was counted stopped while it was coming back (2026-11-01 review).  Parse
+    # the STATE and accept only inactive/failed.
+    ust=$(systemctl is-active "$u" 2>/dev/null)
+    case "$ust" in
+      inactive|failed) stopped=$((stopped+1)) ;;
+      *) echo "FAIL: $u is still active after a successful stop (state=$ust)"
+         fail=$((fail+1)) ;;
+    esac
   else
     # A failed stop leaves the unit RUNNING even though the mask is in place.
     # Counting only successes made the run exit 0 while the service was still
@@ -249,7 +250,7 @@ fi
 # tcc's S90D.  The global count is reported for context (an idle boot already
 # has a couple), but the FAILURE signal is a LISTED unit still activating -
 # that means the mask did not hold.
-loops=0; ourloops=0; loopcheck=skipped
+loops=0; ourloops=0; ourrun=0; loopcheck=skipped
 if [ "$MASK" = "1" ] && command -v systemctl >/dev/null 2>&1; then
   units_file=/tmp/.dsh_units.$$
   # --full: without it list-units clips names at the terminal width, and a
@@ -258,17 +259,25 @@ if [ "$MASK" = "1" ] && command -v systemctl >/dev/null 2>&1; then
   if systemctl list-units --all --no-legend --plain --full > "$units_file" 2>/dev/null; then
     loopcheck=ok
     loops=$(grep -c ' activating ' "$units_file" 2>/dev/null) || loops=0
-    grep ' activating ' "$units_file" 2>/dev/null | awk '{print $1}' > "$units_file.active"
-    # Count and name from the SAME sanitized reader (CR strip, comment skip) -
-    # an awk pass over the raw list used to disagree with the LOOP: lines.
+    ourrun=0
+    # Every listed unit must be inactive/failed in the dump.  `activating` is
+    # the restart-loop class; `active` (or reloading/deactivating) means the
+    # stop pass released it and something brought it back before this dump -
+    # the window the stop-pass check cannot see (2026-11-01 review).
     while IFS= read -r lu || [ -n "$lu" ]; do
       case "$lu" in ''|\#*) continue ;; esac
       lu=$(printf '%s' "$lu" | tr -d '\r' | awk '{$1=$1};1')
       [ -n "$lu" ] || continue
-      if grep -qxF "$lu" "$units_file.active" 2>/dev/null; then
-        ourloops=$((ourloops+1))
-        echo "LOOP: $lu is still activating (the mask did not hold)"
-      fi
+      ust=$(awk -v u="$lu" '$1 == u {print $3; exit}' "$units_file" 2>/dev/null)
+      case "$ust" in
+        ''|inactive|failed|not-found) ;;
+        activating)
+          ourloops=$((ourloops+1))
+          echo "LOOP: $lu is still activating (the mask did not hold)" ;;
+        *)
+          ourrun=$((ourrun+1)); fail=$((fail+1))
+          echo "RUNNING: $lu is $ust after the stop pass (the mask did not hold)" ;;
+      esac
     done < "$LIST"
   else
     # Fail closed: a dump we could not read is NOT "no loops".  A manual run
@@ -277,15 +286,15 @@ if [ "$MASK" = "1" ] && command -v systemctl >/dev/null 2>&1; then
     loopcheck=failed
     echo "loop-check: FAILED - systemctl list-units did not answer; cannot prove there is no restart loop"
   fi
-  rm -f "$units_file" "$units_file.active"
+  rm -f "$units_file"
   if [ "$loopcheck" = "ok" ]; then
-    echo "loop-check: activating=$loops listed-activating=$ourloops (an idle boot already has a couple)"
+    echo "loop-check: activating=$loops listed-activating=$ourloops listed-running=$ourrun (an idle boot already has a couple)"
   fi
 fi
 
 echo
 if [ "$MASK" = "1" ]; then
-  echo "summary: newly-masked=$new already=$already stopped=$stopped refusal-ok=$refused missing-units=$missing symlink-fail=$bad kill-refused=$killbad fail=$fail killed=$killed reload_ok=$reload_ok loop-check=$loopcheck activating=$loops listed-activating=$ourloops newhome=$newhome"
+  echo "summary: newly-masked=$new already=$already stopped=$stopped refusal-ok=$refused missing-units=$missing symlink-fail=$bad kill-refused=$killbad fail=$fail killed=$killed reload_ok=$reload_ok loop-check=$loopcheck activating=$loops listed-activating=$ourloops listed-running=$ourrun newhome=$newhome"
 else
   echo "dry run: would mask $new new units ($already already masked, $missing missing), stop + refusal-test $n"
 fi

@@ -195,15 +195,24 @@ class Fixture:
                           '  exit 0\n'
                           'fi\n'
                           'if [ "$1" = "is-active" ]; then\n'
+                          '  # real systemd: prints the state and exits 0 only for\n'
+                          '  # active; --quiet suppresses the print but keeps the code.\n'
+                          '  st=inactive\n'
                           '  case "$*" in *newhome-fix*)\n'
-                          '    [ -f "$FLAGS.newhomefix" ] && exit 0 || exit 3;;\n'
+                          '    [ -f "$FLAGS.newhomefix" ] && st=active;;\n'
                           '  esac\n'
-                          '  # a unit named in FLAGS.still_active keeps\n'
-                          '  # answering active even after a stop\n'
+                          '  # a unit named in FLAGS.still_active answers active\n'
+                          '  # even after a stop; FLAGS.activating_units answers\n'
+                          '  # activating (a Restart= unit re-arming)\n'
                           '  for su in $(cat "$FLAGS.still_active" 2>/dev/null); do\n'
-                          '    case " $* " in *" $su "*) exit 0;; esac\n'
+                          '    case " $* " in *" $su "*) st=active;; esac\n'
                           '  done\n'
-                          '  exit 3\n'
+                          '  for su in $(cat "$FLAGS.activating_units" 2>/dev/null); do\n'
+                          '    case " $* " in *" $su "*) st=activating;; esac\n'
+                          '  done\n'
+                          '  case "$*" in *--quiet*) [ "$st" = "active" ] && exit 0 || exit 3;; esac\n'
+                          '  echo "$st"\n'
+                          '  [ "$st" = "active" ] && exit 0 || exit 3\n'
                           'fi\n'
                           'if [ "$1" = "start" ]; then\n'
                           '  shift\n'
@@ -645,6 +654,36 @@ def main() -> int:
           r.returncode != 0
           and "still active after a successful stop" in r.stdout,
           f"rc={r.returncode} fail={[l for l in r.stdout.splitlines() if 'still active' in l][:1]}")
+
+    # the stop pass must look at the STATE, not the --quiet exit code: a unit
+    # in `activating` (Restart= already re-arming) exits non-zero from
+    # is-active --quiet and was counted as stopped (2026-11-01 review)
+    tmpf14 = Fixture(DEB / "tools" / "mask.sh")
+    tmpf14.add_units(units)
+    ul14 = tmpf14.write_list("units.txt", units)
+    Path(str(tmpf14.flags) + ".activating_units").write_text(
+        units[1] + "\n", encoding="utf-8")
+    r = tmpf14.run([ul14], {"MASK": "1"})
+    check("mask: a unit in activating after a successful stop fails the run",
+          r.returncode != 0
+          and "(state=activating)" in r.stdout,
+          f"rc={r.returncode} {[l for l in r.stdout.splitlines() if 'still active' in l][:1]}")
+
+    # the re-arm window after the stop pass: a listed unit that is `active` in
+    # the dump (not activating) was invisible to a grep for ' activating '
+    tmpf15 = Fixture(DEB / "tools" / "mask.sh")
+    tmpf15.add_units(units)
+    ul15 = tmpf15.write_list("units.txt", units)
+    tmpf15.active.write_text(
+        "data-service.service loaded active running data-service\n",
+        encoding="utf-8")
+    r = tmpf15.run([ul15], {"MASK": "1"})
+    check("mask: a listed unit active in the dump fails the run",
+          r.returncode != 0
+          and "RUNNING: data-service.service is active" in r.stdout,
+          f"rc={r.returncode} {[l for l in r.stdout.splitlines() if 'RUNNING' in l][:1]}")
+    check("mask: the summary counts listed-running",
+          "listed-running=1" in r.stdout, r.stdout[-160:])
 
     # restart-loop detector (tcc's trap): a listed unit stuck in
     # "activating (auto-restart)" means the mask did not hold -> fail.

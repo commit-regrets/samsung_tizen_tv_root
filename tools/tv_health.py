@@ -21,7 +21,7 @@ Checks (each maps to a registry/document claim):
   count       the disabled set is exactly the registry's `applied` set
   masks       masked-unit count == debloat/lists/services-units.txt
   masked      every listed unit answers `is-enabled` = masked-runtime
-              (waits up to 15 s: the boot payload re-asserts them)
+              (polls up to 5 s: the boot payload re-asserts them)
   loops       no unit is `activating`
   sentinels   canalysis-daemon + pisa-service sentinels present
   smarthome   org.tizen.easysetup-daemon.service is active
@@ -112,7 +112,7 @@ def read(tv: str, *, run=None, timeout: float = 20.0, log: Path | None = None) -
     masked_out = run(
         "i=0; while [ $i -lt 5 ]; do "
         "out=$(systemctl is-enabled "
-        "$(grep -v '^#' /opt/usr/data/debloat-masks.txt | grep -v '^$' | tr -d '\\r') "
+        "$(grep -v '^#' /opt/usr/data/debloat-masks.txt | grep -v '^$' | tr -d '\\015') "
         "2>/dev/null); "
         "n=$(printf '%s\\n' \"$out\" | grep -c .); "
         "bad=$(printf '%s\\n' \"$out\" | grep -v '^masked-runtime$' | grep -c .); "

@@ -156,6 +156,13 @@ def main() -> int:
     if failed:
         print(f"\n{len(failed)} layer(s) failed: {', '.join(failed)}")
         return 1
+    if skipped:
+        # A skip is not a pass, and the suite must not read as fully green when
+        # it did not run something (2026-11-01 review).  Exit stays 0: the
+        # skipped layers are environment-dependent by design.
+        print(f"\nall selected tests passed, but {len(skipped)} layer(s) were "
+              f"SKIPPED (not run): {', '.join(skipped)}")
+        return 0
     print("\nall selected tests passed")
     return 0
 

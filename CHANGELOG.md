@@ -15,6 +15,33 @@ entry is an incomplete change. `AGENTS.md` repeats this rule for agents.
 
 ---
 
+## 2026-11-01 — follow-up: mask.sh reads the state, not the exit code
+
+The stop-pass check added hours earlier still accepted the case it was meant to
+catch: `is-active --quiet` exits 0 only for `active`/`reloading`, so a unit that
+`stop` had just released and `Restart=` was already re-arming (`activating`)
+exited non-zero and was counted `stopped`.  A unit that was `activating` at that
+call and `active` by the later dump matched neither check, and the script could
+exit 0 with it running.
+
+- Pass 2 now reads the state (`systemctl is-active <unit>`) and accepts only
+  `inactive`/`failed`; anything else is `FAIL: <unit> is still active after a
+  successful stop (state=<state>)`.
+- Pass 5 no longer greps only `activating`: every listed unit in the dump must
+  be `inactive`/`failed`; `active` (or reloading/deactivating) is a `RUNNING`
+  failure, which covers the re-arm window after the stop pass.  The summary
+  gains `listed-running=`.
+- Offline stub: `is-active` answers with a state and honours `--quiet`; new
+  cases for `state=activating` at stop time and a listed `active` unit in the
+  dump.
+
+Also: `-DryRun -NoWait` no longer prints a wait line (the real path skips it);
+`test_all` ends with "all selected tests passed, but N layer(s) were SKIPPED"
+when a layer was recorded as a skip; the refused `tok=deadbeef` probe carries
+the `probe=` nonce too (uniformity — it never reaches the log); tv_health's
+docstring says 5 s (the poll is five tries) and the CR strip is `tr -d '\015'`
+instead of `'\r'`, which the shell passed through as the two characters.
+
 ## 2026-11-01 — review fixes: honest guards, and a mask pass that means stopped
 
 **Gateway test: the probe nonce.** The previous guard matched the test's tokens

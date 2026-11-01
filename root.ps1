@@ -270,7 +270,11 @@ if ($DryRun) {
         Say "would        : stop (already rooted; pass -Force to redeploy over 31337)"
     } elseif ($tvRooted) {
         Say "would run     : $py $($layout.Tools)\root_shell.py `"curl -s $deployUrl | sh`" $TvIp"
-        Say "would wait    : a rooted 31337 (id -u = 0) for up to $BootTimeoutSec s"
+        if ($NoWait) {
+            Say "would wait    : skipped (-NoWait skips the wait AND the health check)"
+        } else {
+            Say "would wait    : a rooted 31337 (id -u = 0) for up to $BootTimeoutSec s"
+        }
         if ($NoWait) {
             Say "would health  : skipped (-NoWait skips the wait AND the health check)"
         } elseif ($SkipHealth) {

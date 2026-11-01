@@ -217,8 +217,12 @@ ran, in what order, with what exit code), not on output prose:
 - `restore.sh`: `-A --global` per id, sentinel removal, stop-at-first-failure;
 - `mask.sh`: `daemon-reload` before any `stop`/`start`, no start of a unit
   whose mask is ours only, `MISSING` unit names fail the run, all-missing
-  exits 2, **a stop that exits 0 but leaves the unit `active` fails the run**
-  (the stub keeps one unit answering `is-active`), the dump is fetched with
+  exits 2, **a stop that exits 0 but leaves the unit up fails the run** — the
+  stub answers `is-active` with a *state* (`active` / `activating` / `inactive`),
+  because `--quiet` exits 0 only for active/reloading and a re-arming unit read
+  as "not active"; both `state=active` and `state=activating` are covered, and a
+  listed unit that is `active` in the dump (the post-stop re-arm window, not just
+  `activating`) is a `RUNNING` failure. The dump is fetched with
   `--full` (a clipped name could never match a listed unit), the persistent
   `newhome-fix` loop (started once, reported
   `newhome=started` then `active`), the restart-loop check (a listed unit

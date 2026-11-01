@@ -408,7 +408,7 @@ def main() -> int:
             alias3.bind(("127.0.0.3", 0))
             alias3.settimeout(3)
             alias3.connect(("127.0.0.1", http_port))
-            alias3.sendall(b"DSHROOT tok=deadbeef t=5s start uid=5001 pid=999\n")
+            alias3.sendall(f"DSHROOT tok=deadbeef t=5s start uid=5001 pid=999 probe={probe_id}\n".encode())
             alias3.close()
             failed += not check("wrong beacon token refused",
                                 wait_for_log("unknown beacon token deadbeef",
