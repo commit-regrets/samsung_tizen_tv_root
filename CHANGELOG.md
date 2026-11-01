@@ -49,8 +49,17 @@ a fixture where the long pass exits and the relaunch roots, asserting `LONG-EXIT
 is decoded and no `BLIND-WALK` is claimed.
 
 Artifact: 41,984 B, md5 `35cc7577c102ad04f0bb8522e974f7d9`, reproducible
-(two builds identical). **Not deployed yet** — the TV still runs v44; deploy +
-mains cycle is the acceptance, per the note's checklist.
+(two builds identical). **Deployed over 31337 the same day** (`COPY=ok`,
+`DEPLOY_DONE`, `PREV_IL` = v44): the deploy relaunch rooted in 10 s and
+`root.ps1` verified it with `id -u` = 0 - the first use of the honest gate on a
+real deploy. **Cold-boot acceptance PASSED 2026-11-01 16:15** (mains cycle):
+attempt 1 `fast-exit` (t=32 s, the allocation lottery), attempt 2
+`tag=exact` + `direct-patch uid=0` at t=37 s, `ROOTCHAN` t=38, `masks=29
+stopped=29 killed=4 fail=0 missing=0 activating=4 listed-activating=0
+loop-check=ok newhome=set(0),loop-started` at t=44 s, **no `long-exit` line** -
+the normal path is untouched. Live: uid 0, `CapEff=0x3fffffffff`, 37
+`app_disable='true'` rows, 29 masks, boot row 1, easysetup-daemon active with
+NRestarts=0. `tools/beacons.py` verdict: ROOTED at t=37 s of TV uptime.
 
 ## 2026-11-01 — review follow-up: an honest post-deploy gate, a budget reset, and the blind-walk signature
 

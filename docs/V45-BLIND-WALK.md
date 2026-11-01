@@ -1,8 +1,11 @@
 # v45 — exit LONG mode on a rootless pass
 
-Status: **implemented 2026-11-01, cold-boot verification owed.** Artifact 41,984 B,
-md5 `35cc7577…`; the TV still runs v44 (`7fce4683…`) until the deploy. Written
-after the v44 deploy restart, which hunted for five minutes in one process.
+Status: **implemented, deployed and cold-boot verified 2026-11-01.** Artifact
+41,984 B, md5 `35cc7577…`; the TV runs it since 2026-11-01 16:15 (the deploy
+relaunch rooted in 10 s, the mains-cycle boot on attempt 2 at t=37 s with
+`masks=29 … loop-check=ok` at t=44 s and **no `long-exit` line** — the normal
+path is untouched). Written after the v44 deploy restart, which hunted for five
+minutes in one process.
 
 ## What happened
 

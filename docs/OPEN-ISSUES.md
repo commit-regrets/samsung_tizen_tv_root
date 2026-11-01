@@ -52,12 +52,14 @@ operator nor the launcher can see them; "no channel at all" is caught by the
 `id` gate, but "old app never died, new DLL not loaded" would still pass it.
 The v45 note proposes a payload-side artifact-md5 beacon to make that provable.
 
-**v45 — built 2026-11-01, deploy + cold boot owed.** Exit long mode on a
+**v45 — deployed and cold-boot verified 2026-11-01.** Exit long mode on a
 rootless pass (any pass, not only a blind one — the 2026-11-01 pass had latched
 its child and was still stuck), capped at 3 exits per boot, beacon
-`long-exit attempt=N count=K`. The artifact is built and the repo is on v45
-(md5 `35cc7577`); the TV still runs v44 until the deploy. Acceptance list,
-rationale and the criterion correction: [`V45-BLIND-WALK.md`](V45-BLIND-WALK.md).
+`long-exit attempt=N count=K`. Deploy over 31337 (md5 `35cc7577`, `COPY=ok`);
+the deploy relaunch rooted in 10 s, and the mains-cycle boot rooted on attempt 2
+at t=37 s with `masks=29 … loop-check=ok` at t=44 s and **no `long-exit`
+line** — the normal path is untouched. Rationale and the criterion correction:
+[`V45-BLIND-WALK.md`](V45-BLIND-WALK.md).
 
 **Follow-up 2026-11-01 - fixed and now pinned by tests:** the beacon-token set
 did not survive a **PC-server restart**, so a deployed payload's beacons were
