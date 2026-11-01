@@ -9,7 +9,7 @@ The current artifact md5/size live only in the generated state row in
 ## Where it stands right now
 
 - **Repo:** branch `develop`, **uncommitted working tree** (v46 + v46.1 below);
-  the offline suite (`python tools/test_all.py`) is **16/16**.
+  the offline suite (`python tools/test_all.py`) is **17/17**.
 - **TV:** on **v46** (the artifact in `server/payload.dll`), deployed 21:01 over
   the root channel and **cold-boot verified 21:10** (mains cycle); uid 0 with
   full caps, the standing debloat set applied (app rows + unit masks), boot row
@@ -94,7 +94,7 @@ masks come back on their own, and a deploy is verified with `id -u` = 0.
 ```sh
 cd <this repo>
 git log --oneline -5                  # where the session ended
-python tools/test_all.py              # 16 offline layers
+python tools/test_all.py              # 17 offline layers
 python tools/update_state.py --check  # §1 state row vs artifacts/state.json
 python tools/sanitize_for_public.py --check
 

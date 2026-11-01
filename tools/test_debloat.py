@@ -1047,6 +1047,37 @@ def main() -> int:
     else:
         print("SKIP merge determinism: node not on PATH")
 
+    # 12. source-of-truth drift guards: the test file keeps its own copies of
+    # the denylist and the README documents the counts.  Both had drifted from
+    # the files they describe (2026-11-01 sweep), so each is now checked.
+    apply_txt = (DEB / "tools" / "apply.sh").read_text(encoding="utf-8")
+    apply_deny = set(re.search(r'DENY="([^"]*)"', apply_txt, re.S).group(1).split())
+    test_deny = set(DENY) - {"unified-drm-playready-PontusM"}  # the glob sample
+    check("test DENY copy == apply.sh DENY (+ the DRM glob sample)",
+          test_deny == apply_deny,
+          f"test-only={sorted(test_deny - apply_deny)} "
+          f"script-only={sorted(apply_deny - test_deny)}")
+    readme = (DEB / "README.md").read_text(encoding="utf-8")
+    applied_lists = ("tier1-tracking.txt", "tier2a-tcc-apps.txt",
+                     "batch3-optional.txt", "batch2-commercial.txt")
+    applied_n = sum(
+        len([l for l in (DEB / "lists" / n).read_text(encoding="utf-8").splitlines()
+             if l.strip() and not l.strip().startswith("#")])
+        for n in applied_lists)
+    m_set = re.search(r"\*\*Standing set: (\d+) app rows\*\*", readme)
+    check("README standing-set count == the four applied lists",
+          m_set is not None and int(m_set.group(1)) == applied_n,
+          f"readme={m_set.group(1) if m_set else None} lists={applied_n}")
+    m_units = re.search(r"services-units\.txt` \((\d+) masked units", readme)
+    m_bins = re.search(r"services-bind\.txt` \((\d+) `/usr/bin` binaries", readme)
+    check("README documented unit/binary counts == the lists",
+          m_units is not None and m_bins is not None
+          and int(m_units.group(1)) == len(units_list)
+          and int(m_bins.group(1)) == len(bind_list),
+          f"readme={m_units.group(1) if m_units else None}/"
+          f"{m_bins.group(1) if m_bins else None} "
+          f"lists={len(units_list)}/{len(bind_list)}")
+
     tmpf.cleanup(); tmpf2.cleanup(); tmpf2b.cleanup(); tmpf3.cleanup()
     tmpf4.cleanup(); tmpf5.cleanup(); tmpf5b.cleanup()
     tmpf6.cleanup(); tmpf6b.cleanup(); tmpf6c.cleanup(); tmpf6d.cleanup()

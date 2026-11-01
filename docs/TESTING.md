@@ -248,7 +248,42 @@ shell on a redirection error before the `else` runs (the scripts now use
 both shells is in the suite; when touching any TV-side script, also run it under
 real ash (`wsl -e sh`, or a Linux host) before trusting a green Git Bash run.
 
-## 4d. Whole-tree hygiene — `tools/test_hygiene.py`
+## 4d. Post-boot health — `tools/tv_health.py` (+ `tools/test_tv_health.py`)
+
+```sh
+python tools/tv_health.py --tv <tv-ip>          # 11 checks, exit 1 on any FAIL
+python tools/tv_health.py --tv <tv-ip> --json   # for machines
+```
+
+The TV-side oracle for `debloat/registry.tsv`: before this existed every state
+claim was checked by hand with five one-line `root_shell.py` calls, and two
+count drifts still slipped through (a README saying 24 units when the list held
+29; a "deferred" list containing two applied ids). Read-only, one channel
+command per fact, then a pure comparison:
+
+- **root** — `id -u` = 0 and `CapEff` = `0000003fffffffff`;
+- **artifact** — the installed DLL md5 = `server/payload.dll`;
+- **witness** — `rootchan.art` = that md5 (the v46 start-beacon witness);
+- **applied** — every registry `applied` id is `app_disable='true'`;
+- **off-list** — no installed `never`/`deferred`/`reverted` app is `true`
+  (this is the check that catches "a later apply disabled a keeper");
+- **count** — the disabled set is *exactly* the registry's applied set, no
+  extra id (catches an out-of-band `pkgcmd -D`);
+- **masks** — masked-unit count = `debloat/lists/services-units.txt`;
+- **loops** — no unit is `activating`;
+- **sentinels** — both vendor sentinels present;
+- **smarthome** — `org.tizen.easysetup-daemon.service` active;
+- **beacon** — the newest launch line in `beacons.log` carries `tok=` and
+  `art=`.
+
+`evaluate()` is pure, so `tools/test_tv_health.py` gives each check a healthy
+fixture plus one mutation (13 mutations, one per failure class) and exercises
+`read()` with an injected channel and the registry parser with a temp ledger —
+a new check without a fixture is visible as an untested PASS. The layer is
+`tv-health` in `tools/test_all.py`; the live run is not part of the suite
+(it needs the TV).
+
+## 4e. Whole-tree hygiene — `tools/test_hygiene.py`
 
 The layers above only cover code somebody wrote a fixture for. This one covers
 the classes that no fixture catches:

@@ -289,6 +289,8 @@ TV boot: com.samsung.tv.MultiControl-Service (dotnet-inhouse, app_onboot)
 | `tools/test_constants.py` | cross-checks the same offsets/limits/node names across `Program.cs`, `sim_rpc.py`, `kernel_root.py`, `physmap.py`, `physrpc.S`, the page and `deploy.sh` |
 | `tools/test_all.py` | runs every layer above; `--tv` adds the live stub |
 | `tools/test_debloat.py` | offline gate for `debloat/` (apply/restore/mask/unmask under `sh` with stubbed `pkgcmd`/`systemctl`/`dbus-send`, list hygiene, merge determinism); finds Git Bash even off PATH, so it no longer reports SKIP-as-PASS |
+| `tools/tv_health.py` | post-boot / post-apply health check over 31337 (11 checks: root, artifact md5, `art=` witness, registry applied/off-list/count, masks, loops, sentinels, SmartThings unit, newest launch) - the TV-side oracle for `debloat/registry.tsv`; `--json`, exit 1 on any FAIL |
+| `tools/test_tv_health.py` | offline tests for it: healthy fixture + one mutation per check, injected `read()`, registry parser |
 | `debloat/` | debloat subtree (own `AGENTS.md`): per-model inventory, disable lists, TV-side tools. Needs only this toolkit's root channel — see [`debloat/README.md`](debloat/README.md) |
 | `payload/Program.cs` | boot payload source (v46: v45's tri-state/ranked accepts + capped long-mode exit, plus the `art=<md5>` start beacon; deployed 2026-11-01 - see the §1 state row) |
 | `payload/global.json` | pins SDK 10.0.301 (rollForward latestPatch): a different SDK can change the artifact md5 |

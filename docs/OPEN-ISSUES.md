@@ -51,7 +51,7 @@ cold boot rooted again.
 Backups: `mcs_orig.dll` (stock), `mcs_ni_orig.dll`, `payload_backup.dll` = v45
 (the v46 deploy's `PREV_IL=35cc7577`).
 
-The repo is green offline (`python tools/test_all.py`, 16/16 layers incl. the
+The repo is green offline (`python tools/test_all.py`, 17/17 layers incl. the
 debloat tooling, in-process server and whole-tree hygiene layers) and
 `sanitize_for_public.py --check` passes. The kernel memory boundary is now
 zoneinfo-derived (`max_low_pfn 0x50400` → `high_memory` VA `0xF0400000`); the

@@ -40,6 +40,10 @@ Layers (see docs/TESTING.md):
   10. tools/test_hygiene.py  every .py compiles, every tracked .json parses, and
                              every TV-side .sh is LF/BOM/shebang-clean and
                              parses under `sh -n`
+  11. tools/test_tv_health.py  the post-boot health checker's comparisons: a
+                             healthy fixture passes, every check has a
+                             mutation that fails it, and read()/the registry
+                             parser are exercised with injected outputs
 
 Exit code 0 means every layer passed (or was skipped for a documented reason).
 """
@@ -92,6 +96,8 @@ def main() -> int:
                                       [py, "tools/update_state.py", "--check"])))
     results.append(("debloat-tooling", run("debloat apply/mask tooling + lists + merge",
                                            [py, "tools/test_debloat.py"])))
+    results.append(("tv-health", run("post-boot health checks vs the registry",
+                                     [py, "tools/test_tv_health.py"])))
     results.append(("docs-consistency", run("living docs vs current mechanisms",
                                             [py, "tools/test_docs.py"])))
     results.append(("hygiene", run("whole-tree parse/encoding hygiene",
