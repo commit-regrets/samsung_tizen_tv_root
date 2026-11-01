@@ -128,6 +128,12 @@ while IFS= read -r line || [ -n "$line" ]; do
   fi
   if systemctl stop "$u" 2>/dev/null; then
     stopped=$((stopped+1))
+  else
+    # A failed stop leaves the unit RUNNING even though the mask is in place.
+    # Counting only successes made the run exit 0 while the service was still
+    # up (2026-10-31 review, reproduced under busybox ash).
+    echo "FAIL: systemctl stop $u"
+    fail=$((fail+1))
   fi
   if [ "$reload_ok" != "1" ]; then
     continue
@@ -267,7 +273,7 @@ fi
 
 echo
 if [ "$MASK" = "1" ]; then
-  echo "summary: newly-masked=$new already=$already stopped=$stopped refusal-ok=$refused missing-units=$missing symlink-fail=$bad kill-refused=$killbad start-failures=$fail killed=$killed reload_ok=$reload_ok loop-check=$loopcheck activating=$loops listed-activating=$ourloops newhome=$newhome"
+  echo "summary: newly-masked=$new already=$already stopped=$stopped refusal-ok=$refused missing-units=$missing symlink-fail=$bad kill-refused=$killbad fail=$fail killed=$killed reload_ok=$reload_ok loop-check=$loopcheck activating=$loops listed-activating=$ourloops newhome=$newhome"
 else
   echo "dry run: would mask $new new units ($already already masked, $missing missing), stop + refusal-test $n"
 fi

@@ -28,19 +28,35 @@ persistent boot payload. It is not a consumer tool and it is not hardened.
   hello. **v41 closes the `DSHROOT` half the same way:** `deploy.sh` renders a
   per-deploy token into `share/rootchan.token`, the payload prefixes every
   beacon with `tok=`, and the server refuses unknown tokens and never admits a
-  token-less one. **Residue, by design:** a token-less beacon's *content* still
-  reaches `beacons.log` (so a legacy or pre-deploy payload stays diagnosable),
-  and a page older than the server accepts `PGDB` pairings unauthenticated
-  (logged loudly) so the toolkit keeps working across an upgrade. Keep the PC
-  off untrusted networks.
+  token-less one. **What the tokens do and do not prove (2026-10-31 review):**
+  `/deploy.sh` is served to any peer that can reach port 80, and the token is
+  rendered into it, so a LAN host that can reach the server can obtain a token
+  (or announce its own via `POST /pair`). The token stops *forged* and
+  *mistaken* beacons and stub hellos; it is **not** an authenticator against a
+  host that can already reach this server. The LAN itself is the trust
+  boundary - keep the PC off untrusted networks. The retained token set
+  (used tokens + the last two renders) is **persisted** in
+  `logs/beacon-tokens.json` - HTTP-denied under `/logs/**` and git-ignored - so a
+  PC-server restart does not orphan the running payload and silently blind
+  `beacons.log`; the file holds nothing `deploy.sh` does not already serve over
+  the LAN. **Residue, by design:** a
+  token-less beacon's *content* still reaches `beacons.log` (so a legacy or
+  pre-deploy payload stays diagnosable), and a page older than the server
+  accepts `PGDB` pairings unauthenticated (logged loudly) so the toolkit keeps
+  working across an upgrade.
 - `/deploy.sh` is rendered per request and refuses a non-IPv4 `Host`; a static
   file server would leave its `@HOST@`/`@WANT@` markers and the script refuses to
   run (`NEED_RENDER`), so there is no stale generated copy to tamper with.
 
 - **The PC server is part of the boundary too.** In v39.2 the shell slot can no
   longer be evicted by a different peer, `tv_sock` is only aimed at a stub after
-  op5/op7, every post-peek read is bounded, `RSET` is recognised across split TCP
-  segments, and `beacons.log` rotates at 16 MiB. Both halves of the token gap are closed (v40 `PGDB`, v41 `DSHROOT`);
+  op5/op7, `RSET` is recognised across split TCP
+  segments, and `beacons.log` rotates at 16 MiB. Since 2026-10-31 **one whole
+  HTTP request has an absolute deadline** (a trickled header used to hold the
+  single accept thread for as long as the 1 MB cap allowed), `__pycache__`/
+  `.pyc` copies of `server.py` are refused like the source itself, and a beacon
+  token that has actually admitted a beacon is no longer evicted by two stray
+  `GET /deploy.sh`. Both halves of the token gap are closed (v40 `PGDB`, v41 `DSHROOT`);
   the deliberate residue is the token-less log content above.
 ## Supported scope
 

@@ -259,6 +259,7 @@ if ($DryRun) {
         Say "would        : stop (already rooted; pass -Force to redeploy over 31337)"
     } elseif ($tvRooted) {
         Say "would run     : $py $($layout.Tools)\root_shell.py `"curl -s $deployUrl | sh`" $TvIp"
+        Say "would wait    : a rooted 31337 (id -u = 0) for up to $BootTimeoutSec s"
     } else {
         Say "would run     : $py $($layout.Tools)\auto_root.py --host $HostIp --script deploy.sh --stub-wait $StubWaitSec --root-retries 3"
         Say "then wait     : 31337 for up to $BootTimeoutSec s after the reboot"
@@ -329,15 +330,30 @@ if ($tvRooted -and $Force) {
     Say ""
     Say "2) Deploy verified. The deploy restarts the app, so 31337 can be down for ~10 s."
     if (-not $NoWait) {
-        $deadline = (Get-Date).AddSeconds($BootTimeoutSec)
-        while ((Get-Date) -lt $deadline -and -not (Test-TvPort -Tv $TvIp -Port 31337)) {
-            Start-Sleep -Seconds 2
-        }
-        if (-not (Test-TvPort -Tv $TvIp -Port 31337)) {
-            Say "31337 did not come back within $BootTimeoutSec s - check beacons.log."
+        # A bare port probe is NOT proof: the deploy's kill is detached, so the
+        # dying old app can answer it while the new payload is still hunting -
+        # on 2026-11-01 this printed "payload active" through a 5-minute hunt.
+        # wait_rooted.py requires an `id -u` = 0 answer after the old listener goes.
+        $env:ROOT_SHELL_TIMEOUT = "15"
+        & $py (Join-Path $layout.Tools "wait_rooted.py") --tv $TvIp --timeout $BootTimeoutSec
+        $wrc = $LASTEXITCODE
+        if ($wrc -eq 3) {
+            Say "WARNING: rooted, but 31337 never dropped - the app may still be"
+            Say "         running the PREVIOUS DLL; check the md5 against the state row."
+        } elseif ($wrc -ne 0) {
+            Say "31337 did not return a ROOTED shell within $BootTimeoutSec s."
+            Say "  The deploy restart can land in the stale-read window and long mode"
+            Say "  cannot re-roll it, so a mains power-cycle is the recovery. Then run:"
+            Say "    python tools/root_shell.py `"id -u`" $TvIp"
+            $bl = Join-Path $layout.ServerDir "logs\beacons.log"
+            if (Test-Path -LiteralPath $bl) {
+                Say "  last beacons:"
+                Get-Content -LiteralPath $bl -Tail 6 | ForEach-Object { Say "    $_" }
+            }
             exit 1
+        } else {
+            Say "31337 answers id -u = 0; payload active (verified)."
         }
-        Say "31337 is back; payload active."
     }
     exit 0
 }

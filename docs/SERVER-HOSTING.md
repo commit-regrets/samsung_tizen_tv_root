@@ -80,9 +80,11 @@ firewall rule; the TV only ever talks to port 80 and to `31337` on its own side.
   never admitted.
 - **`/deploy.sh` is rendered per request** (`H=` from the IPv4 `Host` header,
   `WANT=`/`SIZE_WANT=` from the md5/size of `payload.dll`, `TOKEN=` fresh per
-  render — the last two renders stay valid so a stray GET cannot orphan the
-  running payload); a non-IPv4 `Host` gets 409, and a static file server's
-  unrendered copy is refused by the script itself (`NEED_RENDER`).
+  render — a token that has admitted a beacon plus the last two renders stay
+  valid, and that set is persisted in `logs/beacon-tokens.json`, so neither a
+  stray GET nor a **server restart** can orphan the running payload); a
+  non-IPv4 `Host` gets 409, and a static file server's unrendered copy is
+  refused by the script itself (`NEED_RENDER`).
 - **`PGDB` queue is capped** at 8 (oldest closed) and `/save` refuses a
   cross-origin POST; beacon lines are capped at 4 KB.
 - A crash leaves a traceback in `logs/server.task.err`.
@@ -115,6 +117,7 @@ Get-Process <interpreter>                                       # one process
 | `logs/server.task.out` | lifecycle, every HTTP request, `[rpc] TV physmap stub connected` |
 | `logs/server.task.err` | tracebacks (should be empty) |
 | `logs/beacons.log` | one line per app-payload beacon — the boot diagnostic |
+| `logs/beacon-tokens.json` | deploy-token set reloaded at start (used + the last two renders) |
 | `logs/tv/tv_output_*.txt` | page `/save` dumps (`HARNESS_UP`, `WASM_LOADED`, `PAYLOAD_LOADED`, `RUNNING_AT`) |
 | `logs/shell.log` | captured TV console output from the control channel |
 

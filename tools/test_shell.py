@@ -162,6 +162,11 @@ def rewrite(script: Path, dest: Path, *, stock_il_md5: str, stock_ni_md5: str,
     text = text.replace("/opt/usr", "@ROOT@/opt/usr")
     text = text.replace("/opt/dbspace", "@ROOT@/opt/dbspace")
     text = text.replace("/tmp/", "@ROOT@/tmp/")
+    # The process SMACK label is a real proc path on the TV.  Into the fixture
+    # tree it becomes an ordinary file, so the "take the app label" prelude can
+    # be exercised (it is what makes the browser-lane fallback able to write
+    # bin/; 2026-10-31 review).
+    text = text.replace("/proc/self/attr/current", "@ROOT@/proc/self/attr/current")
     if script.name == "uninstall.sh":
         # Only uninstall.sh carries fixed stock-hash constants.  deploy.sh now
         # *computes* the current IL md5 at runtime (`IL_MD5=$(md5sum ...)`) and
@@ -196,9 +201,14 @@ class Fixture:
         self.tmp = self.root / "tmp"
         self.stubs = self.root / "bin"
         self.docroot = self.root / "docroot"
+        self.attr = self.root / "proc/self/attr"
         for d in (self.bin / ".native_image", self.share, self.db, self.tmp,
-                  self.docroot, self.stubs):
+                  self.docroot, self.stubs, self.attr):
             d.mkdir(parents=True, exist_ok=True)
+        # The browser-lane fallback runs under the browser label, not the app's.
+        # deploy.sh/uninstall.sh must take the app label before writing bin/.
+        (self.attr / "current").write_text("User::Pkg::org.tizen.browser",
+                                           encoding="ascii")
         (self.bin / "MultiControlService.dll").write_bytes(STOCK_IL)
         (self.bin / ".native_image/MultiControlService.ni.dll").write_bytes(STOCK_NI)
         (self.db / ".appsvc.db").write_bytes(b"")
@@ -270,6 +280,9 @@ def deploy_cases(sh):
     # --- happy path from a stock state: backups must be created -------------
     f = fresh()
     try:
+        # a stale fast-attempt budget from earlier in the boot (2026-11-01: a
+        # deploy after a boot that spent it would relaunch into long mode)
+        (f.tmp / ".dsh_try").write_text("4")
         r = f.run("deploy.sh")
         out = r.stdout + r.stderr
         ok = (r.returncode == 0 and "BACKUP_IL=ok" in out and "BACKUP_NI=ok" in out
@@ -278,6 +291,9 @@ def deploy_cases(sh):
                             f"rc={r.returncode} " + " ".join(
                                 l for l in out.splitlines()
                                 if l.startswith(("BACKUP_", "COPY", "DEPLOY_DONE", "BOOT"))))
+        failed += not check("deploy: clears the fast-attempt budget (/tmp/.dsh_try)",
+                            not (f.tmp / ".dsh_try").exists(),
+                            "a deploy must give the relaunch a fresh fast budget")
         ok = ((f.share / "mcs_orig.dll").read_bytes() == STOCK_IL
               and (f.share / "mcs_ni_orig.dll").read_bytes() == STOCK_NI
               and (f.share / "mcs_orig.md5").read_text().strip() == f.il_md5)
@@ -295,6 +311,15 @@ def deploy_cases(sh):
         failed += not check("deploy: mask policy files installed under /opt/usr/data",
                             ok, " ".join(l for l in out.splitlines()
                                          if l.startswith("MASKFILE")))
+        # The label prelude runs from the browser label here, exactly like the
+        # documented browser-lane fallback: without it every bin/ write fails
+        # IL_FAIL (2026-10-31 review).
+        ok = ("RELABEL=ok" in out
+              and (f.attr / "current").read_text(encoding="ascii").strip()
+              == "User::Pkg::com.samsung.tv.MultiControl-Service")
+        failed += not check("deploy: takes the app label before writing bin/", ok,
+                            "RELABEL=" + out.split("RELABEL=")[1].splitlines()[0][:40]
+                            if "RELABEL=" in out else "no RELABEL line")
     finally:
         f.cleanup()
 
@@ -491,6 +516,28 @@ def uninstall_cases(sh):
         ok = not ((f.root / "opt/usr/data/debloat-masks.txt").exists()
                   or (f.root / "opt/usr/data/debloat-kill.txt").exists())
         failed += not check("uninstall: mask policy files removed (revert to stock)", ok)
+        ok = ("RELABEL=ok" in out
+              and (f.attr / "current").read_text(encoding="ascii").strip()
+              == "User::Pkg::com.samsung.tv.MultiControl-Service")
+        failed += not check("uninstall: takes the app label before touching bin/", ok,
+                            "RELABEL=" + out.split("RELABEL=")[1].splitlines()[0][:40]
+                            if "RELABEL=" in out else "no RELABEL line")
+    finally:
+        f.cleanup()
+
+    # --- an untakeable label warns, it does not silently "restore" ----------
+    # Matches deploy.sh: the process-label step is advisory, the FILE label check
+    # is the hard gate.  Pinned here so a future edit cannot quietly make it
+    # fatal (or drop the warning).
+    f = prepared()
+    try:
+        (f.attr / "current").unlink()
+        (f.attr / "current").mkdir()
+        r = f.run("uninstall.sh")
+        out = r.stdout + r.stderr
+        failed += not check("uninstall: a failed relabel warns (advisory, like deploy)",
+                            "RELABEL=fail" in out and r.returncode == 0
+                            and "UNINSTALL_DONE" in out, f"rc={r.returncode}")
     finally:
         f.cleanup()
 
@@ -546,6 +593,12 @@ def meta_cases():
                         "a hardcoded WANT is how the stale deploy_local.sh gated v37")
     ok = "H=@HOST@" in deploy
     failed += not check("meta: deploy.sh host is rendered by server.py", ok)
+    # the budget reset must precede the restart, or it cannot affect it
+    i_rm, i_kill = (deploy.find("rm -f /tmp/.dsh_try"),
+                    deploy.find('echo "RESTART=kill'))
+    failed += not check("meta: deploy.sh clears /tmp/.dsh_try before the restart",
+                        i_rm >= 0 and i_kill > i_rm,
+                        f"rm at {i_rm}, RESTART=kill at {i_kill}")
     return failed
 
 

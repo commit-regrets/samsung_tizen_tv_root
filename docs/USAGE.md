@@ -13,7 +13,9 @@ pwsh -File .\uninstall.ps1 -TvIp <tv-ip>   # restore stock
 `root.ps1` resolves the toolkit (this directory, or `-ToolkitDir`), starts the
 port-80 server (reusing one that already serves this directory; `-RestartServer`
 replaces a different server on `:80`), waits for the browser page to connect,
-roots that stub, installs the payload, then waits for TCP 31337 and prints `id`.
+roots that stub, installs the payload, then waits for TCP 31337. It does **not**
+run the `id` check itself — it prints the command to run (step 3 of the manual
+flow) and leaves that verification to you.
 
 The payload usually starts **immediately** after the deploy: `deploy.sh` kill -9s
 the running app (detached, after `DEPLOY_DONE`) so AUL loads the new DLL without
@@ -32,8 +34,15 @@ a reminder with the URL every 30 seconds until the page connects:
   freeze — that is expected: the ARM stub owns the socket, so the page can no
   longer report anything.
 - **On the PC:** the deploy output (`UID=0 … RELABEL=ok … COPY=ok …
-  BOOT_ROW_COUNT=1 … DEPLOY_DONE`), then the reboot prompt, then
-  `Permanent root is up:` followed by `uid=0(root) …`.
+  BOOT_ROW_COUNT=1 … DEPLOY_DONE`), then the reboot prompt, then the
+  `root_shell.py "id" <tv-ip>` command to run yourself — **that** is the
+  verification, and it must print `uid=0(root)`.
+- **When redeploying over an existing root channel** (`root.ps1 -Force`), the
+  launcher now *waits for a rooted answer*, not just an open port: it runs
+  `tools/wait_rooted.py`, which requires `id -u` = 0 after the old listener
+  drops. If it times out it prints the last beacons and the recovery (a mains
+  power-cycle — a deploy restart can land in the stale-read window, and the
+  payload's long mode cannot re-roll it; see `AGENTS.md` trap 18).
 
 ### Addresses are not baked in
 

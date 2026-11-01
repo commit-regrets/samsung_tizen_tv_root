@@ -9,7 +9,16 @@ Layers (see docs/TESTING.md):
   1. tools/sim_rpc.py        in-memory physmap RPC: cred layout, scan straddle
   2. tools/test_gateway.py   server.py gateway on scratch ports: RSET, pairing,
                              forwarding, BUSY, /save cap, rendered deploy.sh,
-                             HTTP-method gate, TV-only shell slot
+                             HTTP-method gate, TV-only shell slot, beacon-token
+                             trim + persistence across a server restart
+  2b. tools/test_server_unit.py  the same server in-process: the deny-path class
+                             table (suffix/case/logs/__pycache__/traversal),
+                             deploy render, token save+reload, best-effort log(),
+                             the abandoned-waiter release, the absolute request
+                             deadline
+  2c. tools/test_wait_rooted.py  the launcher's post-deploy gate: a port probe is
+                             not "payload active" (uid 0 required), the old
+                             listener going away is reported, and root.ps1 uses it
   3. tools/test_shell.py     deploy.sh/uninstall.sh dry tests under sh with stubbed
                              chsmack/sqlite3/aulctl/curl/ls/mv, including rollback
   4. tools/test_constants.py the same offsets/limits across Program.cs, sim_rpc,
@@ -28,6 +37,9 @@ Layers (see docs/TESTING.md):
                              hygiene, merge determinism (details in
                              docs/TESTING.md)
   9. tools/test_stub.py      (--tv) live stub protocol + the new clamps
+  10. tools/test_hygiene.py  every .py compiles, every tracked .json parses, and
+                             every TV-side .sh is LF/BOM/shebang-clean and
+                             parses under `sh -n`
 
 Exit code 0 means every layer passed (or was skipped for a documented reason).
 """
@@ -63,6 +75,10 @@ def main() -> int:
 
     results.append(("sim_rpc", run("sim_rpc self-test", [py, "tools/sim_rpc.py"])))
     results.append(("gateway", run("gateway integration test", [py, "tools/test_gateway.py"])))
+    results.append(("server-unit", run("server request gate + state unit checks",
+                                       [py, "tools/test_server_unit.py"])))
+    results.append(("wait-rooted", run("launcher post-deploy gate",
+                                       [py, "tools/test_wait_rooted.py"])))
     results.append(("shell", run("deploy/uninstall dry tests", [py, "tools/test_shell.py"])))
     results.append(("constants", run("constant cross-check", [py, "tools/test_constants.py"])))
     results.append(("auto-root", run("auto_root fresh-stub retry loop",
@@ -78,6 +94,8 @@ def main() -> int:
                                            [py, "tools/test_debloat.py"])))
     results.append(("docs-consistency", run("living docs vs current mechanisms",
                                             [py, "tools/test_docs.py"])))
+    results.append(("hygiene", run("whole-tree parse/encoding hygiene",
+                                   [py, "tools/test_hygiene.py"])))
 
     # requires keystone+capstone; report the skip instead of failing a fresh clone
     try:

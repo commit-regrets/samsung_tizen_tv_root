@@ -13,10 +13,12 @@ The TV shell (from the browser exploit) runs as uid=5001(owner) and persists as
 long as this server keeps the socket open.
 """
 import hashlib
+import json
 import os
 import queue
 import re
 import secrets
+import select
 import socket
 import struct
 import threading
@@ -50,14 +52,24 @@ TYPES = {".html": "text/html", ".js": "application/javascript",
          ".json": "application/json", ".bin": "application/octet-stream",
          ".sh": "text/plain; charset=utf-8", ".txt": "text/plain; charset=utf-8"}
 
-# Never serve the server's own source or its logs on the LAN.
-DENY_SUFFIX = {".py", ".log", ".out", ".err", ".db", ".pem", ".key", ".journal"}
+# Never serve the server's own source or its logs on the LAN.  `.pyc`/`.pyo`
+# matter: __pycache__ files are byte-compiled copies of server.py, and the
+# suffix test alone let `GET /__pycache__/server.cpython-*.pyc` through
+# (2026-10-31 review; `python -m py_compile` recreates them).
+DENY_SUFFIX = {".py", ".pyc", ".pyo", ".pyd", ".log", ".out", ".err", ".db",
+               ".pem", ".key", ".journal"}
 DENY_NAMES = {"shell.log", "server.out", "server.err"}
+DENY_DIRS = {"__pycache__"}
 LOG_MAX = 8 * 1024 * 1024
 MAX_BODY = 1024 * 1024       # POST /save: enough for a page dump, not a disk fill
 OUTPUT_MAX = 1024 * 1024     # rolling TV output kept for shell clients
 BEACON_MAX = 4096            # one DSHROOT line; nothing legitimate is longer
 RPC_QUEUE_MAX = 8            # stale page loads must not pile up as open sockets
+# One whole HTTP request (headers + body) must arrive within this many seconds.
+# Per-recv timeouts alone let a peer trickle a byte at a time and hold the
+# single-threaded accept loop open indefinitely (2026-10-31 review).  The knob
+# exists for the offline gateway test, which proves the bound.
+HTTP_REQUEST_TIMEOUT = float(os.environ.get("HTTP_REQUEST_TIMEOUT", "15"))
 
 # Request line: METHOD SP target SP HTTP/x.y.  Anything that matches is HTTP and
 # is answered as such; a reverse-shell connection is a raw stream that never
@@ -86,11 +98,22 @@ STUB_TOKEN = {"hex": None, "ts": 0.0}
 # writes it to the TV (`share/rootchan.token`); the payload then sends
 # `tok=<hex>` in every beacon.  The DSHROOT branch admits a beaconed peer to
 # TV_PEERS only on a matching token, so a forged beacon can no longer claim the
-# shell slot.  The last two renders stay valid so a stray GET of deploy.sh
-# cannot orphan the payload that is actually running.  Token-less beacons are
-# still LOGGED (the deploy window and a lost token file must not blind the
-# boot diagnostics) but never admitted; a wrong token is refused outright.
+# shell slot.  A token that has actually admitted a beacon is kept; only UNUSED
+# renders are trimmed (to the last two) so a stray GET of deploy.sh cannot
+# orphan the payload that is running.  Token-less beacons are still LOGGED (the
+# deploy window and a lost token file must not blind the boot diagnostics) but
+# never admitted; a wrong token is refused outright.
+#
+# v44.1 (2026-11-01 review): the set is PERSISTED.  In-memory only, a PC-server
+# restart (nothing else changed) made every token the deployed payload could
+# send unknown, so its beacons were refused AND never reached beacons.log -
+# exactly the "no beacon = AUL never launched the app" misread.  The file sits
+# beside the logs (HTTP-denied, git-ignored) and holds nothing deploy.sh does not
+# already serve to the LAN.
 BEACON_TOKENS = []
+BEACON_TOKENS_USED = set()
+BEACON_TOKENS_FILE = LOGS / "beacon-tokens.json"
+BEACON_TOKENS_MAX = 64        # render/used entries kept (memory AND file)
 
 state_lock = threading.Lock()
 tv_sock = None
@@ -101,6 +124,64 @@ rpc_lock = threading.Lock()
 rpc_tv = None                 # live TV physmap-RPC socket
 rpc_client = None             # local client currently attached
 rpc_hello = b""               # 12-byte hello captured when the stub connected
+
+
+def _beacon_token_trim():
+    """Keep a USED token and the last two renders; caller holds state_lock.
+
+    The "used" half is what makes a stray `GET /deploy.sh` harmless: before
+    2026-10-31 two renders pushed the running payload's token out and every
+    beacon was then refused.
+    """
+    recent = set(BEACON_TOKENS[-2:])
+    keep = [t for t in BEACON_TOKENS if t in BEACON_TOKENS_USED or t in recent]
+    BEACON_TOKENS[:] = keep[-BEACON_TOKENS_MAX:]
+
+
+def _save_beacon_tokens():
+    """Persist the render/used set; caller holds state_lock.
+
+    Best effort by design: losing the file only costs diagnostics (the next
+    deploy re-announces a token), so a read-only logs dir must never raise
+    inside the accept loop or a TV reader thread.
+    """
+    data = [{"tok": t, "used": t in BEACON_TOKENS_USED} for t in BEACON_TOKENS]
+    try:
+        tmp = BEACON_TOKENS_FILE.with_name(BEACON_TOKENS_FILE.name + ".tmp")
+        tmp.write_text(json.dumps(data) + "\n", encoding="utf-8")
+        tmp.replace(BEACON_TOKENS_FILE)
+    except OSError:
+        pass
+
+
+def _load_beacon_tokens():
+    """Restore what _save_beacon_tokens wrote; tolerate missing/corrupt/old files."""
+    try:
+        rows = json.loads(BEACON_TOKENS_FILE.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return
+    if not isinstance(rows, list):
+        return
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        tok = row.get("tok")
+        if not isinstance(tok, str) or not re.fullmatch(r"[0-9a-f]{8}", tok):
+            continue
+        if tok not in BEACON_TOKENS:
+            BEACON_TOKENS.append(tok)
+        if row.get("used"):
+            BEACON_TOKENS_USED.add(tok)
+    BEACON_TOKENS[:] = BEACON_TOKENS[-BEACON_TOKENS_MAX:]
+    # One line so the operator can SEE that a restart came back with the set it
+    # needs (the first start under this code had no history - 2026-11-01).
+    n, used = len(BEACON_TOKENS), len(BEACON_TOKENS_USED)
+    if n:
+        print(f"[beacon] token set loaded: {n} entr{'y' if n == 1 else 'ies'} "
+              f"({used} used)", flush=True)
+
+
+_load_beacon_tokens()
 
 
 def _drop_tv_socket():
@@ -137,6 +218,20 @@ def _drop_tv_socket():
         print("[rpc] dropped the paired client (RSET)", flush=True)
 
 
+def _client_gone(sock):
+    """True when a local client waiting for a stub has closed its end.
+
+    A killed tool (Ctrl-C on auto_root) leaves no RST/EOF event a blocking
+    ``queue.get`` would see, so the gateway polls this while it waits.
+    """
+    try:
+        if select.select([sock], [], [], 0)[0]:
+            return sock.recv(1, socket.MSG_PEEK) == b""
+    except OSError:
+        return True
+    return False
+
+
 def log(text: str):
     try:
         if LOG.exists() and LOG.stat().st_size > LOG_MAX:
@@ -148,8 +243,15 @@ def log(text: str):
             LOG.rename(bak)
     except OSError:
         pass
-    with LOG.open("a", encoding="utf-8", errors="replace") as fh:
-        fh.write(text)
+    # The reader threads call this directly; an append failure (disk full, a
+    # permission change, a network share) used to raise inside those threads and
+    # leave rpc_tv/tv_sock set with no reader (2026-10-31 review).  Logging is
+    # best-effort by definition - never let it take a thread down.
+    try:
+        with LOG.open("a", encoding="utf-8", errors="replace") as fh:
+            fh.write(text)
+    except OSError:
+        pass
 
 
 def _prune_tv_outputs():
@@ -226,8 +328,10 @@ def deploy_script(host_header: str):
                   "SIZE_WANT=" + str(len(data)), text, count=1)
     tok = secrets.token_hex(4)
     text = re.sub(r"(?m)^TOKEN=@BEACON_TOKEN@$", f"TOKEN={tok}", text, count=1)
-    BEACON_TOKENS.append(tok)
-    del BEACON_TOKENS[:-2]     # the last two renders stay valid (see above)
+    with state_lock:
+        BEACON_TOKENS.append(tok)
+        _beacon_token_trim()
+        _save_beacon_tokens()
     if re.search(r"(?m)^(H=@HOST@|WANT=@WANT@|SIZE_WANT=@SIZE@|TOKEN=@BEACON_TOKEN@)$",
                  text):
         print("[http] deploy template markers not where expected", flush=True)
@@ -245,18 +349,27 @@ def _is_textish(chunk: bytes) -> bool:
 
 
 def _read_full_request(conn, first):
-    """Read headers, then the body per Content-Length (needed for POST /save)."""
+    """Read headers, then the body per Content-Length (needed for POST /save).
+
+    The bound is ABSOLUTE for the whole request, not per recv.  The accept loop
+    is single-threaded, so one peer sending a byte every few seconds used to hold
+    every later request (page, /pair, /deploy.sh, beacons, shell-slot acceptance)
+    for as long as the 1 MB header cap allowed (2026-10-31 review).
+    """
+    deadline = time.monotonic() + HTTP_REQUEST_TIMEOUT
     data = first
     while b"\r\n\r\n" not in data:
+        left = deadline - time.monotonic()
+        if left <= 0 or len(data) > 1_000_000:
+            break
         try:
+            conn.settimeout(left)
             chunk = conn.recv(65536)
         except OSError:
             break
         if not chunk:
             break
         data += chunk
-        if len(data) > 1_000_000:
-            break
     head, _, body = data.partition(b"\r\n\r\n")
     clen = 0
     for line in head.split(b"\r\n"):
@@ -270,13 +383,21 @@ def _read_full_request(conn, first):
         # bandwidth): the header cap alone left the body unlimited.
         raise ValueError(f"body too large ({clen} B > {MAX_BODY} B)")
     while len(body) < clen:
+        left = deadline - time.monotonic()
+        if left <= 0:
+            break
         try:
+            conn.settimeout(left)
             chunk = conn.recv(min(65536, clen - len(body)))
         except OSError:
             break
         if not chunk:
             break
         body += chunk
+    try:
+        conn.settimeout(10)     # back to the accept loop's default for the reply
+    except OSError:
+        pass
     return head, body
 
 
@@ -395,6 +516,9 @@ def serve_http(conn, req):
             conn.sendall(b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n")
             return
         if "logs" in rel.parts:               # never serve our own logs
+            conn.sendall(b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n")
+            return
+        if DENY_DIRS.intersection(rel.parts):  # __pycache__: compiled source
             conn.sendall(b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n")
             return
         if target.suffix.lower() in DENY_SUFFIX or target.name in DENY_NAMES:
@@ -538,6 +662,12 @@ def rpc_gateway_client(client):
                 print("[rpc] client re-attached to live TV stub", flush=True)
 
     if old is not None:
+        with state_lock:
+            # The superseded stub may still be the 9999 bridge target; closing it
+            # without clearing tv_sock left the console's writer sending into a
+            # dead socket after a page reload (2026-10-31 review).
+            if tv_sock is old:
+                tv_sock = None
         try:
             old.close()
         except OSError:
@@ -545,9 +675,25 @@ def rpc_gateway_client(client):
 
     if first and conn is None:
         print("[rpc] local client connected, waiting for TV", flush=True)
-        try:
-            conn = rpc_queue.get(timeout=1800)
-        except queue.Empty:
+        conn = None
+        deadline = time.monotonic() + 1800
+        while conn is None and time.monotonic() < deadline:
+            try:
+                conn = rpc_queue.get(timeout=0.5)
+            except queue.Empty:
+                # The waiting client can vanish while no stub exists (the normal
+                # auto_root flow, Ctrl-C'd).  Without this check the dead client
+                # held the single client slot for 30 minutes and RSET answered
+                # IDLE without freeing it (2026-10-31 review).
+                if _client_gone(client):
+                    print("[rpc] waiting client disappeared, releasing the slot",
+                          flush=True)
+                    with rpc_lock:
+                        if rpc_client is client:
+                            rpc_client = None
+                    client.close()
+                    return
+        if conn is None:
             print("[rpc] no TV connection, closing client", flush=True)
             with rpc_lock:
                 if rpc_client is client:
@@ -875,6 +1021,9 @@ def http_server():
                             known = tok in BEACON_TOKENS
                         if known:
                             with state_lock:
+                                if tok not in BEACON_TOKENS_USED:
+                                    BEACON_TOKENS_USED.add(tok)
+                                    _save_beacon_tokens()
                                 TV_PEERS.add(peer)
                             _append_beacon_line(text)
                         else:

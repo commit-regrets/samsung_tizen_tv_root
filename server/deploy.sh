@@ -207,6 +207,14 @@ echo "ALLOW=$HIP"
 # instead of a compiled-in default.
 printf '%s\n' "$HIP" > "$HOSTF" || { echo HOST_FILE_FAIL; exit 1; }
 echo "HOST_FILE=$HIP"
+# umask 077 above makes both 0600 when they are re-created (after an uninstall),
+# and the payload is still uid 5001 when it sends its FIRST beacons - it reads
+# HostAddr() on every one of them.  A 0600 rootchan.host silently drops every
+# pre-root beacon (start/device/kernel/attempt/child), which is the "no beacon =
+# AUL never launched" misread; the v41 token hit the same bug and only the token
+# got the chmod.  0644 is right for all three: none holds a secret that is not
+# already on this TV, and the payload is the intended reader.
+chmod 644 "$A" "$HOSTF" 2>/dev/null
 # v41 beacon token, same ordering argument as the allowlist: written before the
 # DLL moves, so an interrupted deploy never leaves the server expecting a token
 # the payload does not know (the server then refuses unknown-tok beacons and
@@ -308,6 +316,13 @@ fi
 # on-boot app in ~12 s (the documented kill -9 path). Sleep first so the
 # channel can send DEPLOY_DONE; /dev/video40 gates the scan so a PC dry-run
 # does not walk the host's /proc.
+# A deploy restarts the app inside THIS boot, and the payload's fast-attempt
+# budget lives in /tmp (reset only by a successful root).  A deploy after a boot
+# that already spent it would relaunch straight into LONG mode, which cannot
+# re-roll a stale read (2026-11-01: the v44 deploy restart hunted for 5+ minutes
+# in exactly that state).  Give the relaunch the full fast budget.
+rm -f /tmp/.dsh_try
+
 PIDS=""
 if [ -e /dev/video40 ]; then
   for d in /proc/[0-9]*; do

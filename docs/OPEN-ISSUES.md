@@ -7,12 +7,20 @@
 > Step log:
 > [docs/SMARTTHINGS-OFFLINE-2026-10-30.md](SMARTTHINGS-OFFLINE-2026-10-30.md).
 
-## Current state — 2026-10-30 (v42 verified: cold boots, 29-unit durable masks,
-37 app rows, SmartThings phone control confirmed online; test_all 14/14)
+## Current state — 2026-11-01 (TV runs v44, deployed and cold-boot verified
+14:23; 29-unit durable masks, 37 app rows, SmartThings phone control confirmed
+online; offline suite green)
 
-TV: **v42** (`cbf8f293…`, 39,936 B), rooted via 31337. Every beacon carries
+TV: **v44** (`7fce4683…`, 41,472 B), rooted via 31337. Every beacon carries
 `tok=<BEACON_TOKEN>` (from `rootchan.token`); forged and token-less beacons are refused.
 `id -u` = 0, `CapEff=0x3fffffffff`.
+**v44 is deployed and cold-boot verified (2026-11-01 14:23:02)**: attempts 1-2
+`tag=exact` but a high parent -> fast-exit, attempt 3 `tag=exact` +
+`self cred == real` -> self-patch uid=0 at t=38 s, `masks=29 stopped=29 killed=5
+fail=0 missing=0 listed-activating=0 loop-check=ok` at t=45 s. The deploy
+restart before it did not root (attempt 1 high-alloc, attempts 2-4 empty walk,
+attempt 5 `tag=exact` but high parent and the cred-scan budget spent) - the
+cold boot re-rolled it; see `CHANGELOG.md`.
 **All hardware gates are closed (2026-10-27):** v41 cold boots at **36 s**
 (attempt 1 fast-exit t=29, attempt 2 direct-parent t=36) and **49 s** after the
 recover cycle (AUL launched late; one direct-patch attempt); `kill -9` recovery
@@ -20,15 +28,63 @@ recover cycle (AUL launched late; one direct-patch attempt); `kill -9` recovery
 allow removed, 31337 stayed closed after a cold boot, stock 9197 back); recovery
 via `recover.sh <pc-url>` completed `DEPLOY_DONE`/`RECOVER_DONE` and the following
 cold boot rooted again.
-Backups: `mcs_orig.dll` (stock), `mcs_ni_orig.dll`, `payload_backup.dll` = v41.
+Backups: `mcs_orig.dll` (stock), `mcs_ni_orig.dll`, `payload_backup.dll` = v43
+(the v44 deploy's `PREV_IL=85cd0120`).
 
-The repo is green offline (`python tools/test_all.py`, 13/13 layers incl. the
-debloat tooling layer) and
+The repo is green offline (`python tools/test_all.py`, 15/15 layers incl. the
+debloat tooling, in-process server and whole-tree hygiene layers) and
 `sanitize_for_public.py --check` passes. The kernel memory boundary is now
 zoneinfo-derived (`max_low_pfn 0x50400` → `high_memory` VA `0xF0400000`); the
 meminfo-derived `0xE4E42000` was wrong (vendor-adjusted counters): see item 2.
 
 **Pending / next, in order:**
+
+**~~Owed: deploy v44~~ — done 2026-11-01** (over 31337, `COPY=ok`,
+`DEPLOY_DONE`, cold boot passed the same afternoon). The follow-up review fixed
+the launcher gate it exposed: `root.ps1` now waits for `id -u` = 0 through
+`tools/wait_rooted.py` instead of trusting a port probe (the deploy's kill is
+detached, and the dying old app's listener answered the probe while the new
+payload hunted for five minutes), and `deploy.sh` clears `/tmp/.dsh_try` before
+its restart so a deploy after a bad boot gets a fresh fast budget. **Residual:**
+`deploy.sh`'s own `RESTART_KILL=fail` / `RESTART_START=fail` lines are printed
+inside a detached subshell with stdout/stderr on `/dev/null`, so neither the
+operator nor the launcher can see them; "no channel at all" is caught by the
+`id` gate, but "old app never died, new DLL not loaded" would still pass it.
+The v45 note proposes a payload-side artifact-md5 beacon to make that provable.
+
+**Next: v45 (designed, not built).** Exit long mode on a blind walk (a whole
+pass with `seen=0`), bounded per boot, so a deploy restart that lands in the
+stale window re-rolls instead of hunting for minutes. Design, rationale and the
+hardware acceptance list: [`V45-BLIND-WALK.md`](V45-BLIND-WALK.md). It changes
+the boot path, so build it only in a session that can cold-boot.
+
+**Follow-up 2026-11-01 - fixed and now pinned by tests:** the beacon-token set
+did not survive a **PC-server restart**, so a deployed payload's beacons were
+refused *and never reached `beacons.log`* (the "no beacon = AUL never launched"
+misread). It is persisted in `logs/beacon-tokens.json` and reloaded at start.
+The same pass added the tests that would have caught it and the other
+review findings: `test_gateway` (token trim + restart, abandoned-waiter slot,
+all mutation-checked), the new `test_server_unit` (deny-path class table,
+traversal, token save/reload, best-effort `log()`, the request deadline), the
+new `test_hygiene` (every `.py`/`.json`/`.sh` parses; LF/BOM/shebang), the
+uninstall label prelude in `test_shell`, and the twin's unreadable-comm `break`
+in `sim_rpc`. `mask.sh`'s summary key `start-failures=` was renamed `fail=`
+(it has counted stop failures since the second pass). `AGENTS.md` §9 now records
+the deliberate self-side rank-1 floor.
+
+**Second pass 2026-10-31 - fixed:** the debloat scripts' four silent-success
+paths (undo log, sentinel special-builtin, stop failure, reload failure; verified
+under busybox ash), `deploy.sh`'s 0600 `rootchan.host`, `uninstall.sh`'s missing
+app-label prelude, `server.py`'s `.pyc`/`__pycache__` leak, unbounded HTTP
+request, evictable live beacon token, dangling `tv_sock` and stale RPC waiter,
+the Python lane's missing sane-cred gate, the cred-scan desync/budget and the
+`smack_relabel` PA/VA mix. **Residual, deliberately not changed:** the peer
+tokens are self-service (a host that can reach port 80 can fetch a token; the
+LAN is the boundary - `SECURITY.md` now says so); `mask.sh` and the payload list
+units without `--full` (a very long unit name could be ellipsized at 80 columns
+- unverified on the TV); `mask.sh` counts a failed stop but not a listed unit
+that stays `active` while its stop returned 0; `HEAD` answers with a body and
+`OPTIONS` is served as `GET`.
 
 1. **~~Deploy v41 / cold boot / kill -9 / uninstall + recover~~ — all done 2026-10-27.**
    Restart-rooted in ~1 s; token live; cold boots 36 s and 49 s; `kill -9` back in
@@ -45,7 +101,11 @@ meminfo-derived `0xE4E42000` was wrong (vendor-adjusted counters): see item 2.
    `0xE4E42000` estimate was wrong. Prime suspect now: the video40 DMA window
    (~512 MiB, matching "reads past 0x46000000 hang"), not the CPU map. One
    deliberate high-PA read and a re-read of the v38 `high-scan` verdicts against
-   `0xF0400000` are still worth doing; neither blocks attempt 2.
+   `0xF0400000` are still worth doing; neither blocks attempt 2. **The probe
+   itself was blind until v44:** its NUL check was a hardcoded `hit+8`, correct
+   only for the retired 8-byte constant tag, so every real per-run tag failed and
+   the sweep could only report `miss`. Any pre-v44 `miss`/`comm-only` verdict is
+   therefore not evidence of absence; re-run after the v44 deploy.
 3. **31337 is an unauthenticated LAN root shell.** The allowlist is the only
    filter on the channel. The PC side gates the shell slot to peers that announced
    themselves, answers unknown HTTP methods with 405, caps the stub queue and
@@ -107,7 +167,14 @@ meminfo-derived `0xE4E42000` was wrong (vendor-adjusted counters): see item 2.
    (`PHYSRPT`+pid) plus a pid/tgid and `real_cred == cred` check~~ - **DONE in
    v43 (2026-10-30)**: per-run `PHYSRPT`/`PHYRFORK` tags, the pid/tgid accept
    rule with refusal of a readable-but-different pid, and `SameCredPair` on
-   every task-based patch; locked by `test_constants` + three `sim_rpc` tests.
+   every task-based patch. **v44 (2026-10-31) closed two holes the review found
+   in that rule:** the pid read is tri-state (a readable pid of ZERO - the
+   freed-task shape - was folded into "unreadable" and fell through to the
+   parent-uid latch; only a real read failure does that now), and accepts are
+   **ranked** (exact tag > pid > prefix, for `self` too) so a weaker accept
+   later in the prev-chain cannot overwrite an exact one. `stale=` is per-poll
+   and `tag=none` means the v23 `maybe` latch. Locked by `test_constants` +
+   the `sim_rpc` v43/v44 tests.
    The remaining follow-ups here are:  **OTA hardening: the mask half is DONE
    (2026-10-30)** - `swu-auto-upgrade.*`, `was-background-update.*`,
    `vdsystem-update-manager.*`, `swu-verifier-tv.*`, `swu-core-tv.service`,

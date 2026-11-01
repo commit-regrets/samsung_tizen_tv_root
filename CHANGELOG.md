@@ -15,10 +15,401 @@ entry is an incomplete change. `AGENTS.md` repeats this rule for agents.
 
 ---
 
+## 2026-11-01 — review follow-up: an honest post-deploy gate, a budget reset, and the blind-walk signature
+
+The v44 deploy exposed a real gap: `root.ps1 -Force` printed "31337 is back;
+payload active" while the *new* payload was still hunting, because the check was
+a bare TCP probe and `deploy.sh`'s kill is detached - the dying old app's
+listener answered it. Three changes, each pinned by a test:
+
+- **`root.ps1` now proves root after a deploy.** It calls the new
+  `tools/wait_rooted.py`, which waits (bounded) for the old listener to drop and
+  then for the channel to answer `id -u` = 0. Exit 3 is distinct: rooted, but
+  the port never dropped - the previous DLL may still be running, so the launcher
+  warns instead of claiming success. On timeout it prints the last beacons and
+  the recovery (mains power-cycle) instead of a false "payload active".
+  *Tested offline* with an injected port/uid/clock: drop-then-root, never-drop,
+  a hunting payload (uid 5001) that must not pass, a flapping channel, no
+  listener (uid never asked), the parser, and the CLI contract. The layer also
+  asserts that `root.ps1` uses the helper and no longer carries the old claim.
+- **`deploy.sh` clears `/tmp/.dsh_try` before its restart.** The payload's fast
+  attempt budget lives in `/tmp` and resets only on a successful root, so a
+  deploy after a boot that already spent it would relaunch straight into long
+  mode - which cannot re-roll a stale read. *Tested* two ways: the deploy happy
+  path pre-seeds `tmp/.dsh_try` and asserts it is gone afterwards, and a meta
+  check locks the `rm` before `RESTART=kill`.
+- **`tools/beacons.py` derives `BLIND-WALK`.** A boot whose whole long-mode pass
+  ended `seen=0` every round (the task-list walk read nothing) now gets its own
+  finding and hint - "an in-process retry cannot fix a blind read; power-cycle" -
+  instead of only "not rooted". *Tested* with the 2026-11-01 log shape and a
+  negative case where one round saw a landmark.
+
+Also written: **`docs/V45-BLIND-WALK.md`**, the design note for the actual repair
+(exit long mode on a blind pass, capped per boot) with the hardware acceptance
+list, because that changes the boot path and needs its own cold-boot session.
+
+`python tools/test_all.py`: **16 layers** (the new gate test added). No payload
+change - the TV still runs v44, md5 per the state row.
+
+## 2026-11-01 — v44 deployed and cold-boot verified
+
+Deployed v44 over the 31337 channel at 14:16:55 (through the server restarted
+earlier the same day, so the token-file fix was already live):
+`SIZE=41472`, md5 `7fce4683`, `PREV_IL=85cd0120` (the v43 rollback copy),
+`TOKEN_FILE` rotated (rendered by the new server and persisted at render time -
+the token-file fix's first live use), `MASKFILE` 29 units / 23 binaries,
+`BOOT_ROW_COUNT=1`, `AUL_RELOAD=ok`, `AOT=already-disabled`, `COPY=ok`,
+`DEPLOY_DONE`.
+
+**The post-deploy restart did not root** - the documented attempt-1 stale
+window, not a v44 regression. Attempt 1 found `child=... tag=exact` but the
+parent read was high (`parent=c2d42e00 cred=e48c0100`) and fast-exited;
+attempts 2-4 saw `seen=0` with an empty `tail:` (the walk read nothing
+coherently); attempt 5 (long mode) found the child with `tag=exact` again, but
+`self=00000000`, the direct parent read `e099b980` with junk cred/real, and
+`cred-scan miss patched=6 total=8` spent the process-wide scan budget. Long
+mode does not exit, so it cannot re-roll; the mains cycle is the designed
+recovery.
+
+**Cold-boot acceptance PASSED 2026-11-01 14:23:02** (mains cycle, no PC touched
+during the boot): attempt 1 `tag=exact` + high parent -> `high-alloc ... fast-exit`;
+attempt 2 `tag=exact`, `self cred == real`, `self-patch uid=5001` (self-patch
+did not stick yet) + high parent -> fast-exit; **attempt 3**
+`child=d1ce9140 self=cad25080 pu=5001 tag=exact stale=0`, `self cred == real`,
+`self-patch uid=0` at t=38 s, `ROOTCHAN` t=38 s, then
+`masks=29 stopped=29 killed=5 fail=0 missing=0 activating=3 listed-activating=0
+loop-check=ok newhome=set(0),loop-started` at t=45 s. Live after it: `uid=0`,
+`CapEff=0x3fffffffff` under the app's label, 29 masks, 37 app rows (unchanged),
+md5 `7fce4683` on the TV. Cold boot to root: **38 s on attempt 3** (two
+attempts drew high parents).
+
+**v44's rules seen working on hardware:** `tag=exact` on every hunt across the
+failed restart and the boot (the per-run tag is the accept), `stale=0` in these
+walks (the fast-exit kills its children, so no leftover was presented), and the
+ranked `self` path patched when the task was visible (`self=...` + `self cred ==
+real`). The high-scan diagnostic is no longer blind (`hits`/`verdict` vary), but
+both high-alloc exits still read `verdict=miss`/`cred-elsewhere` with `cov`
+inside the sweep - the high-half mechanism stays open as recorded.
+
+**Launcher false positive, recorded:** `root.ps1 -Force` printed "31337 is back;
+payload active" while the new payload was still hunting. `deploy.sh`'s kill is
+detached, so the dying old app's listener satisfied the port probe. The honest
+post-deploy signal is a fresh beacon (or `root_shell.py id`); noted in
+`docs/OPEN-ISSUES.md` rather than changed here.
+
+State: `docs/state.json` moves the TV to v44 (md5/date) and the generated row is
+refreshed; `docs/OPEN-ISSUES.md` closes the owed deploy and records the launcher
+gap.
+
+## 2026-11-01 — second review: the server-restart blind spot, and the regression suite it earned
+
+A second independent read of the same tree (the PC server this time, plus the
+tests themselves) found **one P2** and three test gaps; all are fixed and pinned.
+
+**P2 - a PC-server restart blinded `beacons.log` for a deployed payload.**
+`BEACON_TOKENS` lived only in memory. Restarting `server.py` (nothing else
+changed) made every token the running payload could send unknown, so each beacon
+was refused **and never written to `beacons.log`** - it reached the server
+console only. That is the same "no beacon = AUL never launched the app" misread
+the 0600 `rootchan.host` fix had just closed, one layer down, and it hits exactly
+the cold-boot-diagnostics workflow (start the server, watch the TV's next boot).
+The set (used tokens + the last two renders) is now persisted to
+`logs/beacon-tokens.json` - HTTP-denied under `/logs/**`, git-ignored, and it
+holds nothing `deploy.sh` does not already serve to the LAN - and reloaded at
+start. A corrupt or hand-edited file is tolerated; malformed rows are skipped.
+
+**The tests that would have caught it, and the other findings:**
+
+- `tools/test_gateway.py` gained the token lifecycle end-to-end: a **used**
+  token survives later renders, an unused one older than the last two is
+  refused, and - the regression test - the server is **stopped and restarted on
+  the same ports and log dir**, and the live token must still be accepted (the
+  evicted one still refused). It also covers the abandoned waiting client
+  releasing the single client slot (a Ctrl-C'd `auto_root` used to hold it for
+  30 minutes and answer every later tool `BUSY`). Each new assertion was
+  mutation-checked: deleting the reload fails only the restart check, and
+  restoring the old unconditional trim fails the used-token check.
+- **New `tools/test_server_unit.py`** (in-process, over a socketpair): a *class
+  table* for the request gate - every `DENY_SUFFIX`/`DENY_DIRS` entry against a
+  planted file in lower **and** upper case, `/logs/...`, `..`, `..%2F`,
+  `%2e%2e`, a docroot sibling - plus the deploy render, the token
+  trim/save/reload round-trip, `log()` never raising on an unwritable file,
+  `_client_gone`, and the absolute whole-request deadline. It exists because a
+  fixture that only names `server.py` misses the next leaked file. The expected
+  deny set is a **constant in the test**, not `server.DENY_SUFFIX`: the first
+  draft iterated the module's own set, so removing `.pyc` made the test pass by
+  not testing it (found by mutation-checking the draft, and now itself pinned
+  by a coverage assertion).
+- **New `tools/test_hygiene.py`**: every `.py` in the tree compiles (the tools
+  no test imports can rot for weeks), every tracked `.json` parses, and every
+  TV-side `.sh` is CR/BOM-free, starts with a shebang and parses under `sh -n`.
+- `tools/test_shell.py` now rewrites `/proc/self/attr/current` into the fixture
+  tree and seeds it with the **browser** label, so the label prelude is
+  exercised (`RELABEL=ok` + the file content) instead of being a line nobody
+  checked; an untakeable label must warn and continue (advisory, like
+  `deploy.sh`), not abort.
+- `tools/sim_rpc.py`'s `hunt_self`/`hunt_new_phyrfork` now end the walk on an
+  unreadable comm page, mirroring the payload's `catch { break; }` (the twin
+  raised out of the generator instead, so a future fixture would have modelled
+  "skip ahead"); a holed-comm-page test pins it.
+
+**Small fixes from the same read:** `mask.sh`'s summary key `start-failures=`
+is renamed `fail=` - since the second pass it counts failed stops as well as
+failed start-refusals, and the old name read as a stop failure that never
+happened; `AGENTS.md` §9 now records the deliberate self-side rank-1 floor (a
+`NotOurs` pid still lands at rank 1 for `self`, unlike the child side) so a
+later agent does not "fix" it away. Docs updated to match: `LOGGUIDE`'s token
+row (a restart is no longer a mismatch cause), `SECURITY`'s token paragraph,
+`SERVER-HOSTING`'s render bullet and log table, `TESTING`'s layer list (2b and
+4d), `OPEN-ISSUES`' current state and the `AGENTS.md` §1 logs table.
+
+**One-time migration, done on the live set (2026-11-01):** the old server process
+(started 2026-10-30 13:06) never wrote the file, so a restart under the new code
+would have started with an empty set and refused the running payload's beacons.
+The live token was therefore seeded into `server/logs/beacon-tokens.json`
+(`used: true`) and verified on scratch ports - a fresh start accepts it, a forged
+token is still refused. A future first start on a *fresh* `logs/` has the same
+gap: seed the token, or redeploy (which renders and persists a new one).
+`server.py` now also prints `[beacon] token set loaded: N entries (M used)` at
+start, so that a restart is *visibly* verified instead of assumed - the live
+restart on 2026-11-01 showed `1 entry (1 used)`, `GET /index.html` 200, and the
+unchanged `uid=0(root)` over 31337 afterwards.
+
+`python tools/test_all.py`: **15/15 offline layers** (was 13 - the two new
+layers). No payload change: `payload/Program.cs` and `server/payload.dll` are
+untouched, so the artifact stays built-not-deployed and the TV still runs v43.
+
+Also caught while checking the live setup: the **live** beacon token had been
+pasted into the `docs/state.json` notes (and therefore the generated AGENTS.md
+row) and into this changelog. The sanitizer only matches `tok=<8 hex>` and
+`"beacon_token": "<8 hex>"`, so prose slipped through `--check`. The two live
+copies are redacted here; a token is not an authenticator in this design (a LAN
+host can fetch `/deploy.sh`), but a published credential that the gate claims to
+redact is still the wrong default. The next deploy rotates it anyway. The
+sanitizer pattern is left as-is deliberately: widening it to bare 8-hex after
+the word "token" would flag every historical mention, and the publish checklist
+already says to rotate before publishing.
+
+## 2026-11-01 — independent verification pass: two doc/generator fixes
+
+An independent payload review of the uncommitted v44/second-pass tree returned
+**0 P0 / 0 P1**. It confirmed the v44 tri-state/ranked rules, the sim twin
+equivalence (including the deliberate self-side rank-1 floor for a `NotOurs`
+pid), the debloat failure paths, and the server hardening. Two cosmetic items
+it found are fixed here:
+
+- `tools/update_state.py` rendered `deployed <TV date>` after the **repo**
+  payload row even when the repo builds a version the TV does not run - it read
+  as if v44 (`7fce4683…`) were on the TV. When the repo md5 differs from the
+  TV's, the row now says `built (not deployed)`; the row was regenerated.
+- `tools/sim_rpc.py`: the rewritten v43 test 3's comment said the holed pid word
+  sat at `0x20E02FE8`; `0x20E02D10 + O_PID(0x2E8)` is `0x20E02FF8`. Comment
+  only - the hole covers the whole page and the fixture was already correct.
+
+Left as recorded, not changed: the ranked-self accept does not beacon its rank
+(`stag=`), so a rank-1 `self=` is invisible in the log until `self-patch uid=`
+says 5001. The patch itself stays gated by `SameCredPair && CredUid==5001` and
+the live `getuid()` check. If it is ever wanted, it is a one-line `child=…`
+beacon extension - and it will move the artifact md5.
+
+## 2026-10-31 — second review pass: the TV-side shell scripts, the PC server and the Python lane
+
+The v44 review covered the payload's landmark rules. A second sweep read the
+rest of the tree against the recorded traps; every finding below was reproduced
+(the debloat ones under **BusyBox 1.37 ash**, which is what the TV runs).
+
+**Debloat scripts — four ways a partial run reported success** (all verified by
+running the real scripts under busybox ash with stubbed `pkgcmd`/`sqlite3`/
+`systemctl`/`dbus-send`):
+
+- `apply.sh`: a failed **undo-log** write was ignored (POSIX sh does not abort on
+  a compound redirection failure), so a batch could be disabled with no replay
+  record and exit 0. The header and both per-action writes are now `printf`
+  simple commands whose status is tested, and a failure aborts **before** the
+  disable.
+- `apply.sh`: `if : > "$sentinel"` — `:` is a POSIX **special builtin**, so ash
+  terminates at a redirection error *before* the `else`; the documented
+  `FAILED: sentinel` line and the picture guard never ran on the TV (Git Bash's
+  bash takes the `else`, which is why the offline test passed). Contained in a
+  subshell, with the source form locked by `test_debloat`.
+- `mask.sh`: a failed `systemctl stop` was not counted, so a unit could be
+  "masked but running" while the run exited 0. The failure now increments
+  `fail` (which the exit test already reads).
+- `unmask.sh`: a failed `daemon-reload` was ignored. The masks stay loaded in
+  systemd until a good reload, so this now fails the run like `mask.sh` does.
+
+**deploy / uninstall**
+
+- `deploy.sh` sets `umask 077` and wrote `rootchan.host`/`rootchan.allow`
+  without a chmod, so a fresh deploy (after an uninstall deleted them) left
+  them `0600 root`. The payload is still uid 5001 when it sends its **first**
+  beacon and it reads `rootchan.host` on every one — so every pre-root beacon
+  (`start`, `device`, `kernel`, `attempt`, `child`) was silently dropped and
+  `beacons.log` looked like "AUL never launched the app". Both files are now
+  `chmod 644` (the token already was, after the same bug in v41).
+- `uninstall.sh` never took the app's SMACK label. The 31337 channel runs under
+  it already, but the **documented browser-lane fallback**
+  (`run_root.py "curl .../uninstall.sh | sh"`) runs under
+  `User::Pkg::org.tizen.browser`, which cannot write `bin/` — so it always
+  failed `IL_FAIL`. It now takes and verifies the label first, like `deploy.sh`.
+
+**PC server (`server.py`)**
+
+- `__pycache__/*.pyc` (byte-compiled `server.py`) was served: `DENY_SUFFIX`
+  had `.py` but not `.pyc`. Added `.pyc/.pyo/.pyd` and a `__pycache__` path
+  deny, with a gateway test that plants a probe `.pyc`.
+- **A whole HTTP request now has an absolute deadline** (`HTTP_REQUEST_TIMEOUT`,
+  15 s default). The per-recv timeout let one peer send a byte every few seconds
+  and hold the single-threaded accept loop (page, `/pair`, `/deploy.sh`,
+  beacons, shell slot) for as long as the 1 MB header cap allowed. Tested with a
+  trickled request at a 1 s budget.
+- `log()` could raise inside the TV reader threads (disk full/permission), which
+  left `rpc_tv`/`tv_sock` set with no reader; it is now best-effort and never
+  raises.
+- A beacon token that had actually admitted a beacon is no longer evicted: the
+  trim kept "the last two renders", so two stray `GET /deploy.sh` calls pushed
+  the running payload's token out, after which its beacons were refused and the
+  TV never rejoined `TV_PEERS`. Only **unused** renders are trimmed now.
+- A superseded stub was closed without clearing `tv_sock`, so after a page
+  reload the 9999 console's writer sent into a dead socket; `tv_sock` is cleared
+  with the close.
+- An abandoned client waiting for a stub (Ctrl-C'd `auto_root`) held the only
+  client slot for 30 minutes and `RSET` answered `IDLE` without freeing it. The
+  waiter now polls its socket (0.5 s) and releases the slot when the client is
+  gone.
+
+**Python lane**
+
+- `kernel_root.patch_full` / `physmap.patch_full` now **shape-check a
+  task-pointer cred** (`_sane_cred`) before writing. `root()` and
+  `root_cred_via_tag()` read the cred pointer straight out of a task page; a
+  stale word whose target `+4` happened to read 5001 could zero 8 words of
+  arbitrary kernel memory. AGENTS.md already claimed this gate; now the code
+  has it.
+- `iter_owner_creds(limit=…)` stops after N hits but **drains the in-flight
+  `readmany` batch**; `tv_rootwatch`'s early `break` abandoned up to 16 MiB of
+  queued pages and then wrote op 5 onto that socket (shell either never started
+  or started behind stale page bytes). Its patch budget is now **process-wide**,
+  like the payload's `_scanPatched` (loop mode used to add 8 foreign owner creds
+  per cycle), and the scan path no longer claims "rooted" from a content count —
+  it says `UNVERIFIED` and asks for `id -u`.
+- `tv_rootwatch` no longer dies on one transient RPC error (the cycle body is
+  guarded; loop mode re-arms), and its docstring no longer advertises a
+  `--shell` flag that does not exist.
+- `physmap.readmany` now refuses the stub's over-cap count and rejects ranges
+  past `0x46000000` (the known driver hang; the SMACK scan's `0x45F00000` top
+  still fits); `RPC.__init__` closes the socket on an unexpected hello error; the
+  `0x40008000` image-base candidate reports "above TVPHYS_HI" instead of a
+  misleading read failure.
+- `smack_relabel.find_tasks_by_tag_scan` returned the **physical** address it
+  scanned while every other locator returns a kernel VA and the label matcher
+  applies `phys()` itself — so the `--scan` fallback read a wrong frame and could
+  never match a task. It returns VAs now (regression test in `sim_rpc`).
+- `auto_root.run` detects a refused op 7 (`pid <= 0`) instead of waiting the
+  full timeout; `beacons.py --last N` numbers boots from the full log instead
+  of renumbering the slice from 0.
+- `sim_rpc.direct_parent_patch` now mirrors the v43 **pair rule**: a cred is
+  written only when `cred == real_cred`, and `real_cred` is never patched by
+  itself. The twin still had the pre-v43 independent patch, so the offline
+  oracle endorsed a write the payload refuses (two new tests, both
+  mutation-checked).
+
+**Docs:** `USAGE.md`/`AGENTS.md` no longer claim `root.ps1` prints the `id`
+check (it prints the command); `SECURITY.md` states what the tokens do and do
+not prove (they stop forged/mistaken beacons, not a host that can already reach
+port 80 — the LAN is the boundary); `TESTING.md` records the Git-Bash-vs-ash
+blind spot.
+
+**No payload change:** `payload/Program.cs` is untouched, so the v44 artifact
+stays `7fce4683…` / 41,472 B and the TV still runs v43. `server/deploy.sh` was
+edited, so the next deploy picks up the chmod and the label prelude.
+
+**Left open, recorded in `docs/OPEN-ISSUES.md`:** the token is self-service by
+design (documented, not fixed); `mask.sh`/the payload do not use `--full` when
+listing units (a very long unit name could be ellipsized at 80 columns —
+unverified on the TV); `mask.sh` counts a failed stop but not a listed unit that
+stays `active` while its stop returned 0; `HEAD` answers with a body and
+`OPTIONS` is served as `GET`.
+
+## 2026-10-31 — payload v44: the v43 landmark rules were too coarse (two accept holes)
+
+An independent review of v43 found that the accept rule was written to a
+contract the code did not actually implement, in two ways that compound:
+
+- **pid=0 took the legacy latch.** `TaskPid` returned `-1` for both "the page
+  did not read" and "it read a pid that is not ours", so a freed `PHYRFORK`
+  task whose pid/tgid words read **zero** (the stale shape this project has
+  observed: cred lines reading `00000000` while comm stayed coherent) walked
+  into the `pu == 5001` prefix branch - and a leftover landmark's real_parent
+  chain points at the same app's old task, so `pu == 5001` is exactly what it
+  shows. The one true read failure and the positive evidence of a stranger were
+  the same value.
+- **Last match won.** Every accept assigned `ours = task` unconditionally and
+  the walk is prev-chain order with no relation to freshness, so a weaker
+  accept visited later replaced an exact one (same for `self`), and the patch
+  then used that task's cred. The sim's `[stale, fresh]` fixture could not see
+  it because its stale task had a readable pid.
+- **`stale=` was cumulative.** It was declared outside the poll loop while
+  `seen`/`skip-orphan` reset every poll, so the beacon double-counted the same
+  leftover and did not mean what the docs said.
+- **The high-scan NUL check was blind to v43 tags.** It required NUL at
+  `hit+8`, correct only for the retired constant `"PHYSRPT1"`; every real tag
+  (`pid >= 16`) has a hex digit at byte 8, so `hits` stayed 0 and the sweep
+  could only ever report `miss`. Read-only and diagnostic-only, but it was the
+  measurement behind the high-half question.
+
+Fixes, all in `payload/Program.cs` (v44):
+
+- `TaskPid` is tri-state (`PidRead.Unreadable` / `Ours` / `NotOurs`). Only the
+  `catch` - a read that threw - keeps the legacy parent-uid fallback; a pid
+  that read zero, disagrees with `tgid`, or has the high half set is refused
+  and counted.
+- The accept is ranked (exact 3 > pid 2 > prefix 1) for the child **and** for
+  `self` (exact tag > our own pid/tgid > legacy `PHYSRPT` prefix), and only a
+  strictly better rank overwrites.
+- `staleTags` resets per poll, like `seen`/`skip-orphan`.
+- The `high-scan` NUL check is `hit + commPat.Length`.
+
+**One deliberate trade, recorded:** a fresh child whose comm has not landed and
+whose pid words read stale-mismatched no longer gets the legacy catch-all. That
+state is indistinguishable from a stale task by any local evidence, and attempt
+2 remains the floor. `tag=exact` was the actual accept on both v43 boot
+attempts, so the common path is unaffected.
+
+`tools/sim_rpc.py` mirrors all four (`task_pid` tri-state, ranked
+`hunt_new_phyrfork`, new `hunt_self`, `PROBE_COMM` built from `PROBE_PID` so the
+tag is 12 bytes and the NUL sits at `len(tag)`; `walk_prev` now ends on a failed
+link read as the payload does). v43 test 3 was **rewritten**: it used to plant a
+zero-pid task and call it "pid unreadable" - it was asserting the pid=0 accept.
+It now puts the pid words in an RPC hole, the only true read failure. New tests:
+pid=0 refusal, mismatched-pid refusal, exact-vs-pid clobber, exact-vs-prefix
+clobber, and three `self` precedence cases. Each was mutation-checked: reverting
+the tri-state makes only the pid=0 test fail (old result:
+`child=0xc0f02000 how=prefix`), and reverting the rank makes exactly the two
+clobber tests fail.
+
+`tools/test_constants.py` locks the tri-state, the refusal, the rank, the
+per-poll reset, the tag-length NUL check, the uppercase-hex tag builder and the
+sim mirrors. Docs: `docs/OPEN-ISSUES.md` current state now says v43/41,472 B and
+records v44 as built-not-deployed; `docs/LOGGUIDE.md` gains `tag=none`, the
+per-poll `stale=` meaning and the high-scan NUL note; `AGENTS.md` §9 gains the
+v44 invariants; `docs/state.json` moves the repo to v44.
+
+Artifact: **41,472 B, md5 `7fce4683…`** (clean rebuild reproduces it).
+**Not deployed** - the TV still runs v43; installing it is a separate decision
+and needs a cold-boot check (`tag=` should still read `exact`; a stale left-over
+now reads `stale>=1` instead of being latched).
+
+Not changed in this pass: `debloat/tools/apply.sh` - under Git Bash's `sh` the
+reported sentinel failure did not reproduce here (`tools/test_debloat.py` was
+green at the baseline), so the TV-side script was left alone rather than changed
+blind. The same-day **second review pass** (entry above) later reproduced the
+abort under BusyBox ash and fixed it there - that entry supersedes this note.
+
 ## 2026-10-30 — v43 deployed and boot-verified; the deploy-restart wait
 
-`deploy.sh` installed v43 at 20:07 (41,472 B, md5 `85cd0120`, new beacon token
-`f6a37e0a`, PREV_IL = the v42 rollback copy). The app that the deploy kills did
+`deploy.sh` installed v43 at 20:07 (41,472 B, md5 `85cd0120`, a fresh beacon
+token, PREV_IL = the v42 rollback copy). The app that the deploy kills did
 **not** come back quickly: 31337 stayed closed and no beacon appeared for ~15
 minutes (it then ran fine at 20:23), so the first conclusion - "the new DLL is
 broken" - was wrong. AUL simply relaunched late.

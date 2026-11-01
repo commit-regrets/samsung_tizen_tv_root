@@ -38,7 +38,14 @@ while IFS= read -r line || [ -n "$line" ]; do
   fi
 done < "$LIST"
 
-systemctl daemon-reload 2>&1
+# The symlinks are gone, but systemd keeps the masks loaded until a successful
+# reload/reboot - so a failed reload means "unmasked" is NOT in effect.  mask.sh
+# already treats the same failure as fatal; this pair used to disagree
+# (2026-10-31 review, reproduced under busybox ash).
+if ! systemctl daemon-reload 2>&1; then
+  echo "FAIL: daemon-reload - the masks may still be loaded in systemd"
+  fail=$((fail+1))
+fi
 echo
 echo "summary: unmasked=$ok not-masked=$absent failed=$fail of $n"
 if [ "$n" = "0" ]; then

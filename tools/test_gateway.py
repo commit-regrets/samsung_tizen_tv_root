@@ -16,7 +16,13 @@ then proves the behaviours the gateway promises:
   * POST /save refuses a body above the cap with 413 (and writes nothing);
   * the v40 pairing token: POST /pair records it, a stub presenting a
     different word is refused, a matching one pairs and the client still
-    sees the 12-byte hello.
+    sees the 12-byte hello;
+  * an abandoned waiting client releases the client slot (it used to hold it
+    for 30 minutes and answer every later tool with BUSY);
+  * the v41 beacon-token set: a used token survives later renders, an unused
+    one ages out, and the set survives a server restart - without that, a PC
+    restart made the deployed payload's beacons unknown and they never reached
+    beacons.log (the "AUL never launched the app" misread, 2026-11-01 review).
 
 The test only needs Python and a free loopback port.  It writes its server log
 to server/logs/gateway-test.log (git-ignored through server/logs/).
@@ -128,10 +134,13 @@ def main() -> int:
     prod_before = prod_beacon.stat().st_size if prod_beacon.exists() else 0
     env = dict(os.environ, HTTP_PORT=str(http_port), RPC_PORT=str(rpc_port),
                CTRL_PORT=str(ctrl_port), HTTP_BIND="127.0.0.1",
-               DSH_LOGS_DIR=scratch_logs)
+               DSH_LOGS_DIR=scratch_logs,
+               # short so the trickle test below costs ~2 s, not 15
+               HTTP_REQUEST_TIMEOUT="1")
     log = LOG.open("a", encoding="utf-8")
     srv = subprocess.Popen([sys.executable, "server.py"], cwd=str(SERVER_DIR),
                            env=env, stdout=log, stderr=subprocess.STDOUT)
+    log2 = None          # the restarted server's stdout (set in step 11)
     failed = 0
     clients: list[socket.socket] = []
     try:
@@ -166,6 +175,50 @@ def main() -> int:
         failed += not check("deploy.sh refuses a non-IPv4 Host",
                             b"409" in status and b"@HOST@" not in body,
                             status.decode("latin-1"))
+
+        # 0b) the server must not serve compiled copies of its own source.  A
+        #     .pyc in __pycache__ is the same code; the suffix list lacked it and
+        #     the path test only looked at "logs" (2026-10-31 review).
+        cache = SERVER_DIR / "__pycache__"
+        cache.mkdir(exist_ok=True)
+        probe_pyc = cache / "dsh_probe_gateway.pyc"
+        probe_pyc.write_bytes(b"compiled-source-fixture")
+        try:
+            status, _, body = get(http_port, "/__pycache__/dsh_probe_gateway.pyc")
+            failed += not check(
+                "__pycache__/.pyc is not served (compiled source)",
+                b"404" in status and b"compiled-source-fixture" not in body,
+                status.decode("latin-1"))
+        finally:
+            try:
+                probe_pyc.unlink()
+            except OSError:
+                pass
+        status, _, body = get(http_port, "/server.py")
+        failed += not check("server.py itself is not served",
+                            b"404" in status, status.decode("latin-1"))
+
+        # 0c) one whole request must be bounded: a peer that trickles the header
+        #     used to hold the single accept thread for as long as the 1 MB cap
+        #     allowed (2026-10-31 review).  HTTP_REQUEST_TIMEOUT=1 for this run.
+        slow = socket.create_connection(("127.0.0.1", http_port), timeout=5)
+        try:
+            slow.sendall(b"GET / HTTP/1.1\r\n")
+            time.sleep(2.0)              # > the configured 1 s request budget
+            slow.sendall(b"Host: x\r\n\r\n")
+            slow.settimeout(5)
+            try:
+                got = slow.recv(4096)
+            except socket.timeout:
+                got = b"<timeout: the server did not close>"
+            except OSError:
+                # Windows reports the server's close as an abort, not EOF.
+                got = b""
+            failed += not check(
+                "a trickled request is cut off at the absolute deadline",
+                got == b"", f"recv={got[:80]!r}")
+        finally:
+            slow.close()
 
         # 0b) v42 policy files: served verbatim from the committed debloat lists
         #     (no generated copy that can go stale, same reasoning as deploy.sh).
@@ -388,6 +441,124 @@ def main() -> int:
             print(f"SKIP: loopback aliases 127.0.0.3/4 unavailable ({exc})",
                   flush=True)
 
+        # 10) a client that vanished while waiting (Ctrl-C'd auto_root) must not
+        #     hold the single client slot for 30 minutes: the waiter polls its
+        #     socket and releases it.  RSET first drops the paired stub, so the
+        #     next client really is a WAITER (no stub = no hello to re-attach to).
+        rset = connect(rpc_port)
+        clients.append(rset)
+        rset.sendall(b"RSET")
+        try:
+            rset.recv(16)
+        except OSError:
+            pass
+        time.sleep(0.3)
+        gone = connect(rpc_port)
+        time.sleep(0.3)                  # let it claim the slot
+        gone.close()
+        time.sleep(1.0)                  # > the 0.5 s waiter poll
+        nxt = connect(rpc_port)
+        clients.append(nxt)
+        nxt.settimeout(1.5)
+        try:
+            busy = nxt.recv(16)
+        except socket.timeout:
+            busy = b""
+        failed += not check(
+            "an abandoned waiting client releases the RPC slot", busy == b"",
+            f"got={busy!r} (BUSY = the dead waiter still owns the slot)")
+
+        # 11) beacon tokens: a token that has admitted a beacon must survive
+        #     later /deploy.sh renders (two stray GETs used to evict the live
+        #     payload's token), an UNUSED render older than the last two must be
+        #     evicted, and the whole set must survive a PC-server restart - the
+        #     v41 set was in-memory only, so a restart silently locked the
+        #     deployed payload out of beacons.log (the "AUL never launched"
+        #     misread, 2026-11-01 review).
+        def render_token() -> str:
+            _, _, b = get(http_port, "/deploy.sh")
+            mm = re.search(r"(?m)^TOKEN=([0-9a-f]{8})$", b.decode("latin-1"))
+            return mm.group(1) if mm else ""
+
+        def send_beacon(tok: str, pid: str) -> None:
+            s = connect(http_port)
+            try:
+                s.sendall(f"DSHROOT tok={tok} t=5s start uid=5001 pid={pid}\n".encode())
+                try:
+                    s.recv(8)
+                except OSError:
+                    pass
+            finally:
+                s.close()
+
+        def beacon_logged(pid: str) -> bool:
+            time.sleep(0.4)
+            try:
+                txt = (Path(scratch_logs) / "beacons.log").read_text(
+                    encoding="utf-8", errors="replace")
+            except OSError:
+                return False
+            return f"pid={pid}" in txt
+
+        t_live = render_token()
+        failed += not check("a deploy render yields an 8-hex beacon token",
+                            bool(t_live))
+        send_beacon(t_live, "701")
+        failed += not check("a beacon with the rendered token is accepted and logged",
+                            beacon_logged("701"))
+        t_stale = render_token()          # pushed out below, never used
+        render_token()
+        render_token()
+        send_beacon(t_live, "702")
+        failed += not check("a USED token survives later deploy renders",
+                            beacon_logged("702"))
+        send_beacon(t_stale, "703")
+        failed += not check(
+            "an UNUSED token older than the last two renders is refused",
+            not beacon_logged("703"))
+
+        # restart the PC server with the same scratch log dir (the TV's
+        # rootchan.token still holds t_live - nothing else changes)
+        marker = f"[rpc] gateway listening on 127.0.0.1:{rpc_port}"
+
+        def marker_count() -> int:
+            try:
+                return LOG.read_text(encoding="utf-8",
+                                     errors="replace").count(marker)
+            except OSError:
+                return 0
+
+        # count, do not just grep: the FIRST server already printed this marker,
+        # so a plain wait_for_log() would call a failed restart "ok"
+        seen_before = marker_count()
+        srv.terminate()
+        try:
+            srv.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            srv.kill()
+            srv.wait(timeout=5)
+        log.close()
+        log2 = LOG.open("a", encoding="utf-8")
+        srv = subprocess.Popen([sys.executable, "server.py"], cwd=str(SERVER_DIR),
+                               env=env, stdout=log2, stderr=subprocess.STDOUT)
+        restarted = False
+        end = time.time() + 10.0
+        while time.time() < end:
+            if marker_count() > seen_before:
+                restarted = True
+                break
+            time.sleep(0.1)
+        failed += not check("the server restarts on the same ports", restarted)
+        if restarted:
+            send_beacon(t_live, "704")
+            failed += not check(
+                "the live beacon token survives a PC-server restart",
+                beacon_logged("704"))
+            send_beacon(t_stale, "705")
+            failed += not check(
+                "... and the evicted token is still refused after the restart",
+                not beacon_logged("705"))
+
         after = prod_beacon.stat().st_size if prod_beacon.exists() else 0
         failed += not check("gateway test kept the production beacon log clean",
                             after == prod_before, f"{prod_before} -> {after} bytes")
@@ -403,6 +574,8 @@ def main() -> int:
         except subprocess.TimeoutExpired:
             srv.kill()
         log.close()
+        if log2 is not None:
+            log2.close()
         shutil.rmtree(scratch_logs, ignore_errors=True)
 
     print(flush=True)

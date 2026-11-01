@@ -190,15 +190,49 @@ def main() -> int:
     check("v43: the payload tags itself and the landmark per run (pid in hex)",
           'TagFor("PHYSRPT"' in prog and 'TagFor("PHYRFORK"' in prog
           and 'WriteTag(childName, "PHYRFORK"' in prog)
-    check("v43: the latch refuses a task whose pid/tgid disagrees",
-          "tpid >= 0 && tpid == pid" in prog and "staleTags++" in prog)
-    check("v43: a cred is patched only when cred == real_cred",
+    check("v43/v44: a cred is patched only when cred == real_cred",
           "SameCredPair" in prog
           and prog.count("SameCredPair(") >= 3)
-    check("sim_rpc mirrors the v43 task_pid check", "def task_pid" in sim
-          and "stale += 1" in sim)
     check("high-scan skips the child's own cred object",
           "childCredPhys" in prog and "child_cred_phys" in sim)
+
+    # --- v44: the v43 accept rules were too coarse -------------------------
+    # v43 folded "the page did not read" and "it read a different pid" into -1,
+    # so a freed landmark whose pid/tgid read ZERO took the legacy parent-uid
+    # latch; and both `ours` and `self` were assigned unconditionally, so a
+    # weaker accept later in the prev-chain replaced an exact one.
+    check("v44: TaskPid is tri-state (read failure vs readable-but-not-ours)",
+          "enum PidRead { Unreadable, Ours, NotOurs }" in prog
+          and "catch { return PidRead.Unreadable; }" in prog
+          and "return (int)w == want ? PidRead.Ours : PidRead.NotOurs;" in prog)
+    check("v44: a readable pid of 0 / a mismatch is refused, not latched",
+          "if (w == 0 || w != g || w > 0x7FFFFFFF) return PidRead.NotOurs;" in prog
+          and "else if (pr == PidRead.NotOurs)" in prog
+          and "staleTags++;" in prog)
+    check("v44: accepts are ranked, only a strictly better rank overwrites",
+          "int oursRank = 0, selfRank = 0;" in prog
+          and "if (rank > oursRank)" in prog
+          and "if (selfRank < 3)" in prog)
+    check("v44: staleTags resets per poll like seenFork/skipOrphan",
+          "seenFork = 0; skipOrphan = 0; staleTags = 0;" in prog)
+    check("v44: the high-scan NUL check follows the per-run tag, not a fixed +8",
+          "hitPa + (uint)commPat.Length" in prog
+          and "if (ReadPhys((uint)hitPa + 8" not in prog)
+    check("v44: payload TagFor and the sim probe tag both use uppercase hex",
+          'return prefix + pid.ToString("X");' in prog
+          and 'format(PROBE_PID, "X")' in sim)
+    check("sim_rpc mirrors the v44 tri-state pid read",
+          "PID_UNREADABLE = 0" in sim and "def task_pid" in sim
+          and "if w == 0 or w != g or w > 0x7FFFFFFF:" in sim
+          and "stale += 1" in sim)
+    check("sim_rpc hunt keeps only a strictly better accept (v44 rank)",
+          "if rank > ours_rank:" in sim and "if r > rank:" in sim)
+    check("sim_rpc mirrors the v44 ranked self selection",
+          "def hunt_self" in sim and "self_tag" in sim)
+    check("sim_rpc probe comm is a real per-run tag, not the 8-byte constant",
+          'PROBE_COMM = b"PHYSRPT" + format(PROBE_PID, "X").encode()' in sim
+          and "hit_pa + len(comm_pat)" in sim
+          and 'PROBE_COMM = b"PHYSRPT1"' not in sim)
 
     # --- v39.2 hardening tokens (review 2026-10-26, third pass) ------------
     check("stub op8 checks write(2) through write_full",
@@ -251,6 +285,14 @@ def main() -> int:
           and "unknown beacon " in server and "NOT admitted" in server)
     check("uninstall removes the beacon token file",
           '"$S/rootchan.token"' in uninstall)
+    check("deploy.sh makes rootchan.host/allow readable by the pre-root payload",
+          'chmod 644 "$A" "$HOSTF"' in deploy,
+          "umask 077 + no chmod left them 0600 and every pre-root beacon was "
+          "dropped (2026-10-31 review)")
+    check("uninstall.sh takes the app label before writing bin/",
+          'APP_LABEL=User::Pkg::com.samsung.tv.MultiControl-Service' in uninstall
+          and '/proc/self/attr/current' in uninstall,
+          "the browser-lane fallback cannot write bin/ without it")
 
     # --- deploy is a template (structural fix) -----------------------------
     check("deploy.sh H/WANT/SIZE come from the server",

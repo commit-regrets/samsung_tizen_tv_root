@@ -59,10 +59,16 @@ def render(state: dict, facts: dict) -> str:
                    f"deployed {tv['deployed_date']})")
     tok = tv.get("beacon_token")
     tok_part = f" every beacon carries `tok=<rootchan.token>` (live `{tok}`)" if tok else ""
+    # The date belongs to the TV's deploy.  When the repo builds a different
+    # version, the repo artifact is NOT deployed - saying "deployed <tv date>"
+    # after the repo row read as if the repo build were on the TV (2026-11-01
+    # review).
+    repo_state = ("deployed " + tv["deployed_date"] if tv_md5 == facts["md5"]
+                  else "built (not deployed)")
     return (
         f"| Payload | repo **{state['repo_payload_version']}** (`{md8}…`, "
         f"{facts['size']:,} B; stub blob {facts['blob_size']:,} B), "
-        f"deployed {tv['deployed_date']};{tok_part} forged/absent tokens are "
+        f"{repo_state};{tok_part} forged/absent tokens are "
         f"refused by the server. {tv_part}. "
         f"{tv.get('notes', '')} |"
     )

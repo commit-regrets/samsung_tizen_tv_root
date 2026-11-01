@@ -44,6 +44,11 @@ All TV reads/writes go through that channel (PC-side helpers:
   masks begin n=29, masks=29 stopped=29 killed=4 fail=0 missing=0
   activating=1 listed-activating=0 loop-check=ok newhome=set(0),loop-started,
   and the easysetup unit now starts at boot (NRestarts=0).
+  **Second 29-unit boot under v44 PASSED 2026-11-01 14:23:02**: rooted on
+  attempt 3 at t=38 s, then `masks=29 stopped=29 killed=5 fail=0 missing=0
+  activating=3 listed-activating=0 loop-check=ok newhome=set(0),loop-started`
+  at t=45 s; live after it 37 app rows, 29 masks (+3 vendor `.done` markers in
+  `/run/systemd/system`), `easysetup-daemon` active with NRestarts=0.
   **Extended to 34 on 2026-10-30 14:50** with the OTA / firmware-update stack:
   `vdsystem-update-manager.{service,timer}`, `was-background-update.{service,path}`,
   `swu-verifier-tv.{service,timer}`, `swu-core-tv.service`,

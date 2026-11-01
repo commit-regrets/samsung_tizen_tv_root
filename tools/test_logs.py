@@ -98,6 +98,24 @@ MASKODD = [
     line(15, 0, 1, 61, "masks exception IOException: list-units"),
 ]
 
+# The 2026-11-01 deploy-restart shape: the app restarted inside the same boot,
+# burned its four fast attempts and then the long-mode pass never saw a new
+# landmark (seen=0 in every round, empty `tail:`).  That is the "blind walk":
+# the task list is unreadable, so only a fresh process can help.
+BLIND = [
+    line(14, 20, 0, 5273, "start uid=5001 pid=14001"),
+    line(14, 20, 1, 5275, "attempt=5 (long retry mode)"),
+    line(14, 20, 2, 5279, "fail no new PHYRFORK seen=0 skip-orphan=0 "
+                          "stale-tag=0 pu=ffffffff"),
+    line(14, 20, 3, 5290, "fail no new PHYRFORK seen=0 skip-orphan=0 "
+                          "stale-tag=0 pu=ffffffff"),
+    line(14, 20, 4, 5300, "fail no new PHYRFORK seen=0 skip-orphan=0 "
+                          "stale-tag=0 pu=ffffffff"),
+]
+BLIND_SEEN = (BLIND[:-1] +
+              [line(14, 20, 4, 5300, "fail no new PHYRFORK seen=1 skip-orphan=0 "
+                                     "stale-tag=0 pu=ffffffff")])
+
 SICK = [
     line(11, 0, 0, 10, "start uid=5001 pid=200"),
     line(11, 0, 0, 10, "attempt=1 (fast mode)"),
@@ -165,6 +183,27 @@ def test_beacons():
     codes5 = {f["code"] for f in r5["findings"]}
     check("maskodd: MASK-UNVERIFIED + MASK-CRASH decoded",
           {"MASK-UNVERIFIED", "MASK-CRASH"} <= codes5, str(codes5))
+
+    # v44 deploy-restart shape (2026-11-01): long mode, blind walk in every
+    # round -> BLIND-WALK, and the hint must name the ONLY remedy (a fresh
+    # process), because an in-process retry cannot fix a blind read.
+    p6 = write_log(BLIND)
+    r6 = beacons.analyse_boot(
+        beacons.group_boots(list(beacons.parse_lines(p6.read_text())))[0], 0)
+    codes6 = {f["code"] for f in r6["findings"]}
+    check("blind: not rooted", not r6["rooted"])
+    check("blind: BLIND-WALK derived from the whole long-mode pass",
+          "BLIND-WALK" in codes6, str(codes6))
+    check("blind: hint names the fresh process / power-cycle",
+          any("power-cycle" in n for n in r6["notes"]), str(r6["notes"]))
+
+    # ... but one round that DID see a landmark means the walk was not blind
+    p7 = write_log(BLIND_SEEN)
+    r7 = beacons.analyse_boot(
+        beacons.group_boots(list(beacons.parse_lines(p7.read_text())))[0], 0)
+    check("blind: a round that saw a landmark suppresses BLIND-WALK",
+          "BLIND-WALK" not in {f["code"] for f in r7["findings"]},
+          str({f["code"] for f in r7["findings"]}))
 
     # sick boot: device held, window off, bind fallback, crash -> error hint
     p2 = write_log(SICK)

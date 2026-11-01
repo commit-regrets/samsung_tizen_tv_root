@@ -177,10 +177,16 @@ class Fixture:
                           'echo "systemctl $*" >> "$CALLS"\n'
                           '# simulate real systemd: the mask only bites after a\n'
                           '# daemon-reload - model that with a reload marker\n'
-                          'if [ "$1" = "daemon-reload" ]; then touch "$T/run/.reloaded"; fi\n'
+                          'if [ "$1" = "daemon-reload" ]; then\n'
+                          '  [ "${FAIL_RELOAD:-0}" = "1" ] && exit 1\n'
+                          '  touch "$T/run/.reloaded"; fi\n'
                           'if [ "$1" = "list-units" ]; then\n'
                           '  [ "${FAIL_LIST_UNITS:-0}" = "1" ] && exit 1\n'
                           '  [ -f "$ACTIVEUNITS" ] && cat "$ACTIVEUNITS"\n'
+                          '  exit 0\n'
+                          'fi\n'
+                          'if [ "$1" = "stop" ]; then\n'
+                          '  case " $* " in *" ${FAIL_STOP:-__never__} "*) exit 1;; esac\n'
                           '  exit 0\n'
                           'fi\n'
                           'if [ "$1" = "is-active" ]; then\n'
@@ -494,6 +500,29 @@ def main() -> int:
     check("apply: sentinel failure still runs picture-guard",
           "picture-guard:" in r.stdout)
 
+    # 5c. an unwritable undo log must stop the run BEFORE the first disable.
+    # POSIX sh does not abort on a compound redirection failure (`{ ...; } >
+    # /bad` reports and continues), so this used to disable the batch and exit 0
+    # with no replay record (2026-10-31 review, reproduced under busybox ash).
+    tmpf5c = Fixture(DEB / "tools" / "apply.sh")
+    lst5c = tmpf5c.write_list("t1.txt", ["com.samsung.tv.canalysis-service"])
+    bad_log = tmpf5c.root / "no-such-dir" / "undo.sh"
+    r = tmpf5c.run([lst5c], {"APPLY": "1", "UNDO_LOG": str(bad_log).replace("\\", "/")})
+    check("apply: an unwritable undo log aborts before disabling",
+          r.returncode != 0 and "FAILED: cannot create undo log" in r.stdout
+          and len(tmpf5c.calls("pkgcmd -D")) == 0,
+          f"rc={r.returncode} disables={len(tmpf5c.calls('pkgcmd -D'))} "
+          f"{r.stdout[-160:]}")
+
+    # 5d. the sentinel write must be contained in a subshell: `:` is a POSIX
+    # special builtin and a redirection error on it terminates ash/dash before
+    # the else branch (so FAILED + picture_guard never ran on the TV).  Git
+    # Bash's sh is bash and cannot reproduce it - lock the portable form.
+    apply_src = (DEB / "tools" / "apply.sh").read_text(encoding="utf-8")
+    check("apply: sentinel write is subshell-contained (ash special-builtin trap)",
+          'if ( : > "$SENTINEL_DIR/$sent" )' in apply_src
+          and 'if : > "$SENTINEL_DIR/$sent"' not in apply_src)
+
     # 6. restore.sh re-activates with --global
     tmpf6 = Fixture(DEB / "tools" / "restore.sh")
     lst6 = tmpf6.write_list("t1.txt", TIER1[:3])
@@ -640,6 +669,20 @@ def main() -> int:
             if (tmpf8.root / "run/systemd/system" / u).exists()]
     check("unmask: all symlinks removed", not left, str(left))
 
+    # the counterpart of mask.sh's reload check: a failed reload means the
+    # masks are still loaded in systemd, so "unmasked" is NOT in effect.  This
+    # used to exit 0 (2026-10-31 review, reproduced under busybox ash).
+    tmpf8b = Fixture(DEB / "tools" / "unmask.sh")
+    ul8b = tmpf8b.write_list("units.txt", units)
+    for u in units:
+        m = tmpf8b.root / "run/systemd/system" / u
+        m.parent.mkdir(parents=True, exist_ok=True)
+        m.write_text("", encoding="utf-8")
+    r = tmpf8b.run([ul8b], {"FAIL_RELOAD": "1"})
+    check("unmask: a failed daemon-reload fails the run",
+          r.returncode != 0 and "FAIL: daemon-reload" in r.stdout,
+          f"rc={r.returncode} {r.stdout[-160:]}")
+
     tmpf9 = Fixture(DEB / "tools" / "mask.sh")
     tmpf9.add_units(units)
     ul9 = tmpf9.write_list("units.txt", units)
@@ -661,6 +704,17 @@ def main() -> int:
           str(tmpf9.calls("systemctl start")[:2]))
     check("mask: reload failure still stops units",
           len(tmpf9.calls("systemctl stop")) >= len(units))
+
+    # a failed stop leaves the unit RUNNING behind a valid mask; the start-
+    # refusal test still passes, so only the stop result can catch it.  This
+    # used to exit 0 with stopped=2 (2026-10-31 review, busybox ash repro).
+    tmpf9b = Fixture(DEB / "tools" / "mask.sh")
+    tmpf9b.add_units(units)
+    ul9b = tmpf9b.write_list("units.txt", units)
+    r = tmpf9b.run([ul9b], {"MASK": "1", "FAIL_STOP": "data-service.service"})
+    check("mask: a failed systemctl stop fails the run",
+          r.returncode != 0 and "FAIL: systemctl stop data-service.service" in r.stdout,
+          f"rc={r.returncode} {r.stdout[-200:]}")
 
     tmpf10 = Fixture(DEB / "tools" / "mask.sh")
     tmpf10.add_units(units)

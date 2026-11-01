@@ -281,6 +281,27 @@ def analyse_boot(boot, index):
         last = boot[-1][2]
         verdict = f"NOT rooted - last line: {last[:90]}"
 
+    # BLIND-WALK: a whole LONG-MODE pass that never saw a new landmark at all.
+    # `seen=0` (and usually an empty `tail:`) means the task list was unreadable,
+    # not that the fork failed - so waiting in-process cannot fix it; only a
+    # fresh process re-rolls.  The 2026-11-01 deploy restart hunted for 5+
+    # minutes in exactly this state.  Line-level signatures cannot see "every
+    # round", so this is derived per boot (and only when nothing rooted).
+    blind = [b for b in boot if b[2].startswith("fail no new PHYRFORK")]
+    long_mode = any("long retry mode" in b[2] for b in boot)
+    if (rooted_at is None and chan_uid != 0 and long_mode and blind
+            and all("seen=0" in b[2] for b in blind)):
+        findings.append({
+            "code": "BLIND-WALK", "sev": "warn",
+            "msg": "the long-mode pass never saw a new landmark (seen=0 in "
+                   "every round): the task list was unreadable",
+            "hint": "an in-process retry cannot fix a blind read - the only "
+                    "remedy is a FRESH PROCESS: power-cycle the TV. A deploy "
+                    "restart that lands here cannot re-roll (AGENTS.md trap 18, "
+                    "docs/V45-BLIND-WALK.md)",
+            "line": blind[-1][2],
+        })
+
     # the lottery note: a high-alloc fast-exit attempt followed by a root
     notes = []
     if any(a["result"] == "fast-exit" for a in attempts) and rooted_at is not None:
@@ -325,10 +346,15 @@ def main(argv=None) -> int:
     if not boots:
         print(f"beacons: no DSHROOT lines in {p}", file=sys.stderr)
         return 2
+    total = len(boots)
+    base = 0
     if args.last > 0:
         boots = boots[-args.last:]
+        base = total - len(boots)
 
-    report = [analyse_boot(b, i) for i, b in enumerate(boots)]
+    # Number the boots from the FULL log, not from the slice: `--last 1` used to
+    # print "boot #0" for what may be the 27th boot (review 2026-10-31).
+    report = [analyse_boot(b, base + i) for i, b in enumerate(boots)]
     noise = TEST_NOISE["start_without_pid"]
     if args.json:
         print(json.dumps({"boots": report, "log": str(p),

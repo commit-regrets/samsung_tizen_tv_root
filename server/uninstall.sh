@@ -20,6 +20,7 @@ DB=/opt/dbspace/user/5001/.appsvc.db
 IL_MD5=f61f60dd2f581f60bcb716c336cd78f2
 NI_MD5=6c9bdcc40d685e4adc3e2c9ea64870d1
 WANT_LABEL=User::Pkg::com.samsung.tv.MultiControl-Service::RO
+APP_LABEL=User::Pkg::com.samsung.tv.MultiControl-Service
 APPID=com.samsung.tv.MultiControl-Service
 
 D_TMP="$B/MultiControlService.dll.tmp"
@@ -60,6 +61,23 @@ if [ ! -f "$DB" ]; then
   echo DB_MISSING
   echo "HINT: $DB is not present - refusing to report success against the wrong database"
   exit 1
+fi
+
+# --- take the app's label -----------------------------------------------------
+# The 31337 channel already runs under it (no-op).  The documented browser-lane
+# fallback (`run_root.py "curl .../uninstall.sh | sh"`) runs under
+# User::Pkg::org.tizen.browser, and bin/ allows only the app's label - so every
+# copy below fails IL_FAIL without this.  deploy.sh has taken the label since the
+# 2026-10-22 regression; uninstall never did (2026-10-31 review).
+if [ "$(cat /proc/self/attr/current 2>/dev/null)" != "$APP_LABEL" ]; then
+  # redirect stderr first: opening /proc/self/attr/current can fail before the
+  # later 2>/dev/null applies.
+  printf %s "$APP_LABEL" 2>/dev/null > /proc/self/attr/current 2>/dev/null
+fi
+if [ "$(cat /proc/self/attr/current 2>/dev/null)" = "$APP_LABEL" ]; then
+  echo RELABEL=ok
+else
+  echo "RELABEL=fail (current=$(cat /proc/self/attr/current 2>/dev/null))"
 fi
 
 # --- stock IL -----------------------------------------------------------

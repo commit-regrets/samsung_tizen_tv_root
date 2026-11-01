@@ -64,6 +64,12 @@ def run(rpc, cmd, wait=180.0):
     rpc._cmd(7, 0, 0, len(buf))
     rpc.s.sendall(buf)
     pid = struct.unpack("<i", rpc._recv_exact(4))[0]
+    if pid <= 0:
+        # The stub answers -EINVAL when it refuses the op (e.g. the command did
+        # not fit after its own checks).  Waiting for output that cannot come
+        # burned the full --wait before this was checked (review 2026-10-31).
+        print(f"[run] stub refused op 7: {pid} ({len(buf)} B command)", flush=True)
+        return b""
     print(f"[run] child pid={pid}", flush=True)
     rpc.s.settimeout(5)
     data = b""

