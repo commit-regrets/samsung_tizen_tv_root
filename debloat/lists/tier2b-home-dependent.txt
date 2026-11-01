@@ -1,8 +1,13 @@
 # Tier 2b - tcc apps that are Vetro-keep or coupled to keepers.
-# COMMENTED: enable only with Home replacement (Control Center) or explicit owner acceptance.
+# COMMENTED = deferred: enable only with Home replacement (Control Center) or
+# explicit owner acceptance.
+# Two are NOT deferred: `com.samsung.tv.aov-dashboard` and `org.tizen.voice-app`
+# were APPLIED with batch 3 under the owner's "voice unused" decision (their
+# couplings are recorded below for the undo/re-enable review).  The other 20
+# remain deferred.  Do not read this file as "all 22 are off".
 # HEPsqFNie0.tvplusstandalone  [role=keep]
 # com.samsung.tizen.mcf-agent  [role=keep]
-# com.samsung.tv.aov-dashboard  [role=optional, coupled: com.samsung.tv.lightweight-node-service]
+# APPLIED via batch 3 (voice, owner decision 2026-10-30): com.samsung.tv.aov-dashboard  [role=optional, coupled: com.samsung.tv.lightweight-node-service]
 # com.samsung.tv.contentservicemanager  [role=keep]
 # com.samsung.tv.gamehome  [role=keep]
 # com.samsung.tv.gamepadguide  [role=keep]
@@ -20,5 +25,5 @@
 # com.samsung.tv.tap-service-agent-ui  [role=keep]
 # com.samsung.tv.tvplus  [role=keep]
 # org.tizen.hbbtv  [role=keep]
-# org.tizen.voice-app  [role=optional, coupled: com.samsung.tv.lightweight-node-service,com.samsung.tv.sboard-app]
+# APPLIED via batch 3 (voice, owner decision 2026-10-30): org.tizen.voice-app  [role=optional, coupled: com.samsung.tv.lightweight-node-service,com.samsung.tv.sboard-app]
 # org.tizen.art-app  [role=optional, coupled: org.tizen.AVControl,org.tizen.epg]
