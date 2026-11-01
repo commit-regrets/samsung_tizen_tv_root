@@ -60,14 +60,19 @@ picture-settings loop, and fails if a listed unit is still restart-looping.
 
 ## Status
 
-- **Standing set: 37 app rows** — tier 1 (10) + tier 2a (5) + voice (22),
-  all durably disabled via `pkgcmd -D --global` and cold-boot verified (the
-  original 20-row set on 2026-10-30: `id -u` = 0, count = 20, both sentinels
-  present, the 11 tier-1 rows first confirmed 2026-10-29; the 37-row set
-  first booted 2026-10-30 19:29:41 and again 2026-11-01 14:23:02 under v44).
-  Run log: `models/qnx1d/run-2026-10-29-tier1.md`. ~25.9 MB running ACR/ad
+- **Standing set: 66 app rows** — tier 1 (10) + tier 2a (5) + voice (22) +
+  batch 2 commercial (29), all durably disabled via `pkgcmd -D --global`. The
+  37-row subset is cold-boot verified (the original 20-row set on 2026-10-30:
+  `id -u` = 0, count = 20, both sentinels present, the 11 tier-1 rows first
+  confirmed 2026-10-29; the 37-row set first booted 2026-10-30 19:29:41 and
+  again 2026-11-01 14:23:02 under v44). **Batch 2 was applied 2026-11-01
+  21:38** (`disabled=29 failed=0 of 29`, readback 66 rows, 0 activating, undo
+  log on the TV at `/opt/usr/data/debloat-undo-20261101-213858.sh`); its cold
+  boot is the next acceptance step. Run log:
+  `models/qnx1d/run-2026-10-29-tier1.md`. ~25.9 MB running ACR/ad
   processes freed by tier 1 (distinct processes, measured against the
-  pre-debloat baseline), plus ~7 MB PSS from the voice set.
+  pre-debloat baseline), plus ~7 MB PSS from the voice set; batch 2 frees
+  ~0 MB (nothing runs at idle - storage and attack surface only).
 - **Services layer: a 29-unit mask list, all of it masked durably (v42) and
   verified on the 2026-10-30 cold boot** (`masks=24 ... listed-activating=0` on
   the then-24-unit list), then 34 with the OTA stack at 14:50, and **29 since
@@ -136,6 +141,10 @@ picture-settings loop, and fails if a listed unit is still restart-looping.
   - `lists/tier2b-home-dependent.txt` (22, commented): tcc apps that are
     Vetro-keep or keeper-coupled — only with Home replacement or explicit
     owner acceptance.
+  - `lists/batch2-commercial.txt` (29): the plan's commercial/hotel/factory
+    batch - `role=unused` components a home set never runs, 30 of the plan's
+    33 ids (three coupled ids skipped) minus `com.samsung.ep.hotel.uigadgets`,
+    which is not installed on this set. No keep-role referrer.
   - `lists/services-units.txt` (29 masked units; `bluetooth-monitor.service`
     is a commented DO-NOT-MASK note with the evidence) +
     `lists/services-bind.txt` (23 `/usr/bin` binaries — the **kill list** for

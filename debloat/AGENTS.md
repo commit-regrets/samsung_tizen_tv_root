@@ -93,9 +93,20 @@ All TV reads/writes go through that channel (PC-side helpers:
   The sharing-batch revert was a wrong guess from reading `referencedBy`
   backwards (`multiscreen` uses the client, not the reverse) - the 16 stay
   re-enabled as prudence.  The five SmartThings-stack ids are denylisted and
-  dropped from tier 2a (9 -> 5).  Standing set: **37 app rows** (tier 1 10 +
-  tier 2a 5 + voice 22) and **29 units / 23 binaries** (`pushd` /
+  dropped from tier 2a (9 -> 5).  Standing set: **66 app rows** (tier 1 10 +
+  tier 2a 5 + voice 22 + batch 2 29) and **29 units / 23 binaries** (`pushd` /
   `register-device` / `p2p-asm` unmasked: phone-path, ~1.5 MB).
+  **Batch 2 (commercial/hotel/factory) applied 2026-11-01 21:38**
+  (`lists/batch2-commercial.txt`, 29 ids: `disabled=29 failed=0 of 29`,
+  readback 66 rows, 0 activating, undo log
+  `/opt/usr/data/debloat-undo-20261101-213858.sh`).  It is the planned 30 of
+  33 minus `com.samsung.ep.hotel.uigadgets`, which has no app row in
+  `package_app_info` here (`pkgcmd -D` would fail); the three coupled ids
+  stay out.  ~0 MB (hotel/factory code does not run at idle), so the gain is
+  storage and attack surface.  Cold boot still owed.  Live leftover:
+  `/usr/bin/rscmgr-service` (pid 619, Remote Shop Care) is a **service, not
+  an app** - the app disable does not touch it; it is a q3deps-gated
+  follow-up, not part of batch 2.
   **Lesson:** `referencedBy` = who uses the package.  A package that a
   keep-side app USES is a risk to that app; a package that USES a keep-side
   app is not.  And check the keep-side app's own `tizen-manifest.xml`
@@ -103,7 +114,8 @@ All TV reads/writes go through that channel (PC-side helpers:
   just not this outage's cause).
   **Rule:** every mask-list addition needs the q3deps gate run *before* the
   add (the multiscreen entry went in without one; it was removed again).
-  **Open:** tier 2b needs the Control Center layer; batch 3 is
+  **Open:** tier 2b needs the Control Center layer; batch 2 is applied and
+  only its cold boot is owed (2026-11-01); batch 3 is
   voice-only and done; **tcc's five extra service candidates are
   EVALUATED AND REJECTED (2026-10-30)**: measured live, their sum-RSS (~35.5 MB)
   is ~10x the real cost - PSS is 1.77 (slive-provider-daemon) + 1.01

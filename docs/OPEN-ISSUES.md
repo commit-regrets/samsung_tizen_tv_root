@@ -8,7 +8,7 @@
 > [docs/SMARTTHINGS-OFFLINE-2026-10-30.md](SMARTTHINGS-OFFLINE-2026-10-30.md).
 
 ## Current state — 2026-11-01 (TV runs v46, deployed 21:01 and cold-boot verified
-21:10; 29-unit durable masks, 37 app rows, SmartThings phone control confirmed
+21:10; 29-unit durable masks, 66 app rows, SmartThings phone control confirmed
 online; offline suite green)
 
 TV: **v46** (`c540a6ab…`, 42,496 B), rooted via 31337. Every beacon carries
@@ -29,6 +29,12 @@ lottery), relaunch t=29 s, `self-patch uid=0` t=32 s, `ROOTCHAN` t=32 s,
 loop-check=ok newhome=set(0),loop-started` t=39 s; **both fresh launch lines
 carried the deploy's token and `art=c540a6ab…`**, so the marker survives a cold
 boot; live uid 0, full caps, installed DLL md5 `c540a6ab`.
+**Batch 2 applied 2026-11-01 21:38** (`lists/batch2-commercial.txt`, the
+commercial/hotel/factory ids): 29 disables, `disabled=29 failed=0 of 29`,
+readback **66 app rows**, 0 activating units, undo log on the TV; its cold boot
+is the next acceptance step. `com.samsung.ep.hotel.uigadgets` was dropped (no
+app row here), and the three coupled ids stay out. ~0 MB freed (nothing runs);
+the gain is storage and attack surface.
 The v45 boot before it (16:15) rooted on attempt 2 at t=37 s; the v44 boot
 (14:23:02) had needed attempt 3 after the deploy restart landed in the stale
 window; see `CHANGELOG.md`.

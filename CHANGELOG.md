@@ -15,6 +15,34 @@ entry is an incomplete change. `AGENTS.md` repeats this rule for agents.
 
 ---
 
+## 2026-11-01 — debloat: batch 2 (commercial/hotel/factory) applied
+
+`debloat/lists/batch2-commercial.txt` (new, 29 ids) went through the discipline:
+live audit of all ids first, then the `APPLY=0` dry run (29/29, no refusals),
+then the real run — `disabled=29 failed=0 of 29`, readback **66 rows** in
+`package_app_info.app_disable`, 0 activating units, `id -u` = 0, Home/launcher
+alive, undo log on the TV (`/opt/usr/data/debloat-undo-20261101-213858.sh`,
+29 `pkgcmd -A` pairs).
+
+The plan's 30-of-33 list minus one: `com.samsung.ep.hotel.uigadgets` has **no
+app row** in `package_app_info` on this set (`pkgcmd -D` would fail "Failed to
+get appinfo"), so it was dropped after the audit; the three coupled ids
+(`org.tizen.ep-hotel-channel`, `org.tizen.ep-hotel-factory`,
+`org.tizen.factory`) stay out as planned. Every applied entry is
+role=unused/commercial with no keep-role referrer.
+
+Resource honesty: idle gain is ~0 MB — hotel/factory code does not run — so
+this buys storage and attack surface, not RAM. Leftover found during the
+audit: `/usr/bin/rscmgr-service` (Remote Shop Care) is a **service, not an
+app**, so the app disable does not touch it; it is a q3deps-gated follow-up
+and was not touched.
+
+**Cold boot owed** (the `--global` store is durable and was cold-boot verified
+2026-10-29, but the discipline is a reboot after every apply).
+
+Docs: `debloat/README.md` (standing set 66, the new list), `debloat/AGENTS.md`
+(state, Open, leftover), `docs/OPEN-ISSUES.md` header, `docs/state.json`.
+
 ## 2026-11-01 — debloat README: the standing-set counts
 
 Stale-count sweep after the live audit against the TV (37 disabled rows, 29 masks,
