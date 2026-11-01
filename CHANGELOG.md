@@ -15,6 +15,24 @@ entry is an incomplete change. `AGENTS.md` repeats this rule for agents.
 
 ---
 
+## 2026-11-02 — v47: the payload's mask dump asks for full unit names
+
+The mask step's restart-loop check parsed `systemctl list-units --all --no-legend
+--plain`. Without `--full`, systemd clips the UNIT column at the terminal width,
+and a clipped name can never match the policy list, so `listed-activating` could
+read 0 while a listed unit was restarting. `mask.sh` got `--full` on 2026-11-01;
+the payload had the identical line (`Program.cs`, `ListUnitsCmd`) and is fixed
+here.
+
+- `ListUnitsCmd` now passes `--full`; the parser needs no change (it splits on
+  whitespace and reads the ACTIVE state at `f[2]`).
+- `test_constants.py` asserts the flag in the payload dump **and** that
+  `mask.sh` carries it too, so the two sides cannot drift apart again.
+- rebuilt artifact: 42,496 B, md5 `0df29b15…` — the same size as v46 because the
+  string table is padded; the md5 is the identity.
+
+Deploy + cold-boot acceptance owed (recorded in HANDOFF pending).
+
 ## 2026-11-01 — live-stub layer passed; the preloaded renderer trap
 
 The last SKIPped layer is green.  With the TV browser fully quit and reopened

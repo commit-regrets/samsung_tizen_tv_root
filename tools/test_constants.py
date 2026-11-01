@@ -121,6 +121,20 @@ def main() -> int:
     check("v42 refuses a policy path under the browser-writable share/",
           "share" not in re.search(r'const string MaskList\s*=\s*"([^"]+)"', prog).group(1))
 
+    # --- v47: the mask dump must ask for full unit names --------------------
+    # list-units clips the UNIT column at the terminal width without --full, and
+    # a clipped name can never match the policy list - the loop check would then
+    # report a clean 0 while a listed unit was restarting (the same bug fixed in
+    # mask.sh on 2026-11-01; the payload had the identical line).
+    dump_cmd = re.search(r'const string ListUnitsCmd\s*=\s*"([^"]+)"', prog)
+    mask_sh = (ROOT / "debloat" / "tools" / "mask.sh").read_text(encoding="utf-8")
+    check("v47 payload list-units dump passes --full",
+          dump_cmd is not None and "--full" in dump_cmd.group(1),
+          dump_cmd.group(1) if dump_cmd else "ListUnitsCmd not found")
+    check("v47 mask.sh and the payload dump agree on --full",
+          "--full" in mask_sh,
+          "mask.sh lost --full")
+
     # --- kernel_root / physmap offsets -------------------------------------
     check("kernel_root O_COMM/O_CRED/O_REAL match the payload",
           grab(kroot, r"^O_COMM\s*=\s*(0x[0-9A-Fa-f]+)") == 0x400

@@ -1632,7 +1632,7 @@ internal static class Program
         // Bounded wait for the queued stops: a .socket/.path unit has no process
         // to kill, so only the job can take it down.  Ten dumps, 2 s apart; the
         // last parsed dump is the measurement the beacon reports.
-        const string ListUnitsCmd = "systemctl list-units --all --no-legend --plain; echo __RC=$?";
+        const string ListUnitsCmd = "systemctl list-units --all --no-legend --plain --full; echo __RC=$?";
         int activating = 0, listedActive = 0, listedUp = -1;
         string loopCheck = "failed";
         for (int i = 0; i < 10; i++)
@@ -1697,7 +1697,7 @@ internal static class Program
                " loop-check=" + loopCheck + " newhome=" + newhome);
     }
 
-    // Parse one `systemctl list-units --all --no-legend --plain` dump:
+    // Parse one `systemctl list-units --all --no-legend --plain --full` dump:
     //   UNIT  LOAD  ACTIVE  SUB  DESCRIPTION
     // Returns false when the dump itself is unusable (never a silent 0).
     static bool ParseDump(string dump, List<string> live, out string loopCheck,
