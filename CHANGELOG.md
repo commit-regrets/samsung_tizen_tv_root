@@ -15,6 +15,25 @@ entry is an incomplete change. `AGENTS.md` repeats this rule for agents.
 
 ---
 
+## 2026-11-01 — live-stub layer passed; the preloaded renderer trap
+
+The last SKIPped layer is green.  With the TV browser fully quit and reopened
+(a renderer created after the boot), the page reached `RUNNING`, found
+`elf_base = 0xafa4f000 [✓ ELF]`, announced its pairing token and
+`tools/test_stub.py` passed 7/7: hello `PGDB`, kernel image readable, normal
+read, oversize READ refused (-22), stub alive after bad READ, cross-page WRITE
+refused (-22), stub alive.
+
+**Trap found the hard way:** loading the page into the browser's **preloaded
+first renderer** (started at boot) aborts at the anchor step -
+`elf_base = 0xafaae350 [✗ invalid — abort]`, `THREW Error: abort: elf_base
+inválido` - because that process's heap state differs from a fresh renderer's
+(the last working run, 2026-10-27, saw `0xafa64000 [✓ ELF]`).  Quit the TV
+browser completely, reopen it, then load the page.  The `/save` dump carries
+the abort reason, so this is diagnosable from the PC.
+
+Docs: HANDOFF (pending item 1 closed, the new trap), AGENTS §7 checklist.
+
 ## 2026-11-01 — follow-up: mask.sh reads the state, not the exit code
 
 The stop-pass check added hours earlier still accepted the case it was meant to

@@ -518,7 +518,7 @@ gateway, deploy/uninstall control flow, source↔blob↔page consistency). Then:
       `CapEff=0x3fffffffff`, installed DLL md5 matches the state row,
       `rootchan.art` 0644, `restart.log` empty.
 - [x] `python tools/test_all.py --tv` against a fresh page load (stub protocol
-      + clamps) - **10/10 layers passed 2026-10-27** on the v40 token path (hello, kernel read, oversize READ/WRITE refused, stub alive). Details per layer: `docs/TESTING.md`.
+      + clamps) - **stub-protocol passed 2026-11-01 23:56** (7/7: hello `PGDB`, kernel image readable, normal read, oversize READ/WRITE refused, stub alive) after a **fresh browser launch**; the preloaded first renderer aborts at `elf_base` (see HANDOFF). A separate `tv-health-live` run was 12/12. Details per layer: `docs/TESTING.md`.
 
 ## 8. Traps (each cost hours — read `docs/FAILED.md`)
 
@@ -630,6 +630,16 @@ gateway, deploy/uninstall control flow, source↔blob↔page consistency). Then:
     exits for a fresh process, capped at 3 per boot (`/tmp/.dsh_long`, beacon
     `long-exit attempt=N count=K`), then falls back to the old idle —
     `docs/V45-BLIND-WALK.md`.
+19. **Load the exploit page in a fresh browser session.** The TV browser
+    preloads its first renderer at boot; a page loaded into that process aborts
+    the browser chain at the anchor step — `elf_base = 0xafaae350 [✗ invalid —
+    abort]`, `THREW Error: abort: elf_base inválido` (2026-11-01) — because the
+    preloaded renderer's heap state differs from a fresh one's (the last working
+    run, 2026-10-27, saw `0xafa64000 [✓ ELF]`). Quit the browser completely,
+    reopen it, then load the page: the fresh renderer found `0xafa4f000 [✓ ELF]`
+    and paired on the first try. The `/save` dump carries the abort reason, so
+    this is diagnosable from the PC. The room's `stub` lifetime is minutes
+    (trap 1), so run `test_stub.py` immediately after RUNNING.
 
 ## 9. Rebuilding the payload
 

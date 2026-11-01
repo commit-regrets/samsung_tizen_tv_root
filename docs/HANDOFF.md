@@ -76,7 +76,7 @@ Session history and *why* each change exists: `CHANGELOG.md` (eight entries,
 
 | # | Item | Needs | Proof |
 |---|---|---|---|
-| 1 | **Live-stub layer** — the only layer still SKIPped on this PC | TV browser opened on `http://<pc>/index.html`, wait for `RUNNING`, keep it open | `python tools/test_all.py --tv` ends with the live-stub layer OK (protocol, kernel read, oversize READ/WRITE refused, stub alive) |
+| 1 | **Live-stub layer** — **DONE 2026-11-01 23:56**: `test_stub.py` passed 7/7 (hello `PGDB`, kernel image readable, normal read, oversize READ/WRITE refused, stub alive) after a fresh browser launch.  **The page must run in a renderer created AFTER the boot**, not the browser's preloaded first renderer: the first attempt (page loaded into the 21:55 preloaded renderer) aborted at `elf_base = 0xafaae350 [✗ invalid]`, while the fresh one found `0xafa4f000 [✓ ELF]`.  Quit the TV browser fully and reopen it before loading the page. | TV browser opened on `http://<pc>/index.html`, wait for `RUNNING`, keep it open | `python tools/test_all.py --tv --tv-ip <ip>` ends with `stub-protocol` and `tv-health-live` OK |
 | 2 | **The payload's mask check still parses `list-units` without `--full`** — `mask.sh` was fixed 2026-11-01 (`--full`), but the same dump in `Program.cs` can clip a long unit name, so `listed-activating` could read 0 while a listed unit loops | a payload rebuild (v47) + deploy + cold boot | after the rebuild, `masks=... listed-activating=0` must still hold and the offline `test_constants.py` should assert the `--full` flag in the payload's dump command |
 | 3 | **`mask.sh` counts a failed stop but not a unit that stays `active` after its stop exited 0** (fixed 2026-11-01, including the `activating` transition and the post-stop re-arm window in the dump) — kept as the record; re-verify on the next live `mask.sh` run | TV | `mask.sh` now parses the `is-active` state and fails anything but `inactive`/`failed` (`FAIL: <unit> is still active after a successful stop (state=...)`), and flags a listed unit that is `active` in the dump as `RUNNING`; both offline cases are in `test_debloat.py` |
 | 4 | **`HEAD` answers with a body; `OPTIONS` is served as `GET`** | nothing (offline) | a case in `tools/test_server_unit.py`; low value unless a client starts using them |
@@ -126,12 +126,19 @@ the owner.
   mains power-cycle (ask the owner — the remote's power button is only standby).
 - **Do not `systemctl --force reboot`** from the payload (trap 12), **do not
   touch `/mnt/systemrw`** (trap 9), and keep auto-update off.
-- The physmap node is exclusive: the payload must stay on `/dev/video40` and
-  only advance on `ENOENT`/`ENODEV`; a busy video40 is retried, never cycled.
+- **The physmap node is exclusive: the payload must stay on `/dev/video40` and
+  the browser stub uses `/dev/video30`. Never "cycle on busy"** — `EBUSY` is
+  retried, `ENOENT`/`ENODEV` advances the node (trap 3).
+- **Load the exploit page in a fresh browser session.** The browser preloads its
+  first renderer at boot; a page loaded into that process fails the anchor step
+  (`elf_base = 0xafaae350 [✗ invalid — abort]`, 2026-11-01) because the heap
+  state differs.  Quit the browser fully, reopen it, then load the page: the
+  fresh renderer found `0xafa4f000 [✓ ELF]` and paired on the first try.  The
+  `/save` dump names the abort reason, so this is diagnosable from the PC.
 - `root.ps1 -Force` is the redeploy path; it rotates the beacon token (expected,
   saved automatically) and only reports success on `id -u` = 0.
 
-Deeper: `AGENTS.md` §8 (all 18 traps) and `docs/FAILED.md` (dead ends to
+Deeper: `AGENTS.md` §8 (all 19 traps) and `docs/FAILED.md` (dead ends to
 repeat at your peril).
 
 ## Where things live
