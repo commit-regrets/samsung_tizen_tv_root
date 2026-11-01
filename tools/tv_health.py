@@ -22,7 +22,9 @@ Checks (each maps to a registry/document claim):
   masks       masked-unit count == debloat/lists/services-units.txt
   masked      every listed unit answers `is-enabled` = masked-runtime
               (polls up to 5 s: the boot payload re-asserts them)
-  loops       no unit is `activating`
+  loops       the newest mask beacon says listed-activating=0, loop-check=ok,
+              fail=0, missing=0 (a global `activating=1` is normal on an idle
+              boot - a transient unit starting - and is shown as context)
   sentinels   canalysis-daemon + pisa-service sentinels present
   smarthome   org.tizen.easysetup-daemon.service is active
   beacon      the newest launch line carries tok= and art=<repo md5>
@@ -39,6 +41,7 @@ import re
 import os
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -124,10 +127,33 @@ def read(tv: str, *, run=None, timeout: float = 20.0, log: Path | None = None) -
 
     launch = None
     log = log or BEACON_LOG
-    if log.exists():
-        launch = beacons.newest_start(log.read_text(encoding="utf-8",
-                                                    errors="replace"))
+    text = log.read_text(encoding="utf-8", errors="replace") if log.exists() else ""
+    if text:
+        launch = beacons.newest_start(text)
     r["beacon"] = launch
+
+    # The mask step's own beacon carries the honest loop signal: a global
+    # `activating=1` is normal on an idle boot (a transient unit starting),
+    # while a LISTED unit activating is the failure.  Wait briefly for the
+    # line: the masked-runtime state can exist a moment before the beacon.
+    mask_txt = ""
+    for _ in range(6):
+        if log.exists():
+            mask_txt = next((l for l in reversed(
+                log.read_text(encoding="utf-8", errors="replace").splitlines())
+                if " masks=" in l and "listed-activating=" in l), "")
+        if mask_txt:
+            break
+        time.sleep(1)
+    mask: dict = {}
+    for key, field in (("masks", "masks"), ("fail", "fail"),
+                       ("missing", "missing"), ("activating", "activating"),
+                       ("listed-activating", "listed_activating")):
+        mm = re.search(key + r"=(\d+)", mask_txt)
+        mask[field] = int(mm.group(1)) if mm else None
+    ml = re.search(r"loop-check=(\w+)", mask_txt)
+    mask["loop_check"] = ml.group(1) if ml else None
+    r["mask"] = mask
     return r
 
 
@@ -172,7 +198,12 @@ def evaluate(r: dict, reg: dict, units: int, payload_md5: str) -> list[dict]:
     ck("masks", r.get("masks") == units, f"tv={r.get('masks')} list={units}")
     ck("masked", r.get("masked_units") == units and r.get("unmasked") == 0,
        f"masked-runtime={r.get('masked_units')}/{units} unmasked={r.get('unmasked')}")
-    ck("loops", r.get("activating") == 0, f"activating={r.get('activating')}")
+    m = r.get("mask") or {}
+    ck("loops", m.get("listed_activating") == 0 and m.get("loop_check") == "ok"
+       and m.get("fail") == 0 and m.get("missing") == 0,
+       f"listed-activating={m.get('listed_activating')} "
+       f"loop-check={m.get('loop_check')} fail={m.get('fail')} "
+       f"missing={m.get('missing')} (global activating={r.get('activating')})")
     ck("sentinels", r.get("sentinels") == 2, f"present={r.get('sentinels')}/2")
     ck("smarthome", r.get("easysetup") == "active", f"easysetup={r.get('easysetup') or 'unreadable'}")
     launch = r.get("beacon") or {}

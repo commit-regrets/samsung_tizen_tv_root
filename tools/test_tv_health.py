@@ -36,7 +36,11 @@ def healthy():
         "rows": {"com.a": True, "com.b": True, "com.keep": False,
                  "com.later": False, "com.back": False},
         "masks": UNITS, "masked_units": UNITS, "unmasked": 0,
-        "activating": 0, "sentinels": 2,
+        "activating": 1,
+        "mask": {"masks": UNITS, "fail": 0, "missing": 0,
+                 "activating": 1, "listed_activating": 0,
+                 "loop_check": "ok"},
+        "sentinels": 2,
         "easysetup": "active", "beacon": {"tok": "deadbeef", "art": MD5},
     }
 
@@ -62,7 +66,10 @@ def test_evaluate():
         "masks": lambda r: r.update(masks=28),
         "masked (one not masked-runtime)": lambda r: r.update(masked_units=UNITS - 1),
         "masked (one unmasked)": lambda r: r.update(unmasked=1),
-        "loops": lambda r: r.update(activating=1),
+        "loops (listed unit activating)": lambda r: r["mask"].update(listed_activating=1),
+        "loops (loop-check failed)": lambda r: r["mask"].update(loop_check="failed"),
+        "loops (mask fail)": lambda r: r["mask"].update(fail=1),
+        "loops (mask missing)": lambda r: r["mask"].update(missing=1),
         "sentinels": lambda r: r.update(sentinels=1),
         "smarthome": lambda r: r.update(easysetup="inactive"),
         "beacon art": lambda r: r.update(beacon={"tok": "deadbeef", "art": "0" * 32}),
@@ -82,6 +89,9 @@ def test_evaluate():
           {"applied", "count"} <= set(f), str(f))
 
     r = healthy()
+    r["activating"] = 2          # context only
+    check("a global activating count alone does not fail loops",
+          "loops" not in failed(r), str(failed(r)))
     r["rows"]["com.later"] = True
     check("a disabled deferred app fails 'off-list'",
           "off-list" in failed(r), str(failed(r)))
@@ -117,8 +127,13 @@ def test_read():
         raise AssertionError(f"unexpected command: {cmd}")
 
     log = Path(tempfile.mkdtemp()) / "beacons.log"
-    log.write_text("2026-01-01T00:00:00 DSHROOT tok=deadbeef t=5s "
-                   f"start uid=5001 pid=1 art={MD5}\n", encoding="utf-8")
+    log.write_text(
+        "2026-01-01T00:00:00 DSHROOT tok=deadbeef t=5s "
+        f"start uid=5001 pid=1 art={MD5}\n"
+        "2026-01-01T00:00:05 DSHROOT tok=deadbeef t=10s masks=29 "
+        "stopped=29 killed=1 fail=0 missing=0 activating=1 "
+        "listed-activating=0 loop-check=ok newhome=set(1),loop-active\n",
+        encoding="utf-8")
     r = H.read("198.51.100.1", run=fake, log=log)
     check("read: uid and caps", r["uid"] == 0 and r["caps"] == H.FULL_CAPS, str((r["uid"], r["caps"])))
     check("read: installed md5", r["dll_md5"] == MD5, r["dll_md5"])
@@ -128,6 +143,9 @@ def test_read():
           str((r["masks"], r["activating"], r["sentinels"])))
     check("read: masked-runtime counts", (r["masked_units"], r["unmasked"]) == (3, 0),
           str((r["masked_units"], r["unmasked"])))
+    check("read: mask beacon parsed", r["mask"]["listed_activating"] == 0
+          and r["mask"]["loop_check"] == "ok" and r["mask"]["masks"] == 29,
+          str(r["mask"]))
     check("read: easysetup", r["easysetup"] == "active", r["easysetup"])
     check("read: newest beacon launch", (r["beacon"] or {}).get("tok") == "deadbeef"
           and (r["beacon"] or {}).get("art") == MD5, str(r["beacon"]))

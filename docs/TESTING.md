@@ -280,7 +280,9 @@ command per fact, then a pure comparison:
 - **masked** — every unit in the payload's own list answers `is-enabled` =
   `masked-runtime` (one batched call; the list has comment lines, filtered;
   it polls up to 5 s because the boot payload re-asserts the masks);
-- **loops** — no unit is `activating`;
+- **loops** — the newest mask beacon says `listed-activating=0`, `loop-check=ok`,
+  `fail=0`, `missing=0`; a global `activating=1` is normal on an idle boot (a
+  transient unit starting) and is reported as context, not a failure;
 - **sentinels** — both vendor sentinels present;
 - **smarthome** — `org.tizen.easysetup-daemon.service` active;
 - **beacon** — the newest launch line in `beacons.log` carries `tok=` and

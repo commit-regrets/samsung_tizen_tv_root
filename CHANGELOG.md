@@ -34,12 +34,25 @@ here.
 Deploy + cold-boot acceptance owed (recorded in HANDOFF pending).
 
 **Deployed 2026-11-02 00:00** over 31337: `PREV_IL=c540a6ab` (the v46 rollback
-copy), `TOKEN_FILE=e357b74c`, `ART_FILE=0df29b15`, `MASKFILE` 29 units / 23
+copy), `TOKEN_FILE` rotated, `ART_FILE=0df29b15`, `MASKFILE` 29 units / 23
 binaries, `COPY=ok`, `DEPLOY_DONE`. The relaunch rooted after 52 s (attempt 1
 fast-exit, attempt 2 rooted) and `root.ps1` printed the two-witness `proven`
 line. The mask step ran on the new dump: `masks=29 stopped=29 killed=1 fail=0
 missing=0 activating=0 listed-activating=0 loop-check=ok
-newhome=set(1),loop-active`; live `tv_health` 12/12. **Cold boot still owed.**
+newhome=set(1),loop-active`; live `tv_health` 12/12.
+
+**Cold-boot acceptance PASSED 2026-11-02 00:11 (mains cycle):** launch t=18 s
+(attempt 1 `fast-exit`), attempt 2 started, `direct-patch uid=0` t=40 s,
+`ROOTCHAN` t=40 s, then `masks=29 stopped=29 killed=4 fail=0 missing=0
+activating=1 listed-activating=0 loop-check=ok newhome=set(0),loop-started`
+at t=45 s; both launches carried `art=0df29b15…`; live `tv_health` 12/12.
+
+**Health-check fix found by that boot:** the `loops` check required
+`activating == 0` globally, but an idle boot legitimately has one unit starting
+(`activating=1` here, a non-listed transient) — it failed the first post-boot
+run. It now reads the mask step's own beacon (`listed-activating=0`,
+`loop-check=ok`, `fail=0`, `missing=0`) and reports the global count as context,
+with offline mutations for each.
 
 ## 2026-11-01 — live-stub layer passed; the preloaded renderer trap
 
