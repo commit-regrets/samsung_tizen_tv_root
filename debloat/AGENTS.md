@@ -114,6 +114,15 @@ All TV reads/writes go through that channel (PC-side helpers:
   just not this outage's cause).
   **Rule:** every mask-list addition needs the q3deps gate run *before* the
   add (the multiscreen entry went in without one; it was removed again).
+  **Rule: the decision ledger is `registry.tsv`** (2026-11-01) - one row per
+  id with `status` (applied / deferred / never / reverted / rejected), reason,
+  evidence, date and owner.  The list files stay the apply/undo input and
+  `apply.sh` keeps its runtime DENY, but every decision must also have a row:
+  `tools/test_debloat.py` asserts all three agree (applied == the four lists,
+  deferred == tier2b, DENY ⊆ never, reverted recorded, no id twice).  Before
+  this existed the same fact lived in 3+ files and drifted twice in one day
+  (tier2b claimed two applied ids were deferred; the README said 24/24 when
+  the lists held 29/23).
   **Open:** tier 2b needs the Control Center layer; batch 2 is applied and
   only its cold boot is owed (2026-11-01); batch 3 is
   voice-only and done; **tcc's five extra service candidates are

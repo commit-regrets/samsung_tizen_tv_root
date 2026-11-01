@@ -1,0 +1,163 @@
+# Debloat decision registry - one row per id, one status per id.
+# This is the single source of truth for 'is X safe?': the list files stay
+# the APPLY/undo input, apply.sh keeps its runtime DENY, and
+# tools/test_debloat.py asserts all three agree with this file.
+#
+# Columns (tab-separated): id, kind(app|unit|binary), status, reason,
+#   evidence, date, source (list file / denylist / live audit), owner.
+# Status:
+#   applied   disabled now; the list named in source undoes it
+#   deferred  not applied; needs Home replacement or an owner decision
+#   never     must not be disabled (breaks a kept feature) - apply.sh refuses
+#   reverted  was disabled, then re-enabled (kept here with the reason)
+#   rejected  considered and dropped; do not re-propose without new evidence
+# Note: the sharing batch was 16 ids; com.samsung.tv.multiscreen is one of
+# them and is recorded as deferred (tier2b) - one row per id.
+# Regenerate/verify: python tools/test_debloat.py (the registry layer).
+adplatform.ADPlayer	app	applied	tracking/ads (Vetro tracking role, standalone-safe)	list:tier1-tracking.txt	2026-10-29	
+com.samsung.ep-plateau-agent	app	applied	commercial/hotel/factory (role=unused, ~0 idle RSS)	list:batch2-commercial.txt	2026-11-01	owner: batch 2 approved 2026-11-01
+com.samsung.ep-plateau-agent-service	app	applied	commercial/hotel/factory (role=unused, ~0 idle RSS)	list:batch2-commercial.txt	2026-11-01	owner: batch 2 approved 2026-11-01
+com.samsung.ep-plateau-info	app	applied	commercial/hotel/factory (role=unused, ~0 idle RSS)	list:batch2-commercial.txt	2026-11-01	owner: batch 2 approved 2026-11-01
+com.samsung.ep-tbmapp-launcher	app	applied	commercial/hotel/factory (role=unused, ~0 idle RSS)	list:batch2-commercial.txt	2026-11-01	owner: batch 2 approved 2026-11-01
+com.samsung.ep.coba.hotel	app	applied	commercial/hotel/factory (role=unused, ~0 idle RSS)	list:batch2-commercial.txt	2026-11-01	owner: batch 2 approved 2026-11-01
+com.samsung.ep.hotel-popup	app	applied	commercial/hotel/factory (role=unused, ~0 idle RSS)	list:batch2-commercial.txt	2026-11-01	owner: batch 2 approved 2026-11-01
+com.samsung.ep.hotel-quicksetting-editor	app	applied	commercial/hotel/factory (role=unused, ~0 idle RSS)	list:batch2-commercial.txt	2026-11-01	owner: batch 2 approved 2026-11-01
+com.samsung.hitcomp	app	applied	commercial/hotel/factory (role=unused, ~0 idle RSS)	list:batch2-commercial.txt	2026-11-01	owner: batch 2 approved 2026-11-01
+com.samsung.tv.ad-web-framework	app	applied	tracking/ads (Vetro tracking role, standalone-safe)	list:tier1-tracking.txt	2026-10-29	
+com.samsung.tv.adplayer	app	applied	tracking/ads (Vetro tracking role, standalone-safe)	list:tier1-tracking.txt	2026-10-29	
+com.samsung.tv.alexa-fullscreen-app	app	applied	voice area	list:batch3-optional.txt	2026-10-30	owner: voice unused
+com.samsung.tv.ambient-sound	app	applied	optional/ambient, tcc-tested, uncoupled	list:tier2a-tcc-apps.txt	2026-10-29	
+com.samsung.tv.ambientfte	app	applied	optional/ambient, tcc-tested, uncoupled	list:tier2a-tcc-apps.txt	2026-10-29	
+com.samsung.tv.ambientinfo-resources	app	applied	optional/ambient, tcc-tested, uncoupled	list:tier2a-tcc-apps.txt	2026-10-29	
+com.samsung.tv.aov-dashboard	app	applied	voice area	list:batch3-optional.txt	2026-10-30	owner: voice unused
+com.samsung.tv.aov-service	app	applied	voice area	list:batch3-optional.txt	2026-10-30	owner: voice unused
+com.samsung.tv.bixby-context-client	app	applied	voice area	list:batch3-optional.txt	2026-10-30	owner: voice unused
+com.samsung.tv.bixby-prov	app	applied	voice area	list:batch3-optional.txt	2026-10-30	owner: voice unused
+com.samsung.tv.bixbycapsuleviewer	app	applied	voice area	list:batch3-optional.txt	2026-10-30	owner: voice unused
+com.samsung.tv.canalysis-service	app	applied	tracking/ads (Vetro tracking role, standalone-safe)	list:tier1-tracking.txt	2026-10-29	
+com.samsung.tv.cis-api-service-app	app	applied	tracking/ads (Vetro tracking role, standalone-safe)	list:tier1-tracking.txt	2026-10-29	
+com.samsung.tv.coba.plateauhome	app	applied	commercial/hotel/factory (role=unused, ~0 idle RSS)	list:batch2-commercial.txt	2026-11-01	owner: batch 2 approved 2026-11-01
+com.samsung.tv.contents-recognition-dbmgr	app	applied	tracking/ads (Vetro tracking role, standalone-safe)	list:tier1-tracking.txt	2026-10-29	
+com.samsung.tv.demo-player	app	applied	commercial/hotel/factory (role=unused, ~0 idle RSS)	list:batch2-commercial.txt	2026-11-01	owner: batch 2 approved 2026-11-01
+com.samsung.tv.farfieldvoice	app	applied	voice area	list:batch3-optional.txt	2026-10-30	owner: voice unused
+com.samsung.tv.fuzzy-search-engine	app	applied	voice area	list:batch3-optional.txt	2026-10-30	owner: voice unused
+com.samsung.tv.intelligent-action-app	app	applied	voice area	list:batch3-optional.txt	2026-10-30	owner: voice unused
+com.samsung.tv.mybixby	app	applied	voice area	list:batch3-optional.txt	2026-10-30	owner: voice unused
+com.samsung.tv.nvision-analysis-dbmgr	app	applied	tracking/ads (Vetro tracking role, standalone-safe)	list:tier1-tracking.txt	2026-10-29	
+com.samsung.tv.ondevice-voice	app	applied	voice area	list:batch3-optional.txt	2026-10-30	owner: voice unused
+com.samsung.tv.pisa-service	app	applied	tracking/ads (Vetro tracking role, standalone-safe)	list:tier1-tracking.txt	2026-10-29	
+com.samsung.tv.targeted-ad-service	app	applied	tracking/ads (Vetro tracking role, standalone-safe)	list:tier1-tracking.txt	2026-10-29	
+com.samsung.tv.utterance-recommender-app	app	applied	voice area	list:batch3-optional.txt	2026-10-30	owner: voice unused
+com.samsung.tv.vif	app	applied	voice area	list:batch3-optional.txt	2026-10-30	owner: voice unused
+com.samsung.tv.voice-instant-app	app	applied	voice area	list:batch3-optional.txt	2026-10-30	owner: voice unused
+com.samsung.tv.voiceassistant-music	app	applied	voice area	list:batch3-optional.txt	2026-10-30	owner: voice unused
+com.samsung.tv.voiceid-service	app	applied	voice area	list:batch3-optional.txt	2026-10-30	owner: voice unused
+com.samsung.tv.waapp-contents-provider	app	applied	optional/ambient, tcc-tested, uncoupled	list:tier2a-tcc-apps.txt	2026-10-29	
+com.samsung.tv.wakeup-engine-alexa	app	applied	voice area	list:batch3-optional.txt	2026-10-30	owner: voice unused
+com.samsung.tv.wakeup-engine-bixby	app	applied	voice area	list:batch3-optional.txt	2026-10-30	owner: voice unused
+content-grab-service	app	applied	tracking/ads (Vetro tracking role, standalone-safe)	list:tier1-tracking.txt	2026-10-29	
+ep-hotel-protocol	app	applied	commercial/hotel/factory (role=unused, ~0 idle RSS)	list:batch2-commercial.txt	2026-11-01	owner: batch 2 approved 2026-11-01
+ep-log-manager	app	applied	commercial/hotel/factory (role=unused, ~0 idle RSS)	list:batch2-commercial.txt	2026-11-01	owner: batch 2 approved 2026-11-01
+org.tizen.AgingApp	app	applied	commercial/hotel/factory (role=unused, ~0 idle RSS)	list:batch2-commercial.txt	2026-11-01	owner: batch 2 approved 2026-11-01
+org.tizen.UsbSyncDisplay	app	applied	commercial/hotel/factory (role=unused, ~0 idle RSS)	list:batch2-commercial.txt	2026-11-01	owner: batch 2 approved 2026-11-01
+org.tizen.automation-alert	app	applied	commercial/hotel/factory (role=unused, ~0 idle RSS)	list:batch2-commercial.txt	2026-11-01	owner: batch 2 approved 2026-11-01
+org.tizen.automation-app	app	applied	commercial/hotel/factory (role=unused, ~0 idle RSS)	list:batch2-commercial.txt	2026-11-01	owner: batch 2 approved 2026-11-01
+org.tizen.automation-viewer	app	applied	commercial/hotel/factory (role=unused, ~0 idle RSS)	list:batch2-commercial.txt	2026-11-01	owner: batch 2 approved 2026-11-01
+org.tizen.cloning	app	applied	commercial/hotel/factory (role=unused, ~0 idle RSS)	list:batch2-commercial.txt	2026-11-01	owner: batch 2 approved 2026-11-01
+org.tizen.ep-hotel-alarm	app	applied	commercial/hotel/factory (role=unused, ~0 idle RSS)	list:batch2-commercial.txt	2026-11-01	owner: batch 2 approved 2026-11-01
+org.tizen.ep-hotel-channellist	app	applied	commercial/hotel/factory (role=unused, ~0 idle RSS)	list:batch2-commercial.txt	2026-11-01	owner: batch 2 approved 2026-11-01
+org.tizen.ep-hotel-popup-ui	app	applied	commercial/hotel/factory (role=unused, ~0 idle RSS)	list:batch2-commercial.txt	2026-11-01	owner: batch 2 approved 2026-11-01
+org.tizen.ep-hotel-protocolui	app	applied	commercial/hotel/factory (role=unused, ~0 idle RSS)	list:batch2-commercial.txt	2026-11-01	owner: batch 2 approved 2026-11-01
+org.tizen.ep-hotel-security	app	applied	commercial/hotel/factory (role=unused, ~0 idle RSS)	list:batch2-commercial.txt	2026-11-01	owner: batch 2 approved 2026-11-01
+org.tizen.ep-system-manager	app	applied	commercial/hotel/factory (role=unused, ~0 idle RSS)	list:batch2-commercial.txt	2026-11-01	owner: batch 2 approved 2026-11-01
+org.tizen.ephotel-cloning	app	applied	commercial/hotel/factory (role=unused, ~0 idle RSS)	list:batch2-commercial.txt	2026-11-01	owner: batch 2 approved 2026-11-01
+org.tizen.factory-analysis-viewer	app	applied	commercial/hotel/factory (role=unused, ~0 idle RSS)	list:batch2-commercial.txt	2026-11-01	owner: batch 2 approved 2026-11-01
+org.tizen.multi-assistant-service	app	applied	optional/ambient, tcc-tested, uncoupled	list:tier2a-tcc-apps.txt	2026-10-29	
+org.tizen.remote-service-logging-debug-menu	app	applied	commercial/hotel/factory (role=unused, ~0 idle RSS)	list:batch2-commercial.txt	2026-11-01	owner: batch 2 approved 2026-11-01
+org.tizen.rscm-screensaver	app	applied	commercial/hotel/factory (role=unused, ~0 idle RSS)	list:batch2-commercial.txt	2026-11-01	owner: batch 2 approved 2026-11-01
+org.tizen.tts-download-ui	app	applied	voice area	list:batch3-optional.txt	2026-10-30	owner: voice unused
+org.tizen.voice-app	app	applied	voice area	list:batch3-optional.txt	2026-10-30	owner: voice unused
+org.tizen.voice-client	app	applied	voice area	list:batch3-optional.txt	2026-10-30	owner: voice unused
+org.tizen.voice-onboarding	app	applied	voice area	list:batch3-optional.txt	2026-10-30	owner: voice unused
+org.tizen.widget_viewer_sdk	app	applied	commercial/hotel/factory (role=unused, ~0 idle RSS)	list:batch2-commercial.txt	2026-11-01	owner: batch 2 approved 2026-11-01
+HEPsqFNie0.tvplusstandalone	app	deferred	tcc keep/coupled [role=keep]	list:tier2b-home-dependent.txt	2026-10-29	needs Home replacement or owner acceptance
+com.samsung.tizen.mcf-agent	app	deferred	tcc keep/coupled [role=keep]	list:tier2b-home-dependent.txt	2026-10-29	needs Home replacement or owner acceptance
+com.samsung.tv.contentservicemanager	app	deferred	tcc keep/coupled [role=keep]	list:tier2b-home-dependent.txt	2026-10-29	needs Home replacement or owner acceptance
+com.samsung.tv.gamehome	app	deferred	tcc keep/coupled [role=keep]	list:tier2b-home-dependent.txt	2026-10-29	needs Home replacement or owner acceptance
+com.samsung.tv.gamepadguide	app	deferred	tcc keep/coupled [role=keep]	list:tier2b-home-dependent.txt	2026-10-29	needs Home replacement or owner acceptance
+com.samsung.tv.gaminghub	app	deferred	tcc keep/coupled [role=keep]	list:tier2b-home-dependent.txt	2026-10-29	needs Home replacement or owner acceptance
+com.samsung.tv.health-mde-service	app	deferred	tcc keep/coupled [role=keep]	list:tier2b-home-dependent.txt	2026-10-29	needs Home replacement or owner acceptance
+com.samsung.tv.health-mde-setting	app	deferred	tcc keep/coupled [role=keep]	list:tier2b-home-dependent.txt	2026-10-29	needs Home replacement or owner acceptance
+com.samsung.tv.health-mde-workout-tracker	app	deferred	tcc keep/coupled [role=keep]	list:tier2b-home-dependent.txt	2026-10-29	needs Home replacement or owner acceptance
+com.samsung.tv.home.art	app	deferred	tcc keep/coupled [role=keep]	list:tier2b-home-dependent.txt	2026-10-29	needs Home replacement or owner acceptance
+com.samsung.tv.home.game	app	deferred	tcc keep/coupled [role=keep]	list:tier2b-home-dependent.txt	2026-10-29	needs Home replacement or owner acceptance
+com.samsung.tv.home.media	app	deferred	tcc keep/coupled [role=keep]	list:tier2b-home-dependent.txt	2026-10-29	needs Home replacement or owner acceptance
+com.samsung.tv.lifeplus	app	deferred	tcc keep/coupled [role=keep]	list:tier2b-home-dependent.txt	2026-10-29	needs Home replacement or owner acceptance
+com.samsung.tv.multiscreen	app	deferred	tcc keep/coupled [role=optional, coupled: com.samsung.tv.slive-daemon,com.samsung.tv.tvplus]	list:tier2b-home-dependent.txt	2026-10-29	needs Home replacement or owner acceptance
+com.samsung.tv.preview-updater	app	deferred	tcc keep/coupled [role=keep]	list:tier2b-home-dependent.txt	2026-10-29	needs Home replacement or owner acceptance
+com.samsung.tv.tap-service-agent	app	deferred	tcc keep/coupled [role=keep]	list:tier2b-home-dependent.txt	2026-10-29	needs Home replacement or owner acceptance
+com.samsung.tv.tap-service-agent-ui	app	deferred	tcc keep/coupled [role=keep]	list:tier2b-home-dependent.txt	2026-10-29	needs Home replacement or owner acceptance
+com.samsung.tv.tvplus	app	deferred	tcc keep/coupled [role=keep]	list:tier2b-home-dependent.txt	2026-10-29	needs Home replacement or owner acceptance
+org.tizen.art-app	app	deferred	tcc keep/coupled [role=optional, coupled: org.tizen.AVControl,org.tizen.epg]	list:tier2b-home-dependent.txt	2026-10-29	needs Home replacement or owner acceptance
+org.tizen.hbbtv	app	deferred	tcc keep/coupled [role=keep]	list:tier2b-home-dependent.txt	2026-10-29	needs Home replacement or owner acceptance
+rscmgr-service	binary	deferred	retail service, not covered by an app disable; q3deps-gated follow-up	live audit 2026-11-01 (pid 619)	2026-11-01	
+com.samsung.tizen.samsung-analytics	app	never	SES privilege provider for smartthings-client	apply.sh DENY	2026-10-29	
+com.samsung.tizen.smartthings-client	app	never	SmartThings phone control	apply.sh DENY	2026-10-29	
+com.samsung.tizen.smartthings-thing	app	never	SmartThings phone control	apply.sh DENY	2026-10-29	
+com.samsung.tv.MultiControl-Service	app	never	payload host (the root channel lives here)	apply.sh DENY	2026-10-29	
+com.samsung.tv.coba.adagent	app	never	Smart Hub dependency (ResourceAdvertise); Vetro 0.3.5 protects it	apply.sh DENY	2026-10-29	
+com.samsung.tv.coba.privacy_app	app	never	privacy-choice UI	apply.sh DENY	2026-10-29	
+com.samsung.tv.home.sidebar	app	never	Home sidebar	apply.sh DENY	2026-10-29	
+com.samsung.tv.mde-framework	app	never	SmartThings dependency	apply.sh DENY	2026-10-29	
+com.samsung.tv.screen-analysis-dbmgr	app	never	picture-processing breakage (tcc-measured)	apply.sh DENY	2026-10-29	
+com.samsung.tv.smartthingsfind-daemon	app	never	SmartThings phone control	apply.sh DENY	2026-10-29	
+com.samsung.tv.tvsensor-iot-service	app	never	SmartThings dependency	apply.sh DENY	2026-10-29	
+org.tizen.easysetup-daemon	app	never	phone-confirmed: this disable flips SmartThings offline	apply.sh DENY	2026-10-29	
+org.tizen.menu	app	never	Home / menu	apply.sh DENY	2026-10-29	
+tv6pbVMQFF	app	never	privacy-choice UI	apply.sh DENY	2026-10-29	
+unified-drm-KnoxVault-PontusM	app	never	DRM / playback path	apply.sh pattern unified-drm-*	2026-10-29	
+unified-drm-Nagsam-PontusM	app	never	DRM / playback path	apply.sh pattern unified-drm-*	2026-10-29	
+unified-drm-ReporterTA-PontusM	app	never	DRM / playback path	apply.sh pattern unified-drm-*	2026-10-29	
+unified-drm-WidevineCdm-PontusM	app	never	DRM / playback path	apply.sh pattern unified-drm-*	2026-10-29	
+unified-drm-WidevineClassic-PontusM	app	never	DRM / playback path	apply.sh pattern unified-drm-*	2026-10-29	
+unified-drm-atsc-PontusM	app	never	DRM / playback path	apply.sh pattern unified-drm-*	2026-10-29	
+unified-drm-atsc3us-cdm-PontusM	app	never	DRM / playback path	apply.sh pattern unified-drm-*	2026-10-29	
+unified-drm-fkp-PontusM	app	never	DRM / playback path	apply.sh pattern unified-drm-*	2026-10-29	
+unified-drm-fps	app	never	DRM / playback path	apply.sh pattern unified-drm-*	2026-10-29	
+unified-drm-hdcp-PontusM	app	never	DRM / playback path	apply.sh pattern unified-drm-*	2026-10-29	
+unified-drm-playready-PontusM	app	never	DRM / playback path	apply.sh pattern unified-drm-*	2026-10-29	
+unified-drm-tvp-PontusM	app	never	DRM / playback path	apply.sh pattern unified-drm-*	2026-10-29	
+unified-drm-wallet-keystore-PontusM	app	never	DRM / playback path	apply.sh pattern unified-drm-*	2026-10-29	
+vetrotvapp	app	never	Vetro itself	apply.sh DENY	2026-10-29	
+bluetooth-monitor.service	unit	never	boot-time BT re-activator; owner: Bluetooth must keep working	services-units.txt comment / AGENTS	2026-10-30	
+org.tizen.easysetup-daemon.service	unit	never	masking the unit stops the same daemon (phone-confirmed)	services-units.txt comment / AGENTS	2026-10-30	
+p2p-asm.service	unit	never	SmartThings / device-registration path	services-units.txt comment / AGENTS	2026-10-30	
+pushd.service	unit	never	SmartThings / device-registration path	services-units.txt comment / AGENTS	2026-10-30	
+pushd.socket	unit	never	SmartThings / device-registration path	services-units.txt comment / AGENTS	2026-10-30	
+register-device.service	unit	never	SmartThings / device-registration path	services-units.txt comment / AGENTS	2026-10-30	
+bt-monitor	binary	never	owner: Bluetooth must keep working (~5.8 MB not worth the experiment)	services-bind.txt comment / AGENTS	2026-10-30	
+p2p-asm	binary	never	SmartThings / device-registration path	services-bind.txt comment / AGENTS	2026-10-30	
+pushd	binary	never	SmartThings / device-registration path	services-bind.txt comment / AGENTS	2026-10-30	
+register-device	binary	never	SmartThings / device-registration path	services-bind.txt comment / AGENTS	2026-10-30	
+com.samsung.tv.airplay-app-2	app	reverted	sharing batch reverted 2026-10-30 (SmartThings test; real cause easysetup) - kept enabled as prudence	batch3-optional.txt comment	2026-10-30	re-add only with a phone test
+com.samsung.tv.coba.multiscreen	app	reverted	sharing batch reverted 2026-10-30 (SmartThings test; real cause easysetup) - kept enabled as prudence	batch3-optional.txt comment	2026-10-30	re-add only with a phone test
+com.samsung.tv.coba.mvcontents	app	reverted	sharing batch reverted 2026-10-30 (SmartThings test; real cause easysetup) - kept enabled as prudence	batch3-optional.txt comment	2026-10-30	re-add only with a phone test
+com.samsung.tv.coba.mvicon	app	reverted	sharing batch reverted 2026-10-30 (SmartThings test; real cause easysetup) - kept enabled as prudence	batch3-optional.txt comment	2026-10-30	re-add only with a phone test
+com.samsung.tv.coba.mviotcamera	app	reverted	sharing batch reverted 2026-10-30 (SmartThings test; real cause easysetup) - kept enabled as prudence	batch3-optional.txt comment	2026-10-30	re-add only with a phone test
+com.samsung.tv.coba.mvmobile	app	reverted	sharing batch reverted 2026-10-30 (SmartThings test; real cause easysetup) - kept enabled as prudence	batch3-optional.txt comment	2026-10-30	re-add only with a phone test
+com.samsung.tv.coba.remoteworkspace	app	reverted	sharing batch reverted 2026-10-30 (SmartThings test; real cause easysetup) - kept enabled as prudence	batch3-optional.txt comment	2026-10-30	re-add only with a phone test
+com.samsung.tv.coba.usbcam	app	reverted	sharing batch reverted 2026-10-30 (SmartThings test; real cause easysetup) - kept enabled as prudence	batch3-optional.txt comment	2026-10-30	re-add only with a phone test
+com.samsung.tv.coss.provider.d2d	app	reverted	sharing batch reverted 2026-10-30 (SmartThings test; real cause easysetup) - kept enabled as prudence	batch3-optional.txt comment	2026-10-30	re-add only with a phone test
+com.samsung.tv.multiview-bluetooth-audio	app	reverted	sharing batch reverted 2026-10-30 (SmartThings test; real cause easysetup) - kept enabled as prudence	batch3-optional.txt comment	2026-10-30	re-add only with a phone test
+com.samsung.tv.multiviewsetupapp	app	reverted	sharing batch reverted 2026-10-30 (SmartThings test; real cause easysetup) - kept enabled as prudence	batch3-optional.txt comment	2026-10-30	re-add only with a phone test
+com.samsung.tv.remoteapp	app	reverted	sharing batch reverted 2026-10-30 (SmartThings test; real cause easysetup) - kept enabled as prudence	batch3-optional.txt comment	2026-10-30	re-add only with a phone test
+org.tizen.SMSourceAPP	app	reverted	sharing batch reverted 2026-10-30 (SmartThings test; real cause easysetup) - kept enabled as prudence	batch3-optional.txt comment	2026-10-30	re-add only with a phone test
+org.tizen.ScreenMirroring-app-tv	app	reverted	sharing batch reverted 2026-10-30 (SmartThings test; real cause easysetup) - kept enabled as prudence	batch3-optional.txt comment	2026-10-30	re-add only with a phone test
+org.tizen.remotepc	app	reverted	sharing batch reverted 2026-10-30 (SmartThings test; real cause easysetup) - kept enabled as prudence	batch3-optional.txt comment	2026-10-30	re-add only with a phone test
+com.samsung.tv.multiscreen.service	unit	reverted	mask added with the sharing batch, removed when the app was re-enabled (app_launcher -r succeeds)	services-units.txt comment	2026-10-30	
+org.tizen.iacr	app	rejected	coupling unknown; absent from tcc's tested list - review before disabling	debloat/AGENTS.md / resource-math	2026-10-30	
+mcf-agent-service	unit	rejected	app-launcher target for mcf-agent, inactive (PSS measured 2026-10-30)	debloat/AGENTS.md / resource-math	2026-10-30	
+slive-provider-daemon	unit	rejected	PSS 1.77 MB; TV Plus / content path	debloat/AGENTS.md / resource-math	2026-10-30	
+screen_sharing	binary	rejected	PSS 1.01 MB; not worth touching	debloat/AGENTS.md / resource-math	2026-10-30	
+user-presence	binary	rejected	PSS 0.49 MB; not worth touching	debloat/AGENTS.md / resource-math	2026-10-30	
+wifi_state_manager	binary	rejected	PSS 0.08 MB; the root channel depends on the network	debloat/AGENTS.md / resource-math	2026-10-30	

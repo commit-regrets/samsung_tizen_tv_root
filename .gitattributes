@@ -29,3 +29,6 @@
 # tools/embed_physrpc.py --check and build_physrpc.py --check-embedded
 *.bin          binary
 *.txt          text eol=lf
+# the debloat decision ledger: tab-separated, read by Python and by cut/awk;
+# a CR at line end would ride along in the last field on a Windows checkout
+*.tsv           text eol=lf

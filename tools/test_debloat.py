@@ -31,7 +31,12 @@ not output text:
     exe is the listed /usr/bin binary (POSIX only - /proc + readlink);
   * whitespace-only list lines are skipped everywhere;
   * every committed list file contains bare ids only, never a denylist
-    entry, and the unit count matches the documented number.
+    entry, and the unit count matches the documented number;
+  * the decision ledger `debloat/registry.tsv` agrees with all of them:
+    applied == the four applied lists (disjoint), deferred == tier2b,
+    every `apply.sh` DENY id is `never` (the rest of `never` is the
+    `unified-drm-*` glob), the phone-path/easysetup/BT ids are `never`,
+    reverted ids are recorded and no id carries two statuses.
 
 Needs `sh` (Git Bash is found even when it is not on PATH); skips (exit 77)
 only where no sh exists at all.
@@ -907,7 +912,88 @@ def main() -> int:
           and "com.samsung.tv.airplay-app-2" not in b3
           and "REVERTED 2026-10-30" in b3_txt)
 
-    # 10. merge determinism: regenerating the inventory from the committed
+    # 10. the decision registry: debloat/registry.tsv must agree with the
+    # list files (applied), tier2b (deferred), apply.sh (never) and the
+    # documented reverted/rejected decisions.  This is the check that stops
+    # the three kinds of list from drifting apart - the 2026-11-01 pass found
+    # tier2b still calling two batch-3 ids "deferred" while they were disabled.
+    reg_rows = []
+    for i, line in enumerate((DEB / "registry.tsv").read_text(encoding="utf-8").splitlines(), 1):
+        if not line.strip() or line.startswith("#"):
+            continue
+        reg_rows.append((i, line.split("\t")))
+    check("registry: every data row has 7 tab-separated columns",
+          all(len(f) == 7 for _, f in reg_rows),
+          str([i for i, f in reg_rows if len(f) != 7]))
+    reg_kinds = {f[1] for _, f in reg_rows}
+    reg_statuses = {f[2] for _, f in reg_rows}
+    check("registry: kinds and statuses are from the fixed vocabularies",
+          reg_kinds <= {"app", "unit", "binary"}
+          and reg_statuses <= {"applied", "deferred", "never", "reverted", "rejected"},
+          f"{sorted(reg_kinds)} {sorted(reg_statuses)}")
+    check("registry: dates are YYYY-MM-DD",
+          all(re.fullmatch(r"\d{4}-\d{2}-\d{2}", f[5]) for _, f in reg_rows))
+    reg_ids = [f[0] for _, f in reg_rows]
+    check("registry: one row per id (no id with two statuses)",
+          len(reg_ids) == len(set(reg_ids)),
+          str(sorted({x for x in reg_ids if reg_ids.count(x) > 1})[:5]))
+
+    def reg_set(status, kind="app"):
+        return {f[0] for _, f in reg_rows if f[2] == status and f[1] == kind}
+
+    applied_per_list = {}
+    for name in ("tier1-tracking.txt", "tier2a-tcc-apps.txt",
+                 "batch3-optional.txt", "batch2-commercial.txt"):
+        applied_per_list[name] = [
+            l.strip() for l in
+            (DEB / "lists" / name).read_text(encoding="utf-8").splitlines()
+            if l.strip() and not l.strip().startswith("#")]
+    applied_all = set().union(*(set(v) for v in applied_per_list.values()))
+    check("registry: applied apps == the four applied lists",
+          reg_set("applied") == applied_all,
+          str(sorted(reg_set("applied") ^ applied_all))[:200])
+    check("registry: the four applied lists do not overlap",
+          sum(len(v) for v in applied_per_list.values()) == len(applied_all))
+
+    t2b_entries = set()
+    for line in (DEB / "lists" / "tier2b-home-dependent.txt").read_text(encoding="utf-8").splitlines():
+        m = re.match(r"#\s*([A-Za-z0-9@._-]+)\s*\[", line.strip())
+        if m:
+            t2b_entries.add(m.group(1))
+    check("registry: deferred apps == tier2b (the two APPLIED-marked ids excluded)",
+          reg_set("deferred") == t2b_entries,
+          str(sorted(reg_set("deferred") ^ t2b_entries))[:200])
+
+    deny_src = set(re.search(r'DENY="([^"]*)"',
+                             (DEB / "tools" / "apply.sh").read_text(encoding="utf-8"),
+                             re.S).group(1).split())
+    never_apps = reg_set("never")
+    check("registry: every apply.sh DENY id has a never row",
+          deny_src <= never_apps, str(sorted(deny_src - never_apps)))
+    reg_rest = never_apps - deny_src
+    check("registry: the remaining never apps are the DRM ids (pattern-guarded)",
+          bool(reg_rest) and all(i.startswith("unified-drm-") for i in reg_rest),
+          str(sorted(reg_rest)))
+    check("registry: the phone-path units and binaries are never",
+          set(PHONE_UNITS) <= reg_set("never", "unit")
+          and set(PHONE_BINS) <= reg_set("never", "binary"),
+          str(sorted(set(PHONE_UNITS) - reg_set("never", "unit"))))
+    check("registry: easysetup and bluetooth units are never",
+          {"org.tizen.easysetup-daemon.service", "bluetooth-monitor.service"}
+          <= reg_set("never", "unit"))
+    reverted = reg_set("reverted")
+    check("registry: every reverted app is recorded in batch3-optional.txt",
+          all(i in b3_txt for i in reverted),
+          str([i for i in reverted if i not in b3_txt]))
+    check("registry: reverted apps are not in an applied list",
+          not (reverted & applied_all))
+    check("registry: multiscreen is deferred, not reverted (one row per id)",
+          "com.samsung.tv.multiscreen" in reg_set("deferred")
+          and "com.samsung.tv.multiscreen" not in reverted)
+    check("registry: no applied id is also never",
+          not (reg_set("applied") & never_apps))
+
+    # 11. merge determinism: regenerating the inventory from the committed
     # registry dump must reproduce it EXCEPT the two documented manual
     # overrides (iacr, screen-analysis-dbmgr) - anything else is catalog
     # drift (the exact bug class the Vetro PR #44 reclassification exposed).

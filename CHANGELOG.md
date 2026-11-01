@@ -15,6 +15,38 @@ entry is an incomplete change. `AGENTS.md` repeats this rule for agents.
 
 ---
 
+## 2026-11-01 — debloat: the decision registry (`registry.tsv`) + its gate
+
+The status of a package lived in three places that could disagree: the list
+files (applied), `tier2b-home-dependent.txt` (deferred) and `apply.sh`'s `DENY`
+(never). They did disagree — this evening tier2b still called
+`aov-dashboard`/`voice-app` "deferred" while both were disabled since batch 3,
+and the README still said "24 units / 24 binaries" when the lists held 29 / 23.
+
+`debloat/registry.tsv` is now the decision ledger: one row per id
+(app/unit/binary), one status per id — `applied`, `deferred`, `never`,
+`reverted`, `rejected` — with reason, evidence (the list/denylist/live audit),
+date and owner. 147 rows: 66 applied + 20 deferred + 38 never (15 denylist +
+13 DRM via the glob + 6 units + 4 binaries) + 16 reverted + 6 rejected + 1
+deferred binary (`rscmgr-service`, the batch-2 leftover).
+
+`tools/test_debloat.py` grew a registry layer (16 checks) that makes the three
+sources agree: applied == the union of the four applied lists (and they are
+disjoint), deferred == the tier2b comment entries (the two APPLIED-marked ones
+excluded), every `DENY` id is `never` and the rest of `never` is the
+`unified-drm-*` glob, the phone-path units/binaries and the
+easysetup/BT units are `never`, every `reverted` id is still recorded in
+batch3, and no id carries two statuses. Mutation-checked: deleting one applied
+row makes the layer fail with the exact diff.
+
+One-role-per-id is deliberate: the sharing batch was 16 ids but
+`com.samsung.tv.multiscreen` is also a tier2b entry, so it is recorded as
+`deferred` (with the reverted batch named in its reason) rather than twice.
+The list files remain the apply/undo input; the registry is the lookup.
+
+Docs: `debloat/README.md` (layout + a "Registry" section with the status
+table), `debloat/AGENTS.md` (the rule), `tools/test_debloat.py` docstring.
+
 ## 2026-11-01 — debloat: batch 2 (commercial/hotel/factory) applied
 
 `debloat/lists/batch2-commercial.txt` (new, 29 ids) went through the discipline:

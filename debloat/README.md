@@ -22,6 +22,10 @@ models/<model>/        per-model inventory + plans + measurements
                        RAM per disable group
 lists/                 owner-choosable disable lists (one app_id per line,
                        # comments, restore runs the same file)
+registry.tsv           one row per debloat DECISION (id, kind, status, reason,
+                       evidence, date, owner) - the single answer to "is X
+                       safe?"; tools/test_debloat.py asserts it agrees with
+                       the lists, tier2b and apply.sh (see "Registry")
 tools/                 merge (registry dump + catalog -> inventory),
                        apply.sh / restore.sh / mask.sh / unmask.sh (TV-side),
                        q3deps.sh (reverse-dependency gate for the unit list)
@@ -161,6 +165,41 @@ picture-settings loop, and fails if a listed unit is still restart-looping.
 - Idle-RSS upper bounds per group are in `models/qnx1d/resource-math.md`
   (baseline, pre-run: sum-of-RSS upper bounds, not freed pages). The
   measured result is the per-process A/B diff in the run logs.
+
+## Registry
+
+`registry.tsv` is the **decision ledger**: one row per id (app, unit or
+binary), one status per id. It exists because the same fact used to live in
+three places that could drift apart - the list files, `tier2b-home-dependent.txt`
+and `apply.sh`'s `DENY`. It did drift: on 2026-11-01 `tier2b` still called two
+batch-3 ids "deferred" while they were disabled, and the README still said
+"24 units / 24 binaries" when the lists held 29 / 23.
+
+Columns (tab-separated): `id`, `kind` (app|unit|binary), `status`, `reason`,
+`evidence`, `date`, `owner`.
+
+| Status | Meaning |
+|---|---|
+| `applied` | disabled now; the list named in `evidence` undoes it (`restore.sh`) |
+| `deferred` | not applied; needs Home replacement (tier2b) or an owner decision |
+| `never` | must not be disabled (breaks something kept); `apply.sh` refuses it |
+| `reverted` | was disabled, then re-enabled - kept with the reason |
+| `rejected` | considered and dropped; do not re-propose without new evidence |
+
+The list files stay the **input** (`apply.sh` / `restore.sh` read them), and
+`apply.sh` keeps its runtime `DENY`. `tools/test_debloat.py` enforces the three
+agree:
+
+- `applied` == the union of the four applied lists, which must not overlap;
+- `deferred` (apps) == the commented entries in `tier2b-home-dependent.txt`;
+- every `DENY` id has a `never` row, and the remaining `never` apps are the
+  `unified-drm-*` ids (the glob guard);
+- phone-path units/binaries and the easysetup/BT units are `never`;
+- every `reverted` id is still recorded in `batch3-optional.txt`, and no id
+  carries two statuses.
+
+Adding a decision means adding a row **and** the list/denylist change; the
+test fails if you do one without the other.
 
 ## Safety
 
