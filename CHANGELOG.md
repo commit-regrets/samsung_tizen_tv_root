@@ -15,6 +15,21 @@ entry is an incomplete change. `AGENTS.md` repeats this rule for agents.
 
 ---
 
+## 2026-11-01 — `docs/HANDOFF.md`: a cold-start page for the next agent
+
+The state of the project was spread across `AGENTS.md` (state, procedures,
+traps), `docs/OPEN-ISSUES.md` (work list) and the changelog (why). A fresh
+agent had to read all three before it could even tell what was done. New
+`docs/HANDOFF.md` is the one-page answer: where things stand (repo, TV, server,
+boot numbers), what landed this session, a **prioritised pending table** where
+every row names what it needs (TV / owner / nothing) and how to prove it, the
+first commands to run, and the short list of rules that cost hours.
+
+It deliberately carries **no artifact md5/size/token** — those stay
+single-sourced in the §1 state row — and it is now in `test_docs.py`'s
+`LIVING` list, so a stale claim in it fails the suite like anywhere else. The
+`AGENTS.md` read-first paragraph points at it.
+
 ## 2026-11-01 — v45: LONG mode exits for a fresh process instead of hunting in one
 
 The v44 deploy restart exposed the last dead end in the retry design: four fast

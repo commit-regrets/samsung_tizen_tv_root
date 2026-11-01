@@ -8,7 +8,9 @@ and `docs/SERVER-HOSTING.md` (the PC-side server). History lives in `CHANGELOG.m
 `docs/CHANGELOG-ARCHIVE.md` (the v1..v37 lineage),
 and the current work list — triaged from an independent code review — is
 `docs/OPEN-ISSUES.md`: read it before changing anything, it says what is known
-broken, in what order to fix it, and how to prove each fix.
+broken, in what order to fix it, and how to prove each fix. If you are picking
+this up cold, start at `docs/HANDOFF.md` (2026-11-01): what landed, what is
+pending, and the first commands to run.
 
 ## 0. Maintaining this repo — read before editing
 

@@ -31,7 +31,7 @@ LIVING = [
     "docs/ROOT-METHODS.md", "docs/TESTING.md", "docs/PORTABILITY.md",
     "docs/FAILED.md", "docs/SERVER-HOSTING.md", "docs/SCRIPT-REVIEW.md",
     "docs/BOOT-REGRESSION-SMACK.md", "docs/REFERENCE-MATERIALS.md",
-    "docs/OPEN-ISSUES.md",
+    "docs/OPEN-ISSUES.md", "docs/HANDOFF.md",
 ]
 # dated history: narrative only, exempt from every check
 EXEMPT = {"CHANGELOG.md", "docs/CHANGELOG-ARCHIVE.md", "docs/REVIEW-HISTORY.md"}
