@@ -559,9 +559,22 @@ def main() -> int:
                 "... and the evicted token is still refused after the restart",
                 not beacon_logged("705"))
 
-        after = prod_beacon.stat().st_size if prod_beacon.exists() else 0
-        failed += not check("gateway test kept the production beacon log clean",
-                            after == prod_before, f"{prod_before} -> {after} bytes")
+        # A live TV beacon during the run is legitimate (the TV is on the LAN
+        # and the production server is not always idle), so growth is allowed -
+        # what must never appear is a line from THIS test: its own rendered
+        # tokens, the unknown-token probe, or the pid=701..705 shapes.  Byte-
+        # size equality turned a busy TV into a red suite once (2026-11-01).
+        appended = ""
+        if prod_beacon.exists() and prod_beacon.stat().st_size > prod_before:
+            with prod_beacon.open("rb") as fh:
+                fh.seek(prod_before)
+                appended = fh.read().decode("utf-8", "replace")
+        leaked = [t for t in (t_live, t_stale, "deadbeef") if t and t in appended]
+        leaked += re.findall(r"pid=(70[1-5])\b", appended)
+        failed += not check(
+            "gateway test kept the production beacon log clean (no test-shaped lines)",
+            not leaked,
+            f"grew by {len(appended)} B; leaked test markers: {leaked[:5]}")
     finally:
         for c in clients:
             try:

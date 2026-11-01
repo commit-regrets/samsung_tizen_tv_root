@@ -15,6 +15,32 @@ entry is an incomplete change. `AGENTS.md` repeats this rule for agents.
 
 ---
 
+## 2026-11-01 — three checks that were still manual
+
+**Gateway log check is no longer size-based.** `test_gateway.py` compared
+`server/logs/beacons.log` byte size before/after and failed if the file grew —
+which a legitimate TV beacon during the run does (it happened once on
+2026-11-01 and read as a test failure). The test now allows growth and fails
+only on a *test-shaped* line: its own rendered tokens (`t_live`, `t_stale`, the
+`deadbeef` probe) or a `pid=701..705` shape. It reads from the recorded offset,
+so a pre-existing line cannot match.
+
+**`root.ps1 -Force` accepts the debloat state.** After the two-witness proof the
+launcher now runs `tools/tv_health.py --tv <ip>` and prints the 11 checks; a
+mismatch is a loud WARNING (exit code unaffected — a stale registry must not
+fail a good deploy), and `-SkipHealth` opts out. The `-DryRun` output names the
+command and marks it skipped when asked.
+
+**Live debloat layer.** `python tools/test_all.py --tv --tv-ip <ip>` adds
+`tv-health-live` (the same 11 checks against the real TV) after the stub test;
+the address falls back to `TV_IP` / `ROOT_TV`, and without one the layer SKIPs
+with a message. Verified live: `tv-health-live OK`; the stub layer still needs
+a fresh page load, unchanged.
+
+Docs: TESTING.md (4d: the live and launcher paths), AGENTS §5 (the test_all
+row), HANDOFF (tv_health in the first commands), root.ps1 comment-based help
+(-SkipHealth).
+
 ## 2026-11-01 — debloat: batch 2 cold boot passed
 
 Mains cycle 21:54 (boot #32): the 66 `app_disable` rows persisted, the payload

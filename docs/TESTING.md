@@ -280,8 +280,16 @@ command per fact, then a pure comparison:
 fixture plus one mutation (13 mutations, one per failure class) and exercises
 `read()` with an injected channel and the registry parser with a temp ledger —
 a new check without a fixture is visible as an untested PASS. The layer is
-`tv-health` in `tools/test_all.py`; the live run is not part of the suite
-(it needs the TV).
+`tv-health` in `tools/test_all.py` (offline).
+
+The **live** run is a separate `--tv` layer so the ordinary suite stays
+offline: `python tools/test_all.py --tv --tv-ip <ip>` runs the browser-stub
+protocol test and then `tv-health-live` (`tools/tv_health.py`, the 11 checks
+against the real TV). The address falls back to `TV_IP` / `ROOT_TV` when
+`--tv-ip` is omitted; without either, the layer SKIPs with a message.
+`root.ps1 -Force` runs the same health check after its deploy and reports a
+mismatch as a WARNING (skip it with `-SkipHealth`), so a deploy's acceptance
+already includes the debloat state.
 
 ## 4e. Whole-tree hygiene — `tools/test_hygiene.py`
 

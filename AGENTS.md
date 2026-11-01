@@ -287,7 +287,7 @@ TV boot: com.samsung.tv.MultiControl-Service (dotnet-inhouse, app_onboot)
 | `tools/test_stub.py` | live-stub protocol + clamp checks (fresh page load) |
 | `tools/test_logs.py` | offline: beacon-analyzer fixtures (log **and** the on-TV marker), tool error paths, ps1 parse guard |
 | `tools/test_constants.py` | cross-checks the same offsets/limits/node names across `Program.cs`, `sim_rpc.py`, `kernel_root.py`, `physmap.py`, `physrpc.S`, the page and `deploy.sh` |
-| `tools/test_all.py` | runs every layer above; `--tv` adds the live stub |
+| `tools/test_all.py` | runs every layer above; `--tv` adds the live stub, `--tv-ip <ip>` (or TV_IP/ROOT_TV) adds the live debloat-health layer |
 | `tools/test_debloat.py` | offline gate for `debloat/` (apply/restore/mask/unmask under `sh` with stubbed `pkgcmd`/`systemctl`/`dbus-send`, list hygiene, merge determinism); finds Git Bash even off PATH, so it no longer reports SKIP-as-PASS |
 | `tools/tv_health.py` | post-boot / post-apply health check over 31337 (11 checks: root, artifact md5, `art=` witness, registry applied/off-list/count, masks, loops, sentinels, SmartThings unit, newest launch) - the TV-side oracle for `debloat/registry.tsv`; `--json`, exit 1 on any FAIL |
 | `tools/test_tv_health.py` | offline tests for it: healthy fixture + one mutation per check, injected `read()`, registry parser |

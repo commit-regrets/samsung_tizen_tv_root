@@ -23,6 +23,10 @@
   PC address as seen by the TV. Auto-detected from the route to the TV if
   omitted (never guessed from "first non-loopback", which can be a VPN adapter).
 
+.PARAMETER SkipHealth
+  After a -Force deploy, skip the debloat health check (tools/tv_health.py).
+  By default it runs and reports; a mismatch is a WARNING, not a failure.
+
 .PARAMETER ToolkitDir
   Directory containing tools/ and server/.
 
@@ -43,6 +47,7 @@ param(
     [switch]$NoServer,
     [switch]$RestartServer,
     [switch]$NoWait,
+    [switch]$SkipHealth,
     [switch]$Force,
     [switch]$DryRun,
     [int]$StubWaitSec = 0,
@@ -260,6 +265,7 @@ if ($DryRun) {
     } elseif ($tvRooted) {
         Say "would run     : $py $($layout.Tools)\root_shell.py `"curl -s $deployUrl | sh`" $TvIp"
         Say "would wait    : a rooted 31337 (id -u = 0) for up to $BootTimeoutSec s"
+        Say "would health  : $py $($layout.Tools)\tv_health.py --tv $TvIp$(if ($SkipHealth) { '  (skipped: -SkipHealth)' } else { '' })"
     } else {
         Say "would run     : $py $($layout.Tools)\auto_root.py --host $HostIp --script deploy.sh --stub-wait $StubWaitSec --root-retries 3"
         Say "then wait     : 31337 for up to $BootTimeoutSec s after the reboot"
@@ -428,6 +434,25 @@ if ($tvRooted -and $Force) {
                 Say "WARNING: no launch line names the deployed md5 $deployedMd5 -"
                 Say "  a dropped beacon, or the old app is still answering."
                 Say "  Compare: python tools/beacons.py --last 1"
+            }
+        }
+        # Debloat acceptance: debloat/registry.tsv is the single source of truth
+        # for what is disabled; tv_health.py asks the TV whether that is true
+        # (11 checks: applied/off-list/count, masks, loops, sentinels, SmartThings,
+        # the art witness).  A mismatch is a WARNING, not a deploy failure - the
+        # deploy's job is the payload, and a stale registry must not fail a good
+        # deploy (the report names the drift).
+        if (-not $SkipHealth) {
+            Say ""
+            Say "3) Debloat health (registry vs TV)..."
+            $env:ROOT_SHELL_TIMEOUT = "25"
+            & $py (Join-Path $layout.Tools "tv_health.py") --tv $TvIp
+            if ($LASTEXITCODE -eq 0) {
+                Say "debloat health: all checks passed."
+            } else {
+                Say "WARNING: debloat health exited $LASTEXITCODE - see the FAIL lines above."
+                Say "  It does not fail the deploy; fix or note the drift, then re-run"
+                Say "  'python tools/tv_health.py --tv $TvIp'."
             }
         }
     }

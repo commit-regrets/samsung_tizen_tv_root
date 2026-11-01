@@ -100,6 +100,7 @@ python tools/sanitize_for_public.py --check
 
 python tools/beacons.py               # per-boot verdicts; --json for machines
 python tools/root_shell.py "id -u" <tv-ip>
+python tools/tv_health.py --tv <tv-ip>   # 11 checks: debloat registry vs TV
 python tools/root_shell.py \
   "grep -E '^CapEff' /proc/self/status; md5sum /opt/usr/apps/com.samsung.tv.MultiControl-Service/bin/MultiControlService.dll" <tv-ip>
 ```

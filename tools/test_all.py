@@ -47,6 +47,7 @@ Layers (see docs/TESTING.md):
 
 Exit code 0 means every layer passed (or was skipped for a documented reason).
 """
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -125,6 +126,20 @@ def main() -> int:
         if "--bad-run" in sys.argv:
             argv.append("--bad-run")
         results.append(("stub-protocol", run("live stub protocol", argv)))
+        # The debloat oracle needs the 31337 channel (not the browser stub), so
+        # it is a separate live layer: the TV address comes from --tv-ip or the
+        # TV_IP / ROOT_TV env var the other tools already use.
+        tv_ip = os.environ.get("TV_IP") or os.environ.get("ROOT_TV")
+        for i, a in enumerate(sys.argv):
+            if a == "--tv-ip" and i + 1 < len(sys.argv):
+                tv_ip = sys.argv[i + 1]
+        if tv_ip:
+            results.append(("tv-health-live", run(
+                f"debloat health on {tv_ip}",
+                [py, "tools/tv_health.py", "--tv", tv_ip])))
+        else:
+            print("\n=== live debloat health ==="
+                  "\nSKIP: pass --tv-ip <ip> or set TV_IP")
     else:
         print("\n=== live stub ===\nSKIP: pass --tv to run it against a paired stub")
 
