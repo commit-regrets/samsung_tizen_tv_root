@@ -107,6 +107,38 @@ def main() -> int:
     failed += not check("ask_uid refuses a non-numeric reply",
                         W.ask_uid("x", run=lambda *a, **k: P("busy\n")) is None)
 
+    # 6b) the v46 restart-log read-back: deploy.sh's detached subshell writes
+    #     RESTART_KILL=/RESTART_START= to $S/restart.log instead of /dev/null;
+    #     wait_rooted reports it after a rooted answer, best-effort.
+    def cat_run(argv, **_kw):
+        class R:
+            stdout = "RESTART_KILL=fail\nRESTART_START=fail\n__END__\n"
+            returncode = 0
+        assert argv[2].startswith("cat "), argv
+        return R()
+
+    failed += not check(
+        "read_restart_log returns the log body without the __END__ terminator",
+        W.read_restart_log("x", run=cat_run)
+        == "RESTART_KILL=fail\nRESTART_START=fail",
+    )
+
+    def empty_run(argv, **_kw):
+        # root_shell.py exits 0 once __END__ arrives; the shell's own error text
+        # comes back as the reply body (this is what a pre-v46 deploy produces)
+        class R:
+            stdout = ("cat: can't open "
+                      "'/opt/usr/home/owner/share/restart.log': No such file\n"
+                      "__END__\n")
+            returncode = 0
+        return R()
+
+    failed += not check("read_restart_log stays silent on a failed cat",
+                        W.read_restart_log("x", run=empty_run) is None)
+    failed += not check("read_restart_log stays silent on a crash",
+                        W.read_restart_log(
+                            "x", run=lambda *a, **k: (_ for _ in ()).throw(OSError("no"))) is None)
+
     # 7) the CLI contract: --tv is required (exit 2)
     import contextlib
     import io

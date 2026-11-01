@@ -136,6 +136,22 @@ LONGEXIT = [
     line(15, 0, 9, 5400, "ROOTCHAN 31337 uid=0 bind=192.0.2.10"),
 ]
 
+# v46: the start beacon names the artifact the last deploy wrote (rootchan.art)
+# as `art=<md5>`; the newest run's art is the DLL the answering process started
+# with, so a deploy restart that failed to kill the old app is provable (its
+# start beacon carries the PREVIOUS art).  The md5s here are made-up TEST values.
+OLD_ART = "0123456789abcdef0123456789abcdef"
+NEW_ART = "fedcba9876543210fedcba9876543210"
+ARTSWAP = [
+    line(16, 0, 0, 6000, f"start uid=5001 pid=16001 art={OLD_ART}"),
+    line(16, 0, 1, 6010, "fail round 1"),
+    line(16, 0, 9, 6050, f"start uid=5001 pid=16002 art={NEW_ART}"),
+    line(16, 0, 10, 6055, "attempt=1 (fast mode)"),
+    line(16, 0, 11, 6060, "SUCCESS-R00T DSHROOT uid=0 pid=16002 self=cad25080 "
+                          "kernel=20008000 init_task=c0957180"),
+    line(16, 0, 11, 6060, "ROOTCHAN 31337 uid=0 bind=192.0.2.10"),
+]
+
 SICK = [
     line(11, 0, 0, 10, "start uid=5001 pid=200"),
     line(11, 0, 0, 10, "attempt=1 (fast mode)"),
@@ -236,11 +252,70 @@ def test_beacons():
     check("v45: no BLIND-WALK note on the recovered boot",
           "BLIND-WALK" not in codes8, str(codes8))
 
+    # v46: the start beacon carries the deployed artifact md5; the newest run's
+    # art is what the answering process started with (deploy-restart proof).
+    p9 = write_log(ARTSWAP)
+    r9 = beacons.analyse_boot(
+        beacons.group_boots(list(beacons.parse_lines(p9.read_text())))[0], 0)
+    check("v46: newest run's art is reported",
+          r9["art"] == NEW_ART, str(r9["art"]))
+    check("v46: each run keeps its own art (the stale process's start beacon "
+          "names the OLD artifact)",
+          [a["art"] for a in r9["attempts"]] == [OLD_ART, NEW_ART],
+          str(r9["attempts"]))
+    out9 = subprocess.run([sys.executable, str(HERE / "beacons.py"),
+                           "--file", str(p9)],
+                          capture_output=True, text=True)
+    check("v46: art printed in the CLI summary",
+          NEW_ART in out9.stdout, out9.stdout[:200])
+
+    # v46.1: the launcher's freshness witness must AGREE with this analyzer: the
+    # NEWEST launch wins even when it carries no art=.  The v46 root.ps1 scan
+    # kept the older md5, which is exactly the log a rollback leaves behind.
+    ns = beacons.newest_start(p9.read_text())
+    check("v46.1: newest_start reports the newest launch's art",
+          bool(ns) and ns["art"] == NEW_ART, str(ns))
+    pns = write_log([line(16, 0, 0, 6000, f"start uid=5001 pid=16001 art={OLD_ART}"),
+                     line(16, 0, 1, 6010, "start uid=5001 pid=16002")])
+    ns2 = beacons.newest_start(pns.read_text())
+    check("v46.1: a newer launch without art= wins (unknown, not the older md5)",
+          bool(ns2) and ns2["art"] is None, str(ns2))
+    # production wire shape: tok= sits before the uptime prefix, and both
+    # witnesses must survive the parse (root.ps1 compares them to ART_FILE=/TOKEN_FILE=)
+    prod = write_log(["2026-11-01T18:00:00 DSHROOT tok=deadbeef t=30s "
+                      f"start uid=5001 pid=900 art={NEW_ART}"])
+    ns3 = beacons.newest_start(prod.read_text())
+    check("v46.1: newest_start reads tok= and art= from a real log line",
+          bool(ns3) and ns3["tok"] == "deadbeef" and ns3["art"] == NEW_ART,
+          str(ns3))
+    # same-bits redeploy: the art is identical, so only the rotated token can
+    # tell a survivor from a relaunch (the reason tok= is compared at all).
+    same = write_log([line(16, 0, 0, 6000, f"start uid=5001 pid=16003 art={NEW_ART}")])
+    ns4 = beacons.newest_start(same.read_text())
+    check("v46.1: an old start line has no token to match this deploy's",
+          bool(ns4) and ns4["tok"] is None and ns4["art"] == NEW_ART, str(ns4))
+    marker_ns = write_log([f"t=6000s start uid=5001 pid=16004 art={NEW_ART}"])
+    ns5 = beacons.newest_start(marker_ns.read_text())
+    check("v46.1: newest_start also reads the on-TV marker file",
+          bool(ns5) and ns5["tok"] is None and ns5["art"] == NEW_ART, str(ns5))
+    outns = subprocess.run([sys.executable, str(HERE / "beacons.py"),
+                            "--file", str(pns), "--newest-start"],
+                           capture_output=True, text=True)
+    try:
+        nsj = json.loads(outns.stdout)
+    except ValueError:
+        nsj = {}
+    check("v46.1: --newest-start prints JSON for the launcher "
+          "(null art on a newer no-art launch)",
+          nsj.get("art") is None and outns.returncode == 0, outns.stdout[:120])
+
     # sick boot: device held, window off, bind fallback, crash -> error hint
     p2 = write_log(SICK)
     boots2 = beacons.group_boots(list(beacons.parse_lines(p2.read_text())))
     r2 = beacons.analyse_boot(boots2[0], 0)
     check("sick: not rooted", not r2["rooted"])
+    check("v46: legacy start without art stays unknown, not stale",
+          r2["art"] is None, str(r2["art"]))
     codes2 = {f["code"] for f in r2["findings"]}
     check("sick: VID40-HELD + WIN-OFF + BIND-FALLBACK + CRASH seen",
           {"VID40-HELD", "WIN-OFF", "BIND-FALLBACK", "CRASH"} <= codes2,

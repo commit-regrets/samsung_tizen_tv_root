@@ -56,6 +56,37 @@ def ask_uid(tv: str, *, run=subprocess.run, timeout: float = 20.0) -> str | None
     return m.group(1) if m else None
 
 
+# v46: deploy.sh's detached restart subshell writes RESTART_KILL=/RESTART_START=
+# to /opt/usr/home/owner/share/restart.log instead of /dev/null.  Reading it
+# back after a rooted answer surfaces a failed kill/start that used to vanish.
+RESTART_LOG = "/opt/usr/home/owner/share/restart.log"
+
+
+def read_restart_log(tv: str, *, run=subprocess.run, timeout: float = 20.0) -> str | None:
+    """Fetch the deploy restart log over the channel; None on any failure.
+
+    Best-effort by design: the file does not exist on pre-v46 deploys, on
+    RESTART=skip deploys, and on stock installs, and a failed read must never
+    turn a rooted answer into a failure.  root_shell.py exits 0 whenever the
+    channel answered (even for a failed cat), so a missing file surfaces as the
+    shell's error TEXT inside a successful reply - recognize it instead of
+    printing it as if it were the log.
+    """
+    try:
+        p = run([sys.executable, str(HERE / "root_shell.py"), f"cat {RESTART_LOG}", tv],
+                capture_output=True, text=True, timeout=timeout)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if getattr(p, "returncode", 1) != 0:
+        return None
+    out = (p.stdout or "").strip()
+    # root_shell.py prints the raw channel reply, terminated by __END__
+    out = out.split("__END__", 1)[0].strip()
+    if not out or "can't open" in out:
+        return None
+    return out
+
+
 def wait_rooted(tv: str, *, timeout: float = 180.0, drop_wait: float = 30.0,
                 probe=None, uid=None, clock=time.monotonic, sleep=time.sleep,
                 log=None):
@@ -115,6 +146,11 @@ def main(argv=None) -> int:
         print(f"[wait] rooted after {waited:.0f}s"
               + ("" if dropped else " (the old listener never dropped)"),
               flush=True)
+        restart = read_restart_log(args.tv)
+        if restart:
+            print("[wait] deploy restart log:", flush=True)
+            for ln in restart.splitlines():
+                print(f"[wait]   {ln}", flush=True)
         return 0 if dropped else 3
     print(f"[wait] no rooted answer after {waited:.0f}s", flush=True)
     return 1

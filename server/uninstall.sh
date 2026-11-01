@@ -137,6 +137,10 @@ rm -f /opt/usr/data/debloat-masks.txt /opt/usr/data/debloat-kill.txt
 # non-zero.  Deleting it earlier would leave the payload running but deaf to the
 # PC, forcing a browser-lane retry.
 rm -f "$S/payload_backup.dll" "$S/rootchan.host" "$S/rootchan.token" /tmp/mcs_payload.dll
+# v46: the artifact-md5 marker and the last deploy's restart log are deploy
+# state, not payload state - a stock TV must not keep them (the next deploy
+# rewrites the md5; a stale one would make the start beacon name the old DLL).
+rm -f "$S/rootchan.art" "$S/restart.log"
 rm -f /tmp/v4.dll /tmp/v5.dll 2>/dev/null
 rm -f "$S/rootchan.allow"
 echo "ALLOW=removed"

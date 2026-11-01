@@ -7,6 +7,11 @@ relaunch rooted in 10 s, the mains-cycle boot on attempt 2 at t=37 s with
 path is untouched). Written after the v44 deploy restart, which hunted for five
 minutes in one process.
 
+(Note: the payload-side stale-process *proof* — a start beacon carrying the
+deploy-rendered artifact md5 — was thought to be proposed here; it was not. It
+was designed fresh as repo v46 and lives in `CHANGELOG.md`'s 2026-11-01 v46
+entry.)
+
 ## What happened
 
 `deploy.sh` restarts the app inside the same boot (`kill -9`, then AUL relaunches).

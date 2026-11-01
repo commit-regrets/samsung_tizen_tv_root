@@ -1,4 +1,4 @@
-# HANDOFF — 2026-11-01, after the v45 deploy and cold-boot acceptance
+# HANDOFF — 2026-11-01, after the v46 deploy and its cold-boot acceptance
 
 Written so the next agent (or human) can pick this up without re-deriving the
 session. Read this first, then `AGENTS.md` §0–§1, then
@@ -8,25 +8,28 @@ The current artifact md5/size live only in the generated state row in
 
 ## Where it stands right now
 
-- **Repo:** branch `develop`, clean working tree; the offline suite
-  (`python tools/test_all.py`) is **16/16**.
-- **TV:** on **v45** (the artifact in `server/payload.dll`), rooted at boot;
-  uid 0 with full caps, the standing debloat set applied (app rows + unit
-  masks), boot row present, easysetup-daemon active and not looping.
+- **Repo:** branch `develop`, **uncommitted working tree** (v46 + v46.1 below);
+  the offline suite (`python tools/test_all.py`) is **16/16**.
+- **TV:** on **v46** (the artifact in `server/payload.dll`), deployed 21:01 over
+  the root channel and **cold-boot verified 21:10** (mains cycle); uid 0 with
+  full caps, the standing debloat set applied (app rows + unit masks), boot row
+  present, easysetup-daemon active and not looping.
 - **PC server:** `pysrv.exe` on :80; the beacon-token set is persisted in
   `server/logs/beacon-tokens.json` and reloaded on start, so a PC restart no
   longer orphans the deployed payload.
-- **Boot numbers (v45, 2026-11-01 16:15, mains cycle):** attempt 1
-  `fast-exit` (allocation lottery) → attempt 2 `tag=exact` + `direct-patch
-  uid=0` at 37 s → channel at 38 s → masks verified at 44 s. No `long-exit`
-  line: the v45 gate was inert, as designed, on a normal boot.
-- **Rollback:** stock IL is still in `mcs_orig.dll`; `payload_backup.dll` is the
-  v44 artifact (the deploy that followed it saved v44 for us).
+- **Boot numbers:** **v46 cold boot 32 s** (2026-11-01 21:10: attempt 1
+  `fast-exit` at t=18 s → attempt 2 launch t=29 s → `self-patch uid=0` t=32 s →
+  channel 32 s → masks `loop-check=ok` t=39 s; both launches carried the deploy
+  token + `art=c540a6ab…`). The v46 **deploy restart** rooted in 4 s, attempt 1
+  (`direct-patch uid=0`), and `root.ps1` printed the two-witness `proven` line.
+  Previous cold boot: v45, 16:15, attempt 2 at 37 s.
+- **Rollback:** stock IL is still in `mcs_orig.dll`; `payload_backup.dll` is now
+  the v45 artifact (`PREV_IL=35cc7577`).
 
-Session history and *why* each change exists: `CHANGELOG.md` (three entries,
+Session history and *why* each change exists: `CHANGELOG.md` (eight entries,
 2026-11-01). Do not re-litigate decisions recorded there without reading them.
 
-## Done in this session (committed)
+## Done in this session (v46/v46.1 uncommitted; the rest committed)
 
 1. **Review fixes across the 2026-10-31 tree** — debloat scripts' silent-success
    paths, `deploy.sh` 0644 host/allow files, `uninstall.sh` label prelude,
@@ -49,21 +52,39 @@ Session history and *why* each change exists: `CHANGELOG.md` (three entries,
 6. **New offline layers** — `tools/test_server_unit.py`,
    `tools/test_hygiene.py`, `tools/test_wait_rooted.py`; the analyzer fixtures
    grew the v45 boot shape and the deploy-script `dsh_try` case.
+7. **The stale-process proof (repo v46 + v46.1 — deployed 2026-11-01 21:01,
+   cold boot owed)** — the
+   payload reads the deploy-rendered artifact md5 from `rootchan.art` once at
+   startup and appends `art=<md5>` to its start beacon, so `beacons.log` proves
+   which DLL each process started with (a stale old process beaconed the
+   PREVIOUS art). `deploy.sh` writes the md5 after the installed-file verify and
+   before the restart, its restart subshell now logs
+   `RESTART_KILL=`/`RESTART_START=` to `restart.log` instead of `/dev/null`, and
+   `wait_rooted.py` reads that log back after a rooted answer. **v46.1**, after
+   the second review: the launcher's proof now needs **both** the newest
+   launch's `tok=` against the deploy's `TOKEN_FILE=` (freshness — redeploying
+   identical bits leaves a survivor's `art=` matching) **and** its `art=`
+   against `ART_FILE=` (identity); the "newest launch" rule is
+   `tools/beacons.py --newest-start` (the v46 duplicate kept an older art when
+   a newer launch had none), `wrc=3` exits 3 instead of claiming success, and
+   the rollback removes `rootchan.art`/`restart.log` only when this attempt
+   wrote them. The live proof still needs a real deploy + boot. The beacon
+   format was designed fresh in v46 — it was never a proposal in
+   `docs/V45-BLIND-WALK.md`.
 
 ## Pending — ordered, with what each needs and how to prove it
 
 | # | Item | Needs | Proof |
 |---|---|---|---|
 | 1 | **Live-stub layer** — the only layer still SKIPped on this PC | TV browser opened on `http://<pc>/index.html`, wait for `RUNNING`, keep it open | `python tools/test_all.py --tv` ends with the live-stub layer OK (protocol, kernel read, oversize READ/WRITE refused, stub alive) |
-| 2 | **`deploy.sh` prints `RESTART_KILL=` / `RESTART_START=` into a detached subshell whose stdout is `/dev/null`** — "old app never died, new DLL not loaded" still passes the `id -u` gate | payload change, deploy, boot | payload beacons its own artifact md5 at start (proposal in `docs/V45-BLIND-WALK.md`), so a stale process is provable; script side can be tested offline |
-| 3 | **`mask.sh` lists units without `--full`** — a very long unit name could be ellipsized in the 80-column dump | one TV query | compare `systemctl list-units --no-legend` name widths against the committed list; if any is clipped, add `--full` in `mask.sh` and the payload's mask check |
-| 4 | **`mask.sh` counts a failed stop but not a unit that stays `active` after its stop exited 0** | TV | add an `is-active` pass over the units counted `stopped`; offline test with the stubbed `systemctl`, then one live run |
-| 5 | **`HEAD` answers with a body; `OPTIONS` is served as `GET`** | nothing (offline) | a case in `tools/test_server_unit.py`; low value unless a client starts using them |
-| 6 | **Beacon tokens are self-service** | none — *by design*; the LAN is the boundary | revisit only if the server is exposed beyond the LAN (`SECURITY.md`) |
-| 7 | **High-half read mechanism** — one deliberate high-PA read; re-read the v38 `high-scan` verdicts against `high_memory` = `0xF0400000` | TV + browser lane | record the verdict in `OPEN-ISSUES.md` → Pending; no boot-path change |
-| 8 | **Portability** — no second model/firmware tested | a second TV | the four gates and the file-by-file checklist in `PORTABILITY.md`; record each unit there |
-| 9 | **Debloat tier 2b (Control Center layer)** | owner decision + measurements | next moves are listed in `debloat/AGENTS.md` |
-| 10 | **Opportunistic: watch `long-exit` fire for real** — the branch is offline-tested only; the acceptance boot never needed it | a deploy restart that lands in the stale window | expect `long-exit attempt=N count=1` then a relaunch instead of a multi-minute hunt; capture the log and add it to `CHANGELOG.md` + `AGENTS.md` §7 |
+| 2 | **`mask.sh` lists units without `--full`** — a very long unit name could be ellipsized in the 80-column dump | one TV query | compare `systemctl list-units --no-legend` name widths against the committed list; if any is clipped, add `--full` in `mask.sh` and the payload's mask check |
+| 3 | **`mask.sh` counts a failed stop but not a unit that stays `active` after its stop exited 0** | TV | add an `is-active` pass over the units counted `stopped`; offline test with the stubbed `systemctl`, then one live run |
+| 4 | **`HEAD` answers with a body; `OPTIONS` is served as `GET`** | nothing (offline) | a case in `tools/test_server_unit.py`; low value unless a client starts using them |
+| 5 | **Beacon tokens are self-service** | none — *by design*; the LAN is the boundary | revisit only if the server is exposed beyond the LAN (`SECURITY.md`) |
+| 6 | **High-half read mechanism** — one deliberate high-PA read; re-read the v38 `high-scan` verdicts against `high_memory` = `0xF0400000` | TV + browser lane | record the verdict in `OPEN-ISSUES.md` → Pending; no boot-path change |
+| 7 | **Portability** — no second model/firmware tested | a second TV | the four gates and the file-by-file checklist in `PORTABILITY.md`; record each unit there |
+| 8 | **Debloat tier 2b (Control Center layer)** | owner decision + measurements | next moves are listed in `debloat/AGENTS.md` |
+| 9 | **Opportunistic: watch `long-exit` fire for real** — the branch is offline-tested only; the acceptance boot never needed it | a deploy restart that lands in the stale window | expect `long-exit attempt=N count=1` then a relaunch instead of a multi-minute hunt; capture the log and add it to `CHANGELOG.md` + `AGENTS.md` §7 |
 
 Nothing in the list blocks day-to-day use: the TV roots on every cold boot, the
 masks come back on their own, and a deploy is verified with `id -u` = 0.

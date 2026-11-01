@@ -45,7 +45,7 @@ The on-TV marker keeps the `t=<n>s <payload line>` shape (no token).
 
 | Line | Meaning | Action |
 |---|---|---|
-| `start uid=5001 pid=<p>` | AUL launched the app; fresh process | normal |
+| `start uid=5001 pid=<p> [art=<md5>]` | AUL launched the app; fresh process. v46: the optional `art=` suffix is the artifact md5 the last deploy wrote to `rootchan.art`, read once at startup — so the newest run's `art=` names the DLL that process actually started with; a stale old process beaconed the PREVIOUS art at its own startup. **No `art=`** means a pre-v46 deploy, a hand-built payload (no `rootchan.art`), or a rolled-back deploy — unknown, **not** stale. Every start line also carries `tok=<deploy token>` (v41+), which `art=` alone cannot replace | normal; after a deploy `root.ps1` proves the relaunch with **two** witnesses from the newest launch: its `tok=` must equal the deploy output's `TOKEN_FILE=` (freshness — the same md5 can be redeployed, so identity alone cannot tell a survivor from a relaunch), and its `art=` must equal `ART_FILE=` (identity). `python tools/beacons.py --newest-start` prints both; the boot summary prints `artifact md5:` for the newest run |
 | `start uid=5001` (**no `pid=`**) | **test/forged noise**, not a launch: `Main()` always logs `pid=`, and the offline gateway tests used to write this shape with a fake `t=1s`. `beacons.py` drops it (and reports how many it ignored) so it cannot become a ghost boot. | ignore; real start lines carry `pid=` |
 | `attempt=<n> (fast mode|long retry mode)` | attempt counter (`/tmp/.dsh_try`, resets at boot); 1–4 fast, 5+ long | normal |
 | `kernel=<pa> init_task=<va>` | kernel image and `init_task` located | normal |

@@ -47,6 +47,13 @@ TMPD=""
 ROLLBACK=0
 AOT_MOVED=""
 CLEANED=0
+# v46.1: rollback must remove only the evidence THIS attempt wrote.  ROLLBACK=1
+# is armed before the DLL is touched, but rootchan.art is written later, so a
+# failure before the write (AOT move, copy, label, mv, md5) used to delete the
+# PREVIOUS deploy's marker - which still names exactly the DLL the rollback
+# restores.  Same for restart.log: only a log this attempt's subshell created.
+ART_WRITTEN=0
+RESTART_ARMED=0
 cleanup() {
   rc=$?
   [ "$CLEANED" = 1 ] && return 0
@@ -68,6 +75,14 @@ cleanup() {
       sqlite3 "$DB" "delete from boot_sequence where appid='$APPID';" >/dev/null 2>&1 &&
         echo "ROLLBACK=boot_row_removed"
     fi
+    # v46/v46.1: drop the art marker only when THIS attempt wrote it - a stale
+    # witness naming the new md5 would make the next relaunch lie about the
+    # restored DLL.  If the deploy failed before the write, the marker already
+    # names the restored DLL (payload_backup.dll comes from the same successful
+    # deploy that wrote it) and must survive; deleting it just blanks the next
+    # start beacon to "unknown".  restart.log the same: only ours.
+    if [ "$ART_WRITTEN" = 1 ]; then rm -f "$S/rootchan.art" 2>/dev/null; fi
+    if [ "$RESTART_ARMED" = 1 ]; then rm -f "$S/restart.log" 2>/dev/null; fi
     echo "ROLLBACK=done"
   fi
   if [ -n "$TMPD" ]; then rm -rf "$TMPD" 2>/dev/null; fi
@@ -309,6 +324,21 @@ if ! md5sum "$D" | grep -q "^$WANT"; then
   exit 1
 fi
 
+# v46 artifact md5: written AFTER the installed file is verified (above) and
+# BEFORE the restart, so it names the DLL that is actually on disk when any
+# relaunch starts.  The payload reads it once at startup and carries it on its
+# start beacon as `art=<md5>`, so beacons.log proves which DLL each process
+# started with: a stale old process beaconed the PREVIOUS art, a fresh relaunch
+# beacons this one (2026-11-01: "old app never died, new DLL not loaded" passed
+# the bare id -u gate).  0644 / uid-5001-reader, same argument as the token.
+# ART_WRITTEN is set BEFORE the redirect, so a write that fails after truncating
+# is removed by the rollback instead of leaving a half-written witness (a failed
+# open leaves the old file intact; "unknown" is safer than a guess either way).
+ART_WRITTEN=1
+printf '%s\n' "$WANT" > "$S/rootchan.art" || { echo ART_FILE_FAIL; exit 1; }
+chmod 644 "$S/rootchan.art" 2>/dev/null
+echo "ART_FILE=$WANT"
+
 # `reload` only refreshes AUL's copy of the sequence - it does NOT restart an
 # app that is already running, so a changed DLL stays unloaded. `aulctl stop`
 # never returns while this payload is the running app (2026-10-25: channel
@@ -335,14 +365,23 @@ if [ -e /dev/video40 ]; then
 fi
 if [ -n "$PIDS" ]; then
   echo "RESTART=kill$PIDS"
+  # v46: the detached subshell's stdout used to be /dev/null, so RESTART_KILL=
+  # / RESTART_START= vanished (OPEN-ISSUES: "old app never died, new DLL not
+  # loaded" passed the id -u gate).  Write them to a file the operator can read
+  # back through the channel (wait_rooted.py does, after a rooted answer).
+  echo "RESTART_LOG=$S/restart.log"
+  RESTART_ARMED=1
   ( trap '' HUP
     sleep 2
     kill -9 $PIDS >/dev/null 2>&1 || echo RESTART_KILL=fail
     sleep 2
     aulctl start "$APPID" >/dev/null 2>&1 || echo RESTART_START=fail
-  ) >/dev/null 2>&1 &
+  ) > "$S/restart.log" 2>&1 &
 else
   echo RESTART=skip
+  # nothing was restarted: drop any previous restart.log so a later read-back
+  # cannot report the last deploy's kill/start results as this one's
+  rm -f "$S/restart.log" 2>/dev/null
 fi
 
 # Everything fatal has passed: keep the new DLL even if the shell dies now.

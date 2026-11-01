@@ -30,6 +30,14 @@ internal static class Program
     // sends it as `tok=<hex>` so the server can gate the shell slot on it.  A
     // hand-built payload (no deploy) has no file and beacons without tok=.
     const string TokenFile = Share + "/rootchan.token";
+    // v46: the artifact md5 the last deploy installed, written by deploy.sh from
+    // its rendered WANT= value before the app restarts.  The start beacon carries
+    // it as `art=<md5>`, so beacons.log proves which DLL each process started
+    // with: a stale old process beaconed the PREVIOUS art at its own startup and
+    // a fresh relaunch beacons the new one (2026-11-01: "old app never died, new
+    // DLL not loaded" used to pass the bare id -u gate).  Read once, like the
+    // token; a missing file (hand-built payload, pre-v46 deploy) beacons no art=.
+    const string ArtFile = Share + "/rootchan.art";
     // One IP per line; if the file exists, only those peers may use port 31337.
     const string AllowFile = Share + "/rootchan.allow";
     // Attempt counter for the fast-exit retry loop (v9).  /tmp is tmpfs, so it
@@ -159,6 +167,44 @@ internal static class Program
             catch { }
         }
         return _beaconTok;
+    }
+
+    static string _artMd5;
+    static bool _artRead;
+
+    // Read once per process, same contract as BeaconToken(): deploy.sh writes
+    // the md5 of the DLL it just verified before restarting the app, so the
+    // value never changes under a running payload.  Strict here (32 lowercase
+    // hex) because the string is displayed to the operator, not validated
+    // elsewhere; anything else counts as absent and the start beacon goes out
+    // without art=.
+    static string ArtMd5()
+    {
+        if (!_artRead)
+        {
+            _artRead = true;
+            try
+            {
+                string t = File.ReadAllText(ArtFile).Trim();
+                if (t.Length == 32)
+                {
+                    bool hex = true;
+                    foreach (char c in t)
+                        if ((c < '0' || c > '9') && (c < 'a' || c > 'f')) { hex = false; break; }
+                    if (hex) _artMd5 = t;
+                }
+            }
+            catch { }
+        }
+        return _artMd5;
+    }
+
+    // The suffix appended to the start beacon.  Kept as a helper so Main()'s
+    // first Beacon() stays a single expression.
+    static string ArtSuffix()
+    {
+        string a = ArtMd5();
+        return a != null ? " art=" + a : "";
     }
 
     static string Beacon(string msg)
@@ -1689,7 +1735,7 @@ internal static class Program
         _selfTagBytes = Encoding.ASCII.GetBytes(_selfTag);
         prctl(15, _selfTag, 0, 0, 0);   // PR_SET_NAME on this thread
 
-        Beacon("start uid=" + getuid() + " pid=" + Environment.ProcessId);
+        Beacon("start uid=" + getuid() + " pid=" + Environment.ProcessId + ArtSuffix());
         try
         {
             _fd = -1;

@@ -15,6 +15,135 @@ entry is an incomplete change. `AGENTS.md` repeats this rule for agents.
 
 ---
 
+## 2026-11-01 — v46.1: the two second-review fixes to the stale-process proof
+
+An independent review of v46 (2026-11-01, second reviewer) found two defects in
+the *evidence*, not in the rooting chain: the freshness comparison could call a
+stale process the new DLL, and a failed deploy deleted an artifact marker it had
+never written. Both reproduced from the code, both fixed here. **No payload
+change** — `Program.cs` is untouched, so `server/payload.dll` is still v46
+(`c540a6ab…`, 42,496 B) and needs no rebuild.
+
+- **Freshness needs the per-deploy token, not just the md5.** Redeploying the
+  same bits rewrites `rootchan.art` with the *same* md5, so the survivor's
+  original start line matched and `root.ps1` printed "the new DLL is live"
+  (and exited 0) while the old process still owned 31337. The beacon token is
+  rendered fresh per deploy (`server.py`'s `secrets.token_hex(4)`), printed by
+  `deploy.sh` as `TOKEN_FILE=`, and read once per process at startup — so every
+  start line carries `tok=` (verified in the live log:
+  `DSHROOT tok=<deploy token> t=35s start uid=5001 pid=3141`). The launcher now
+  requires **both** `TOKEN_FILE=`/`tok=` (*freshness*: this deploy's token was
+  already on disk when the process started) and `ART_FILE=`/`art=` (*identity*:
+  which DLL it read) before calling a relaunch proven. A token mismatch means
+  the answering process predates the deploy — the same-bits case the md5 cannot
+  see. On `wrc=3` ("rooted, but 31337 never dropped") the script now exits **3**
+  instead of claiming success.
+- **One implementation of "newest launch".** `root.ps1` re-implemented the scan
+  and kept an OLDER `art=` when a newer launch carried none, disagreeing with
+  `beacons.py` (which lets the newest run win and reports "unknown"). The rule
+  now lives in `tools/beacons.py --newest-start` — a raw-line scan, because
+  `parse_lines()` drops the `tok=` that precedes the uptime prefix — and the
+  launcher asks for it. A relaunch with no marker reads "unknown", never an
+  older process's md5.
+- **Rollback removes only evidence this attempt wrote.** `ROLLBACK=1` is armed
+  before the DLL is touched, but `rootchan.art` is written only after the
+  installed-file md5 verify. Any failure in between (AOT move, copy, label, mv,
+  md5) therefore deleted the PREVIOUS deploy's marker — which still names
+  exactly the DLL the rollback restores (`payload_backup.dll` comes from the
+  same successful deploy), blanking the next start beacon to "unknown" for no
+  reason. `ART_WRITTEN`/`RESTART_ARMED` gates the two `rm`s; `ART_WRITTEN` is
+  set before the redirect so a write that fails after truncating is still
+  cleaned up.
+
+Tests: `test_logs.py` covers `newest_start` (a newer no-art launch wins, the
+production `tok=` wire shape, the on-TV marker file, the `--newest-start` JSON);
+`test_shell.py` asserts the happy-path marker (content + `ART_FILE=`) and that a
+label-mismatch rollback *keeps* a pre-seeded marker; `test_constants.py` locks
+the rollback gating, the two-witness comparison and the absence of the duplicate
+scan. Full offline suite: 16/16.
+
+**Live: deployed over 31337 and the proof fired the same evening (2026-11-01
+21:01).** `deploy.sh` installed 42,496 B (`WANT`/`ART_FILE` = `c540a6ab…`,
+`PREV_IL=35cc7577…` = the v45 rollback copy, `TOKEN_FILE` rotated, `MASKFILE` 29
+units / 23 binaries, `RESTART=kill 3141`, `COPY=ok`, `DEPLOY_DONE`); the relaunch
+rooted in **4 s** on attempt 1 (`direct-patch uid=0`) and `root.ps1` printed
+`proven: the answering process started after this deploy with c540a6ab… (beacon
+token and artifact marker both match)`. The newest launch line is
+`start uid=5001 pid=22961 art=c540a6ab…` with the deploy's `tok=`, i.e. both
+witnesses on the wire; live after it: `id -u` = 0, `CapEff=0x3fffffffff`,
+installed DLL md5 `c540a6ab`, `rootchan.art` 0644, `restart.log` empty (no
+`RESTART_KILL=`/`RESTART_START=`), `masks=29 stopped=29 killed=1 fail=0 missing=0
+activating=0 listed-activating=0 loop-check=ok`. **The cold boot passed the same evening (2026-11-01 21:10, mains cycle, nothing
+touched during the boot).** Boot #30: launch at t=18 s (attempt 1, `fast-exit` -
+the high-alloc lottery, unchanged), relaunch at t=29 s, `self-patch uid=0` at
+t=32 s, `ROOTCHAN 31337 uid=0` t=32 s, then `masks=29 stopped=29 killed=3 fail=0
+missing=0 activating=15 listed-activating=0 loop-check=ok newhome=set(0),loop-started`
+at t=39 s. **Both fresh launch lines carried the deploy's token and
+`art=c540a6ab…`** (`tok=<deploy token> t=29s start uid=5001 pid=2497 art=c540a6ab…`),
+so the marker survives a cold boot and the two-witness proof reads the same on a
+boot as after a deploy. Live after it: `id -u` = 0, `CapEff=0x3fffffffff`,
+installed DLL md5 `c540a6ab`, `rootchan.art` = `c540a6ab`, token unchanged; the
+analyzer reports `ROOTED at t=32s`, `artifact md5: c540a6ab…`, attempts
+`fast-exit; rooted`.
+
+## 2026-11-01 — v46 (built, not deployed): the stale-process proof
+
+Pending #2 of `docs/HANDOFF.md`: after a deploy, "old app never died, new DLL
+not loaded" could still pass the `id -u` gate — the dying old app's listener
+answers the port probe / uid query, and nothing in the record named which DLL
+the answering process had started with. v46 makes it provable from
+`beacons.log` alone:
+
+- **The payload beacons its artifact.** `deploy.sh` writes the verified
+  artifact md5 into `share/rootchan.art` (0644) AFTER the installed-file md5
+  verify and BEFORE the restart; the payload reads it once at startup (a
+  read-once helper mirroring `BeaconToken()`, strict 32-lowercase-hex) and
+  appends `art=<md5>` to its first `start uid=… pid=…` beacon. A stale old
+  process beaconed the PREVIOUS art at its own startup; a fresh relaunch
+  beacons the new one. A missing file (pre-v46 deploy, hand-built payload) is
+  no `art=` at all — unknown, not stale.
+- **The restart is no longer silent.** The detached restart subshell writes
+  `RESTART_KILL=` / `RESTART_START=` to `share/restart.log` (echoed as
+  `RESTART_LOG=`) instead of `/dev/null` — the OPEN-ISSUES residual where a
+  failed kill or start simply vanished. `tools/wait_rooted.py` reads the log
+  back over the channel after a rooted answer (best-effort; it recognizes the
+  busybox "can't open" error text inside a successful reply, because
+  `root_shell.py` always exits 0 once `__END__` arrives). `RESTART=skip` drops
+  a stale `restart.log`.
+- **The launcher cross-checks, softly.** `root.ps1` extracts `ART_FILE=<md5>`
+  from the deploy output and the newest `start … art=` from
+  `server/logs/beacons.log` and prints match / mismatch — never fatal, because
+  one dropped beacon must not fail a good deploy.
+- **Cleanup paths stay honest.** `deploy.sh`'s `ROLLBACK=1` branch removes
+  `rootchan.art` + `restart.log` — a rolled-back deploy must not leave a
+  witness naming the new md5 (payload-reviewer finding) — and
+  `uninstall.sh` removes both with the other deploy state.
+- `tools/beacons.py` captures the optional `art=` on start lines (the regex
+  tail is `(?:\s|$)` so a future appended field cannot break boot splitting);
+  the boot dict and each run's attempt row carry `art`, and the CLI prints
+  `artifact md5:` for the newest run.
+
+Recorded trade: `rootchan.art` lives in `share/` (uid-5001-writable), the same
+accepted trust class as `rootchan.token`/`rootchan.host` — a TV-side process
+could rewrite it. That rewrite risk is the LAN boundary (`SECURITY.md`), not a
+new one; the proof is operator evidence in `beacons.log`, not an
+authentication channel, and is not oversold. `docs/LOGGUIDE.md`,
+`docs/OPEN-ISSUES.md`, `docs/HANDOFF.md` and `AGENTS.md` §9 are synced in the
+same pass.
+
+Tests: `tools/test_logs.py` gained an ARTSWAP fixture (art swaps between two
+runs in one boot; a legacy no-art start stays unknown, not stale),
+`tools/test_wait_rooted.py` covers `read_restart_log` (log body, failed cat,
+crash), and `tools/test_constants.py` locks the ordering (the art write sits
+after the md5 verify), the `restart.log` redirect and the uninstall `rm`.
+Full offline suite: 16/16.
+
+Artifact: 42,496 B, md5 `c540a6ab454d3085044e8ab068c38369`. **Not deployed** —
+the TV still runs v45 (the §1 state row carries both). Deployment is a separate
+explicit step (`root.ps1 -Force`), which rotates the beacon token; the live
+acceptance line (a real deploy whose start beacon carries the new art, plus a
+cold boot) is added here when it happens.
+
 ## 2026-11-01 — `docs/HANDOFF.md`: a cold-start page for the next agent
 
 The state of the project was spread across `AGENTS.md` (state, procedures,

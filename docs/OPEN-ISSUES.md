@@ -7,20 +7,31 @@
 > Step log:
 > [docs/SMARTTHINGS-OFFLINE-2026-10-30.md](SMARTTHINGS-OFFLINE-2026-10-30.md).
 
-## Current state — 2026-11-01 (TV runs v44, deployed and cold-boot verified
-14:23; 29-unit durable masks, 37 app rows, SmartThings phone control confirmed
+## Current state — 2026-11-01 (TV runs v46, deployed 21:01 and cold-boot verified
+21:10; 29-unit durable masks, 37 app rows, SmartThings phone control confirmed
 online; offline suite green)
 
-TV: **v44** (`7fce4683…`, 41,472 B), rooted via 31337. Every beacon carries
+TV: **v46** (`c540a6ab…`, 42,496 B), rooted via 31337. Every beacon carries
 `tok=<BEACON_TOKEN>` (from `rootchan.token`); forged and token-less beacons are refused.
 `id -u` = 0, `CapEff=0x3fffffffff`.
-**v44 is deployed and cold-boot verified (2026-11-01 14:23:02)**: attempts 1-2
-`tag=exact` but a high parent -> fast-exit, attempt 3 `tag=exact` +
-`self cred == real` -> self-patch uid=0 at t=38 s, `masks=29 stopped=29 killed=5
-fail=0 missing=0 listed-activating=0 loop-check=ok` at t=45 s. The deploy
-restart before it did not root (attempt 1 high-alloc, attempts 2-4 empty walk,
-attempt 5 `tag=exact` but high parent and the cred-scan budget spent) - the
-cold boot re-rolled it; see `CHANGELOG.md`.
+**v46 is deployed (2026-11-01 21:01, over 31337) and its new stale-process proof
+fired live**: `PREV_IL=35cc7577…` (v45), `TOKEN_FILE` rotated, `ART_FILE` =
+`c540a6ab…`, `RESTART=kill 3141`, `COPY=ok`, `DEPLOY_DONE`; the relaunch rooted
+in 4 s on attempt 1 (`direct-patch uid=0`), the newest launch beaconed
+`tok=<deploy token> art=c540a6ab…` and `root.ps1` reported the two-witness
+`proven` line; `masks=29 stopped=29 killed=1 fail=0 missing=0 activating=0
+listed-activating=0 loop-check=ok`; `rootchan.art` 0644 and `restart.log` empty
+(no failed kill/start).
+**Cold-boot acceptance PASSED 2026-11-01 21:10 (mains cycle, nothing touched
+during the boot):** launch t=18 s (attempt 1 `fast-exit`, the high-alloc
+lottery), relaunch t=29 s, `self-patch uid=0` t=32 s, `ROOTCHAN` t=32 s,
+`masks=29 stopped=29 killed=3 fail=0 missing=0 activating=15 listed-activating=0
+loop-check=ok newhome=set(0),loop-started` t=39 s; **both fresh launch lines
+carried the deploy's token and `art=c540a6ab…`**, so the marker survives a cold
+boot; live uid 0, full caps, installed DLL md5 `c540a6ab`.
+The v45 boot before it (16:15) rooted on attempt 2 at t=37 s; the v44 boot
+(14:23:02) had needed attempt 3 after the deploy restart landed in the stale
+window; see `CHANGELOG.md`.
 **All hardware gates are closed (2026-10-27):** v41 cold boots at **36 s**
 (attempt 1 fast-exit t=29, attempt 2 direct-parent t=36) and **49 s** after the
 recover cycle (AUL launched late; one direct-patch attempt); `kill -9` recovery
@@ -28,10 +39,10 @@ recover cycle (AUL launched late; one direct-patch attempt); `kill -9` recovery
 allow removed, 31337 stayed closed after a cold boot, stock 9197 back); recovery
 via `recover.sh <pc-url>` completed `DEPLOY_DONE`/`RECOVER_DONE` and the following
 cold boot rooted again.
-Backups: `mcs_orig.dll` (stock), `mcs_ni_orig.dll`, `payload_backup.dll` = v43
-(the v44 deploy's `PREV_IL=85cd0120`).
+Backups: `mcs_orig.dll` (stock), `mcs_ni_orig.dll`, `payload_backup.dll` = v45
+(the v46 deploy's `PREV_IL=35cc7577`).
 
-The repo is green offline (`python tools/test_all.py`, 15/15 layers incl. the
+The repo is green offline (`python tools/test_all.py`, 16/16 layers incl. the
 debloat tooling, in-process server and whole-tree hygiene layers) and
 `sanitize_for_public.py --check` passes. The kernel memory boundary is now
 zoneinfo-derived (`max_low_pfn 0x50400` → `high_memory` VA `0xF0400000`); the
@@ -45,12 +56,28 @@ the launcher gate it exposed: `root.ps1` now waits for `id -u` = 0 through
 `tools/wait_rooted.py` instead of trusting a port probe (the deploy's kill is
 detached, and the dying old app's listener answered the probe while the new
 payload hunted for five minutes), and `deploy.sh` clears `/tmp/.dsh_try` before
-its restart so a deploy after a bad boot gets a fresh fast budget. **Residual:**
-`deploy.sh`'s own `RESTART_KILL=fail` / `RESTART_START=fail` lines are printed
-inside a detached subshell with stdout/stderr on `/dev/null`, so neither the
-operator nor the launcher can see them; "no channel at all" is caught by the
-`id` gate, but "old app never died, new DLL not loaded" would still pass it.
-The v45 note proposes a payload-side artifact-md5 beacon to make that provable.
+its restart so a deploy after a bad boot gets a fresh fast budget.
+**~~Residual: `RESTART_KILL=` / `RESTART_START=` vanish into `/dev/null`; "old
+app never died, new DLL not loaded" passes the `id -u` gate~~ — done, built +
+offline-verified 2026-11-01 (repo v46/v46.1; **deployed 2026-11-01 21:01, cold
+boot still owed**).** The restart
+subshell now writes to `share/restart.log` (echoed `RESTART_LOG=`) and
+`tools/wait_rooted.py` reads it back after a rooted answer; the payload beacons
+`art=<md5>` (read once at startup from the deploy-rendered `rootchan.art`) on
+its start beacon, so `beacons.log` proves which DLL each process started with.
+**v46.1, after the second review (2026-11-01):** the freshness proof uses TWO
+witnesses — the newest launch's `tok=` against the deploy's `TOKEN_FILE=` (the
+token is rendered fresh per deploy, so this survives redeploying identical
+bits, which the md5 alone cannot) **and** its `art=` against `ART_FILE=` (which
+DLL it read); `root.ps1` gets the "newest launch" from
+`tools/beacons.py --newest-start` instead of rescanning, and `wrc=3` now exits 3
+instead of claiming success. `deploy.sh`'s rollback removes `rootchan.art` /
+`restart.log` only when THIS attempt wrote them (`ART_WRITTEN` /
+`RESTART_ARMED`) — it used to delete the previous deploy's still-accurate marker
+when a failure landed before the write. The live proof (a real deploy + boot
+showing both witnesses match) still needs hardware; its acceptance line goes to
+`CHANGELOG.md` when it happens. The artifact-md5 beacon was designed fresh in
+v46 — it was never a proposal in `docs/V45-BLIND-WALK.md`.
 
 **v45 — deployed and cold-boot verified 2026-11-01.** Exit long mode on a
 rootless pass (any pass, not only a blind one — the 2026-11-01 pass had latched

@@ -337,15 +337,69 @@ if ($tvRooted -and $Force) {
         $env:ROOT_SHELL_TIMEOUT = "15"
         & $py (Join-Path $layout.Tools "wait_rooted.py") --tv $TvIp --timeout $BootTimeoutSec
         $wrc = $LASTEXITCODE
+        # v46.1 freshness proof - TWO witnesses, both from the deploy output and
+        # the newest launch line in beacons.log:
+        #   TOKEN_FILE= / tok= : the per-deploy beacon token (server.py renders a
+        #     fresh secrets.token_hex(4) per deploy; the payload reads it once at
+        #     startup).  A match proves the process started AFTER this deploy
+        #     wrote the token.  The md5 alone cannot: redeploying the SAME bits
+        #     leaves a survivor's start line matching, so v46 called an old
+        #     process "the new DLL" (2026-11-01 second review).
+        #   ART_FILE= / art=   : the artifact identity - which DLL it read.
+        # Both matching = proven relaunch.  A mismatch is a WARNING, never a
+        # failure (one dropped 500 ms beacon must not fail a good deploy) -
+        # except wrc=3, where the channel provably never moved: exit 3.
+        # The "newest" rule lives in tools/beacons.py --newest-start, not here:
+        # the v46 duplicate kept an OLDER art when a newer launch had none.
+        $deployedMd5 = $null; $deployedTok = $null
+        $startArt = $null; $startTok = $null
+        if ($out -match "ART_FILE=([0-9a-f]{32})") { $deployedMd5 = $Matches[1] }
+        if ($out -match "TOKEN_FILE=([0-9a-fA-F]{8})") { $deployedTok = $Matches[1].ToLower() }
+        $bl = Join-Path $layout.ServerDir "logs\beacons.log"
+        if (($deployedMd5 -or $deployedTok) -and (Test-Path -LiteralPath $bl)) {
+            $js = & $py (Join-Path $layout.Tools "beacons.py") --file $bl --newest-start 2>$null | Out-String
+            if ($js.Trim()) {
+                try {
+                    $ns = $js | ConvertFrom-Json
+                    $startTok = $ns.tok
+                    $startArt = $ns.art
+                } catch { }
+            }
+        }
+        $tokOk = [bool]($deployedTok -and $startTok -and ($startTok -eq $deployedTok))
+        $artOk = [bool]($deployedMd5 -and $startArt -and ($startArt -eq $deployedMd5))
         if ($wrc -eq 3) {
-            Say "WARNING: rooted, but 31337 never dropped - the app may still be"
-            Say "         running the PREVIOUS DLL; check the md5 against the state row."
+            Say "WARNING: rooted, but 31337 never dropped - the channel is still"
+            Say "         answered by the OLD process."
+            if ($deployedTok) {
+                if ($tokOk) {
+                    Say "  a process that read THIS deploy's token has started, but it"
+                    Say "  does not own 31337 - power-cycle before trusting the channel."
+                } elseif ($startTok) {
+                    Say "  the newest launch carries token $startTok, not this deploy's"
+                    Say "  $deployedTok - the OLD process is still answering."
+                } else {
+                    Say "  no launch line carries a token - the OLD process is answering"
+                    Say "  (or its start beacon was dropped)."
+                }
+            }
+            if ($deployedMd5) {
+                if ($artOk) {
+                    Say "  artifact marker matches this deploy ($deployedMd5)."
+                } elseif ($startArt) {
+                    Say "  artifact marker is $startArt, not this deploy's $deployedMd5."
+                } else {
+                    Say "  no launch line names this deploy's artifact (pre-v46 payload,"
+                    Say "  a rollback, or a dropped beacon)."
+                }
+            }
+            Say "  Recovery: power-cycle the TV, then: python tools/root_shell.py `"id -u`" $TvIp"
+            exit 3
         } elseif ($wrc -ne 0) {
             Say "31337 did not return a ROOTED shell within $BootTimeoutSec s."
             Say "  The deploy restart can land in the stale-read window and long mode"
             Say "  cannot re-roll it, so a mains power-cycle is the recovery. Then run:"
             Say "    python tools/root_shell.py `"id -u`" $TvIp"
-            $bl = Join-Path $layout.ServerDir "logs\beacons.log"
             if (Test-Path -LiteralPath $bl) {
                 Say "  last beacons:"
                 Get-Content -LiteralPath $bl -Tail 6 | ForEach-Object { Say "    $_" }
@@ -353,6 +407,28 @@ if ($tvRooted -and $Force) {
             exit 1
         } else {
             Say "31337 answers id -u = 0; payload active (verified)."
+            if ($tokOk -and $artOk) {
+                Say "proven: the answering process started after this deploy with $deployedMd5"
+                Say "        (beacon token and artifact marker both match)."
+            } elseif ($tokOk) {
+                Say "WARNING: this deploy's token is live, but the artifact marker is"
+                Say "  $(if ($startArt) { $startArt } else { 'absent' }) - expected $deployedMd5."
+                Say "  A rollback or a hand-built payload explains it; check beacons.py --last 1"
+            } elseif ($startTok) {
+                Say "WARNING: the newest launch predates this deploy (token $startTok,"
+                Say "  deployed $deployedTok) - its start beacon was dropped, or the"
+                Say "  answering process is older. Compare: python tools/beacons.py --last 1"
+            } elseif ($deployedTok) {
+                Say "WARNING: no launch line carries a token - the start beacon was dropped,"
+                Say "  or a pre-v41 payload is answering. Compare: python tools/beacons.py --last 1"
+            } elseif ($deployedMd5 -and $artOk) {
+                Say "start-beacon art matches the deployed md5 ($deployedMd5); the deploy"
+                Say "        output carried no TOKEN_FILE= (older deploy.sh)."
+            } elseif ($deployedMd5) {
+                Say "WARNING: no launch line names the deployed md5 $deployedMd5 -"
+                Say "  a dropped beacon, or the old app is still answering."
+                Say "  Compare: python tools/beacons.py --last 1"
+            }
         }
     }
     exit 0

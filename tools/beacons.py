@@ -37,13 +37,67 @@ LINE = re.compile(r"^(?P<ts>\S+)\s+DSHROOT\s+(?P<rest>.*)$")
 MARKER = re.compile(r"^(?P<rest>t=\d+s\s+\S.*)$")
 UPTIME = re.compile(r"(?:^|\s)t=(?P<t>\d+)s(?:\s|$)")
 ATTEMPT = re.compile(r"^attempt=(\d+)")
-START = re.compile(r"^start uid=(\d+) pid=(\d+)")
+START = re.compile(r"^start uid=(\d+) pid=(\d+)(?: art=(?P<art>[0-9a-f]{32}))?(?:\s|$)")
+# The `(?:\s|$)` tail keeps the line matching if a future beacon field is
+# appended after art= (start= lines historically grow fields: child= gained
+# pu=/tag=/stale=); an anchored $ would silently stop SPLITTING boots instead.
+# v46: the payload reads the deploy-rendered artifact md5 (rootchan.art) once
+# at startup and appends it to the start beacon.  The newest run's art says
+# which DLL the answering process started with - a stale old process beaconed
+# the PREVIOUS art (CHANGELOG 2026-11-01, v46).  A start line without art=
+# predates v46 or the file was absent (hand-built payload): unknown, not stale.
 # Program.cs always prints pid= in its start line.  A start line without one is
 # test or forged noise (the gateway tests used to write exactly this shape into
 # the production log).  Never let it open a boot: its hard-coded t=1s would
 # otherwise read as a cold boot (found 2026-10-26).
 START_NO_PID = re.compile(r"^start uid=(\d+)$")
 TEST_NOISE = {"start_without_pid": 0}
+
+# v46.1: the deploy-freshness witness for root.ps1.  The launcher used to
+# re-implement this scan (last `art=` in the tail, skipping a newer start line
+# that carried none), which disagreed with this analyzer: here the newest launch
+# wins even when it has no art=, so a relaunch after a rollback must read
+# "unknown", never the older process's md5.  One implementation, used by both.
+TOK = re.compile(r"(?:^|\s)tok=(?P<tok>[0-9a-f]{8})(?=\s|$)")
+LAUNCH = re.compile(r"(?:^|\s)start uid=\d+ pid=\d+"
+                    r"(?:\s+art=(?P<art>[0-9a-f]{32}))?(?=\s|$)")
+
+
+def newest_start(text):
+    """The newest payload launch line, or None.
+
+    Returns {"ts", "tok", "art", "line"}: `tok` is the deploy token that process
+    read at startup (`deploy.sh` prints the current one as TOKEN_FILE=), `art`
+    the artifact md5 it read from rootchan.art.  Raw lines are scanned because
+    parse_lines() drops the `tok=` that sits before the uptime prefix on the
+    wire (`DSHROOT tok=<hex> t=<n>s start uid=... pid=... art=<md5>`).
+
+    The LAST matching line wins - beacons.py's newest-run rule - so a later
+    launch with no art= reports None instead of inheriting an older process's
+    md5 (the v46 scan did inherit it, and called it the newest).
+    """
+    found = None
+    for raw in text.splitlines():
+        raw = raw.strip()
+        if not raw:
+            continue
+        m = LINE.match(raw)
+        if m:
+            ts, rest = m.group("ts"), m.group("rest")
+        else:
+            mm = MARKER.match(raw)
+            if not mm:
+                continue
+            ts, rest = "", mm.group("rest")
+        lm = LAUNCH.search(rest)
+        if not lm:
+            continue
+        tm = TOK.search(rest)
+        found = {"ts": ts,
+                 "tok": tm.group("tok") if tm else None,
+                 "art": lm.group("art"),
+                 "line": rest}
+    return found
 
 # ---- signatures: (code, regex, severity, message, hint) ---------------------
 # Severity: "info" = expected on this design, "warn" = explains a slow boot or
@@ -262,13 +316,18 @@ def analyse_boot(boot, index):
                 findings.append(f)
 
     attempts = []
+    art = None  # the newest run's artifact md5 (None = pre-v46 or file absent)
     for run in runs:
         n = None
         result = "started"
+        run_art = None
         for ts, t, rest in run:
             am = ATTEMPT.match(rest)
             if am:
                 n = int(am.group(1))
+            sm = START.match(rest)
+            if sm and sm.group("art"):
+                run_art = sm.group("art")
             if ROOTED.match(rest):
                 result = "rooted"
             elif "fast-exit" in rest:
@@ -277,7 +336,8 @@ def analyse_boot(boot, index):
                 result = "fast-exit"
             elif FAILROUND.match(rest) or rest.startswith("fail "):
                 result = " ".join(rest.split()[:3])
-        attempts.append({"attempt": n, "result": result})
+        art = run_art  # later runs overwrite: only the newest launch counts
+        attempts.append({"attempt": n, "result": result, "art": run_art})
 
     if rooted_at is not None:
         verdict = f"ROOTED at t={rooted_at}s of TV uptime"
@@ -326,6 +386,7 @@ def analyse_boot(boot, index):
         "max_t": max((t for _, t, _ in boot if t is not None), default=None),
         "lines": len(boot),
         "runs": len(runs),
+        "art": art,
         "verdict": verdict,
         "rooted": rooted_at is not None or (chan_uid == 0),
         "attempts": attempts,
@@ -339,6 +400,9 @@ def main(argv=None) -> int:
     ap.add_argument("--file", default=str(DEFAULT_LOG), help="beacon log to read")
     ap.add_argument("--json", action="store_true", help="emit JSON")
     ap.add_argument("--last", type=int, default=0, help="only the newest N boots")
+    ap.add_argument("--newest-start", action="store_true",
+                    help="print the newest payload launch line as JSON "
+                         "(tok= + art=) and exit; used by root.ps1")
     args = ap.parse_args(argv)
 
     p = Path(args.file)
@@ -348,6 +412,13 @@ def main(argv=None) -> int:
               f"never python.exe), the page load, and the boot row.",
               file=sys.stderr)
         return 2
+    if args.newest_start:
+        # One implementation of "which launch is newest" for the launcher too;
+        # exit 1 with null fields when there is no launch line at all.
+        ns = newest_start(p.read_text(errors="replace"))
+        print(json.dumps(ns or {"ts": None, "tok": None, "art": None,
+                                "line": None}))
+        return 0 if ns else 1
     boots = group_boots(list(parse_lines(p.read_text(errors="replace"))))
     if not boots:
         print(f"beacons: no DSHROOT lines in {p}", file=sys.stderr)
@@ -375,6 +446,13 @@ def main(argv=None) -> int:
         print(f"\n--- boot #{b['index']}  {b['first_ts']} .. {b['last_ts']}"
               f"  (max t={b['max_t']}s, {b['lines']} lines, {b['runs']} launch(es))")
         print(f"    verdict: {b['verdict']}")
+        if b["art"]:
+            # the artifact identity the newest process started with; compare it
+            # with the deployed md5 (deploy.sh's ART_FILE= line, the state row)
+            print(f"    artifact md5: {b['art']}")
+        elif b["runs"] and any(a["art"] is None for a in b["attempts"]):
+            print("    artifact md5: unknown (pre-v46 start beacon or no "
+                  "rootchan.art)")
         if b["attempts"]:
             desc = "; ".join(
                 f"attempt {a['attempt']}: {a['result']}"

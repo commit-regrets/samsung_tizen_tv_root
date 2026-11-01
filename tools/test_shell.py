@@ -300,6 +300,16 @@ def deploy_cases(sh):
         failed += not check("deploy: backups are byte-exact stock + md5 recorded", ok)
         ok = (f.bin / "MultiControlService.dll").read_bytes() == PAYLOAD.read_bytes()
         failed += not check("deploy: payload installed", ok)
+        # v46: the artifact witness is printed for the launcher (ART_FILE=) and
+        # written for the payload to read once at startup (0644, same argument
+        # as the beacon token).
+        want = hashlib.md5(PAYLOAD.read_bytes()).hexdigest()
+        artf = f.share / "rootchan.art"
+        ok = (artf.is_file() and artf.read_text().strip() == want
+              and f"ART_FILE={want}" in out)
+        failed += not check("deploy: artifact marker written + ART_FILE= reported",
+                            ok, " ".join(l for l in out.splitlines()
+                                         if l.startswith("ART_FILE")))
         # v42 policy files: fetched from the docroot, installed under /opt/usr/data
         md = f.root / "opt/usr/data/debloat-masks.txt"
         kd = f.root / "opt/usr/data/debloat-kill.txt"
@@ -342,6 +352,12 @@ def deploy_cases(sh):
     # --- label mismatch: abort BEFORE the rename, keep the live DLL ---------
     f = fresh()
     try:
+        # v46.1: this fails AFTER ROLLBACK=1 but BEFORE the marker write (the
+        # label check precedes the rename), so the PREVIOUS deploy's marker must
+        # survive - it still names the DLL the rollback restores.  The v46
+        # cleanup deleted it unconditionally and blanked the next start beacon.
+        prev_art = hashlib.md5(b"previous-payload\n").hexdigest()
+        (f.share / "rootchan.art").write_text(prev_art + "\n")
         r = f.run("deploy.sh", {"TEST_CHSMACK_FAIL": "1"})
         out = r.stdout + r.stderr
         ok = r.returncode != 0 and "DLL_LABEL_MISMATCH" in out and "COPY=ok" not in out
@@ -350,6 +366,11 @@ def deploy_cases(sh):
         failed += not check("deploy: live DLL untouched on label mismatch", ok)
         ok = not (f.bin / "MultiControlService.dll.tmp").exists()
         failed += not check("deploy: temp DLL removed on label mismatch", ok)
+        ok = ((f.share / "rootchan.art").is_file()
+              and (f.share / "rootchan.art").read_text().strip() == prev_art)
+        failed += not check(
+            "deploy: rollback keeps a marker this attempt never wrote", ok,
+            "the previous marker names the DLL the rollback restores")
     finally:
         f.cleanup()
 

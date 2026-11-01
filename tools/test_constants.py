@@ -29,6 +29,7 @@ KROOT = HERE / "kernel_root.py"
 PHYSMAP = HERE / "physmap.py"
 DEPLOY = ROOT / "server" / "deploy.sh"
 RECOVER = ROOT / "server" / "recover.sh"
+PS1 = ROOT / "root.ps1"
 
 FAILS = 0
 
@@ -53,6 +54,7 @@ def main() -> int:
     stub = STUB.read_text(encoding="ascii")
     deploy = DEPLOY.read_text(encoding="utf-8")
     recover = RECOVER.read_text(encoding="utf-8")
+    ps1 = PS1.read_text(encoding="utf-8")
     server = (ROOT / "server" / "server.py").read_text(encoding="utf-8")
     run_root = (HERE / "run_root.py").read_text(encoding="utf-8")
     auto_root = (HERE / "auto_root.py").read_text(encoding="utf-8")
@@ -296,6 +298,37 @@ def main() -> int:
           and "unknown beacon " in server and "NOT admitted" in server)
     check("uninstall removes the beacon token file",
           '"$S/rootchan.token"' in uninstall)
+    # --- v46 artifact md5 beacon (stale-process proof) ----------------------
+    check("payload reads the deploy-rendered artifact md5 and beacons it",
+          'ArtFile = Share + "/rootchan.art"' in prog
+          and 'ArtSuffix()' in prog and '" art=" + a' in prog)
+    check("deploy.sh writes rootchan.art AFTER the installed-file md5 verify",
+          'printf \'%s\\n\' "$WANT" > "$S/rootchan.art"' in deploy
+          and deploy.index("md5sum \"$D\" | grep")
+          < deploy.index('printf \'%s\\n\' "$WANT" > "$S/rootchan.art"'))
+    check("deploy.sh routes the restart subshell to restart.log, not /dev/null",
+          "RESTART_LOG=$S/restart.log" in deploy
+          and ') > "$S/restart.log" 2>&1 &' in deploy)
+    check("uninstall removes rootchan.art and restart.log",
+          '"$S/rootchan.art"' in uninstall and '"$S/restart.log"' in uninstall)
+    check("the analyzer captures art= on start lines",
+          "art=" in open(HERE / "beacons.py", encoding="utf-8").read())
+    # --- v46.1: the two review fixes ---------------------------------------
+    check("rollback removes only evidence THIS attempt wrote",
+          'if [ "$ART_WRITTEN" = 1 ]' in deploy
+          and 'if [ "$RESTART_ARMED" = 1 ]' in deploy
+          and 'rm -f "$S/rootchan.art" "$S/restart.log"' not in deploy,
+          "a failure before the marker write used to delete the previous "
+          "deploy's accurate marker (2026-11-01 second review)")
+    check("root.ps1 proves freshness with the deploy token AND the artifact",
+          'TOKEN_FILE=([0-9a-fA-F]{8})' in ps1
+          and 'ART_FILE=([0-9a-f]{32})' in ps1,
+          "the md5 alone cannot tell a survivor from a relaunch when the same "
+          "bits are redeployed")
+    check("root.ps1 asks beacons.py for the newest launch instead of rescanning",
+          "--newest-start" in ps1 and 'pid=\\d+ art=' not in ps1,
+          "the v46 duplicate kept an older art when a newer launch had none")
+
     check("deploy.sh makes rootchan.host/allow readable by the pre-root payload",
           'chmod 644 "$A" "$HOSTF"' in deploy,
           "umask 077 + no chmod left them 0600 and every pre-root beacon was "
