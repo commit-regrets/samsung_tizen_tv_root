@@ -9,7 +9,8 @@ from the same list.
 speaking the 31337 line protocol. That shell is provided by the rooting
 toolkit in this same repository (`root.ps1` / `tools/root_shell.py`); this
 folder never roots anything itself and has no opinion about how the root
-was obtained. The payload (v42, deployed 2026-10-30) re-asserts the service mask list
+was obtained. The payload (the v42 mask-replay mechanism, unchanged in v46,
+deployed 2026-11-01) re-asserts the service mask list
 from the root-owned policy path at every boot.
 
 ## Layout
@@ -59,13 +60,14 @@ picture-settings loop, and fails if a listed unit is still restart-looping.
 
 ## Status
 
-- **Tiers 1+2a (20 packages) applied live 2026-10-29** — durably disabled
-  via `pkgcmd -D --global`. **All 20 rows are cold-boot verified**
-  (2026-10-30 mains cycle: `id -u` = 0, count = 20, both sentinels present;
-  the 11 tier-1 rows were first confirmed 2026-10-29). Run log:
-  `models/qnx1d/run-2026-10-29-tier1.md`. ~25.9 MB running ACR/ad
-  processes freed (distinct processes, measured against the pre-debloat
-  baseline).
+- **Standing set: 37 app rows** — tier 1 (10) + tier 2a (5) + voice (22),
+  all durably disabled via `pkgcmd -D --global` and cold-boot verified (the
+  original 20-row set on 2026-10-30: `id -u` = 0, count = 20, both sentinels
+  present, the 11 tier-1 rows first confirmed 2026-10-29; the 37-row set
+  first booted 2026-10-30 19:29:41 and again 2026-11-01 14:23:02 under v44).
+  Run log: `models/qnx1d/run-2026-10-29-tier1.md`. ~25.9 MB running ACR/ad
+  processes freed by tier 1 (distinct processes, measured against the
+  pre-debloat baseline), plus ~7 MB PSS from the voice set.
 - **Services layer: a 29-unit mask list, all of it masked durably (v42) and
   verified on the 2026-10-30 cold boot** (`masks=24 ... listed-activating=0` on
   the then-24-unit list), then 34 with the OTA stack at 14:50, and **29 since
@@ -123,20 +125,20 @@ picture-settings loop, and fails if a listed unit is still restart-looping.
   comparison after any apply diffs against this file.
 - **Tiered lists** (tracking re-classified with the current Vetro catalog,
   cross-merged with tizen-tv-control-center's S90D list, same firmware family):
-  - `lists/tier1-tracking.txt` (11): tracking role, standalone-safe. Two
+  - `lists/tier1-tracking.txt` (10): tracking role, standalone-safe. Two
     catalog-tracking packages are deliberately NOT listed and are denylisted
     in `apply.sh`:
     `screen-analysis-dbmgr` (tcc measured picture-processing breakage) and
     `iacr` (coupling unknown — review first; not denylisted, but not in any
     tier).
-  - `lists/tier2a-tcc-apps.txt` (9): tcc list ∩ registry, optional/tracking,
+  - `lists/tier2a-tcc-apps.txt` (5): tcc list ∩ registry, optional/tracking,
     uncoupled.
   - `lists/tier2b-home-dependent.txt` (22, commented): tcc apps that are
     Vetro-keep or keeper-coupled — only with Home replacement or explicit
     owner acceptance.
-  - `lists/services-units.txt` (24 masked units; `bluetooth-monitor.service`
+  - `lists/services-units.txt` (29 masked units; `bluetooth-monitor.service`
     is a commented DO-NOT-MASK note with the evidence) +
-    `lists/services-bind.txt` (24 `/usr/bin` binaries — the **kill list** for
+    `lists/services-bind.txt` (23 `/usr/bin` binaries — the **kill list** for
     `mask.sh`, not a bind-mount list; `bt-monitor` is commented out for the
     same reason; bind-mount overlaying was falsified, respawner bypass, and
     its scripts were removed). The runtime tool is

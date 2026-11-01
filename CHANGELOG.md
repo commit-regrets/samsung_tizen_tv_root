@@ -15,6 +15,22 @@ entry is an incomplete change. `AGENTS.md` repeats this rule for agents.
 
 ---
 
+## 2026-11-01 — debloat README: the standing-set counts
+
+Stale-count sweep after the live audit against the TV (37 disabled rows, 29 masks,
+446 installed packages). The list section still described the pre-OTA,
+pre-batch-3 tree: `services-units.txt` "24 masked units",
+`services-bind.txt` "24 binaries", `tier1-tracking.txt` "(11)",
+`tier2a-tcc-apps.txt` "(9)". Current lists are **29 / 23 / 10 / 5**, and the
+standing set is **37 app rows** (tier 1 10 + tier 2a 5 + voice 22), so the
+Status bullet - which read as if the 20-row 2026-10-29 run were current - now
+states the standing set and keeps that run as history. The payload line also
+said "v42, deployed 2026-10-30"; the mask-replay mechanism is still v42 but the
+deployed payload is v46 (2026-11-01).
+
+No behaviour change: `tools/test_debloat.py` and `tools/test_docs.py` pass
+unchanged.
+
 ## 2026-11-01 — v46.1: the two second-review fixes to the stale-process proof
 
 An independent review of v46 (2026-11-01, second reviewer) found two defects in
