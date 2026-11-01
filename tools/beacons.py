@@ -117,6 +117,12 @@ SIGNATURES = [
      "could not re-assert auto-update off",
      "OTA could replace the app and the boot row; set it by hand "
      "(AGENTS.md 'Auto-update is pinned off')"),
+    ("LONG-EXIT", re.compile(r"^long-exit attempt=\d+ count=\d+$"), "info",
+     "v45: a LONG-mode pass ended without root and exited for a fresh process",
+     "expected after the four fast attempts when this process's mapping is "
+     "stale; AUL relaunches and the next attempt re-rolls the mmap. Three "
+     "exits per boot, then the old in-process idle - a boot that still fails "
+     "after count=3 needs a power-cycle"),
     # ---- v42 service masks (debloat) --------------------------------------
     ("MASK-BEGIN", re.compile(r"^masks begin n=\d+"), "info",
      "the v42 service-mask step started",
@@ -295,10 +301,10 @@ def analyse_boot(boot, index):
             "code": "BLIND-WALK", "sev": "warn",
             "msg": "the long-mode pass never saw a new landmark (seen=0 in "
                    "every round): the task list was unreadable",
-            "hint": "an in-process retry cannot fix a blind read - the only "
-                    "remedy is a FRESH PROCESS: power-cycle the TV. A deploy "
-                    "restart that lands here cannot re-roll (AGENTS.md trap 18, "
-                    "docs/V45-BLIND-WALK.md)",
+            "hint": "an in-process retry cannot fix a blind read - only a FRESH "
+                    "PROCESS can. v45+ exits for one on its own (the long-exit "
+                    "line follows); on v44 and earlier, power-cycle the TV "
+                    "(AGENTS.md trap 18, docs/V45-BLIND-WALK.md)",
             "line": blind[-1][2],
         })
 

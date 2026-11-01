@@ -1,8 +1,8 @@
-# v45 design note — exit LONG mode on a blind walk
+# v45 — exit LONG mode on a rootless pass
 
-Status: **proposal, not implemented.** Written after the 2026-11-01 v44 deploy,
-where the post-deploy restart hunted for five minutes without ever seeing a
-landmark. Implementation needs a new artifact and a cold-boot session.
+Status: **implemented 2026-11-01, cold-boot verification owed.** Artifact 41,984 B,
+md5 `35cc7577…`; the TV still runs v44 (`7fce4683…`) until the deploy. Written
+after the v44 deploy restart, which hunted for five minutes in one process.
 
 ## What happened
 
@@ -18,45 +18,54 @@ attempt 5 (long retry mode): round 3 found child=cb6b5080 tag=exact, but
   -> fail round 3 … fail round 5, then the 120 s idle loop
 ```
 
-`seen=0` with an empty `tail:` means the task-list walk read **nothing at all** —
-the app's own task pages were stale. No in-process retry can fix that: LONG mode
-keeps the process alive and re-reads the same bad mapping, so it re-reads the same
-blind state. The cold boot (a fresh process and a fresh mmap) rooted on attempt 3
-in 38 s.
+The critical detail: **the long pass was not blind.** It found and latched its
+landmark child; what it could not read was `self` (the payload's own task), and
+the parent pointer translated into junk, and the process-wide cred-scan budget
+was already spent. So no in-process retry could help — the mapping was stale in
+exactly the paths that matter, and the process kept re-reading it. The cold boot
+(fresh process, fresh mmap) rooted on attempt 3 in 38 s.
 
-## Proposal
+## The rule (as built)
 
-When a **whole long-mode pass** produces no positive evidence — i.e. every round
-ended in `fail no new PHYRFORK seen=0`, `maybe` was never latched, and `pre` was
-empty — treat it as a blind read and exit so AUL relaunches a fresh process.
+**Any LONG-mode pass that ends without root exits for a fresh process**, because
+the process has proven it cannot make progress against its own mapping. The
+`seen=0`-only criterion the first draft proposed would *not* have fired on the
+2026-11-01 pass (the child was latched) — that is the correction this version
+records.
 
-Bound it with a per-boot counter (`/tmp/.dsh_blind`, the same tmpfs trick as
-`/tmp/.dsh_try`): at most **3** blind exits per boot. After that, fall back to
-today's idling behaviour, so a persistently blind boot cannot become a relaunch
-storm.
-
-Beacon the decision: `blind-exit attempt=<n> count=<k>`.
+- Long mode = attempt > 4. The pass is the six rounds `{0,0,8000,15000,25000,30000}`.
+- After the round loop, if `getuid() != 0`: `CloseDevice(); KillChildren();
+  Beacon("long-exit attempt=<n> count=<k>"); Environment.Exit(0)`.
+- Bounded per boot by `/tmp/.dsh_long` (`LongExitMax = 3`, tmpfs, so it resets at
+  boot like `/tmp/.dsh_try`). After 3 exits the old 120 s in-process idle returns,
+  so a pathological boot cannot become a relaunch storm.
 
 ### Where
 
-`payload/Program.cs`, `Main()`'s round loop: after the round loop ends and before
-the `Thread.Sleep(120000)` idle, if `!fastMode` and the pass latched nothing
-(`seenFork` 0 in every round, `maybe` never set), read/increment `/tmp/.dsh_blind`
-and `CloseDevice(); KillChildren(); Environment.Exit(0);` within the cap.
+`payload/Program.cs`, `Main()`: the `if (fastMode)` fast-exit block is followed by
+the new long-exit block, then the original idle. `TryFile`/`LongFile` sit next to
+each other in the constants block.
 
 ### Why it is safe
 
 - It is the same argument the v33 `high-alloc` gate already encodes: a read
-  failure is **address-dependent**, and only a fresh process re-rolls the
-  address. Waiting cannot help; the v31 experiment (10 s last wait) made the cold
-  boot worse (132 s vs 51 s).
-- A blind pass carries *no* evidence, so nothing is lost by exiting: there is no
-  candidate to patch and no scan worth running (`_scanPatched` is process-wide and
-  already spent by then).
-- The counter bounds the cost at 3 extra AUL relaunches (~15-20 s each) in the
-  pathological case; normal boots never reach LONG mode (attempt 1-3).
-- Any evidence at all (`seen>0`, a `maybe` latch, a child) keeps the current
-  idling behaviour, so a *slow but readable* boot is unaffected.
+  failure is **address-dependent**, and only a fresh process re-rolls the address.
+  Waiting cannot help; the v31 experiment (10 s last wait) made the cold boot worse
+  (132 s vs 51 s).
+- A rootless pass has no candidate it managed to patch — `getuid()` was checked
+  immediately before the exit, so nothing usable was lost. (If it had patched, the
+  loop would have rooted.)
+- Cost is bounded: at most 3 extra AUL relaunches in the pathological case, and
+  normal boots never reach LONG mode (attempt 1-3).
+- A *successful* long pass is untouched: `getuid() == 0` returns before the gate.
+
+### Cost to know about
+
+Each fresh process also resets the **process-wide** cred-scan budget
+(`_scanPatched`, 8 patches). Worst-case collateral across a pathological boot is
+therefore 4 processes × 8 = 32 uid-5001 cred patches instead of 8. That is the
+accepted class (only uid-5001 creds are ever written, `PatchCred` enforces it),
+but do not raise `LongExitMax` without measuring it.
 
 ### What NOT to do
 
@@ -65,27 +74,32 @@ and `CloseDevice(); KillChildren(); Environment.Exit(0);` within the cap.
   documented (v31: 132 s) and attempt 2-3 is the accepted floor.
 - **Do not retry the content scan.** Its budget is process-wide by design; a
   second pass would just patch more foreign creds.
-- **Do not exit unconditionally in long mode.** Slow cold boots are what long
-  mode exists for; the gate must be "no evidence in a whole pass".
+- **Do not remove the `CloseDevice()`/`KillChildren()` before the exit.** AUL's
+  relaunch would race the dying process for video40 and could inherit landmark
+  children (traps 3 and 8).
+- **Do not make the exit unconditional for fast mode** — fast mode already exits;
+  the two gates must stay separate so the fast attempt budget in `/tmp/.dsh_try`
+  still works.
 
-## Acceptance on hardware (when it is built)
+## Acceptance on hardware
 
 1. Normal cold boot unchanged: root by attempt 2-3, `tag=exact`, masks line —
-   compare against the v44 numbers in `AGENTS.md` §1 (38 s, attempt 3).
+   compare against the v44 numbers in `AGENTS.md` §1 (38 s, attempt 3). No
+   `long-exit` line on a normal boot.
 2. Deploy-restart path: force the bad case if it recurs, or accept the first
-   natural occurrence — expect `blind-exit` + a relaunch instead of a 5-minute
-   hunt, and `tools/beacons.py` showing `BLIND-WALK` on the failed pass.
-3. `tools/beacons.py` on the boot must not report `BLIND-WALK` for a boot that
-   rooted (the analyzer already derives it only when nothing rooted).
-4. Boot-time envelope must stay inside the recorded range; a regression means the
-   gate is firing on readable-but-slow boots (check `seen` in the beacon lines).
+   natural occurrence — expect `long-exit attempt=N count=1` and a relaunch
+   instead of a five-minute hunt; `tools/beacons.py` decodes it as `LONG-EXIT`.
+3. The counter is per boot: a `count=3` line means the next long pass will idle
+   (power-cycle from there).
+4. Boot-time envelope inside the recorded range; a regression on a normal boot
+   means the gate fired on a slow-but-readable pass — check the preceding rounds.
 5. Rollback: the v45 deploy saves the v44 DLL as `payload_backup.dll`; restoring
    it (or `uninstall.sh`) is the documented path.
 
 ## Related
 
-- `AGENTS.md` §8 trap 18 (deploy restart can land in the stale window).
-- `docs/LOGGUIDE.md` → `BLIND-WALK`.
+- `AGENTS.md` §8 trap 18, §9 "v45 hardening to preserve".
+- `docs/LOGGUIDE.md` → `LONG-EXIT` and `BLIND-WALK`.
 - `tools/wait_rooted.py` — the launcher-side gate that stops a hunting payload
   from being reported as "payload active".
 - `root.ps1` prints the exact recovery (power-cycle) when the gate times out.

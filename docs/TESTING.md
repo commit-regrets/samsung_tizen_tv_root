@@ -155,7 +155,8 @@ Covers the agent-facing diagnostics layer, offline:
   (`HIGH-ALLOC`/`HIGH-SCAN`/`OPEN-NODE`/`VID40-HELD`/`WIN-OFF`/`BIND-FALLBACK`/`CRASH`),
   the on-TV **marker file** shape (`--file`, no `DSHROOT` prefix), `cred-miss`,
   the derived `BLIND-WALK` verdict (a long-mode pass that never saw a landmark —
-  hint: power-cycle),
+  hint: power-cycle), the v45 `LONG-EXIT` beacon (a rootless long pass exited for
+  a fresh process, and the relaunched attempt rooted),
   the `--json` shape, and the missing-log hint.
 - `root_shell.py` connection failures print the self-diagnosis blocks
   (refused vs. nobody-answered; see trap 17 for why ping is never the check).

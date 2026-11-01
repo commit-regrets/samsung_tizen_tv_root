@@ -35,6 +35,11 @@ internal static class Program
     // Attempt counter for the fast-exit retry loop (v9).  /tmp is tmpfs, so it
     // resets on every boot by design: each boot gets a fresh set of attempts.
     const string TryFile = "/tmp/.dsh_try";
+    // v45: how many LONG-mode passes this boot has exited for a fresh process.
+    // Same tmpfs rule; the cap (LongExitMax) turns "one fresh mmap per pass"
+    // into a bounded cost instead of a relaunch storm.
+    const string LongFile = "/tmp/.dsh_long";
+    const int LongExitMax = 3;
 
     // kernel / task facts (measured on QTV_T09, kernel 5.4.249)
     const uint PHYS_OFF = 0xA0000000;      // v = phys + PHYS_OFF  (0x20000000 -> 0xC0000000)
@@ -2260,6 +2265,30 @@ internal static class Program
                 CloseDevice();
                 KillChildren();
                 Beacon("fast-exit attempt=" + attempt);
+                Thread.Sleep(2000);
+                Environment.Exit(0);
+            }
+            // v45: a LONG-mode pass that did not root exits for a fresh process,
+            // bounded per boot.  The 2026-11-01 deploy restart spent five minutes
+            // re-reading one stale mapping (the child WAS latched - evidence
+            // existed - but self was unreadable, the direct parent read high and
+            // the process-wide cred-scan budget was gone).  Only a fresh process
+            // re-rolls the mmap; an in-process idle just repeats the same reads.
+            // After LongExitMax exits, fall back to the old idle so a
+            // pathological boot cannot become a relaunch storm.
+            int longExits = 0;
+            try
+            {
+                if (File.Exists(LongFile))
+                    int.TryParse(File.ReadAllText(LongFile).Trim(), out longExits);
+            }
+            catch { }
+            if (longExits < LongExitMax)
+            {
+                try { File.WriteAllText(LongFile, (longExits + 1).ToString()); } catch { }
+                CloseDevice();
+                KillChildren();
+                Beacon("long-exit attempt=" + attempt + " count=" + (longExits + 1));
                 Thread.Sleep(2000);
                 Environment.Exit(0);
             }

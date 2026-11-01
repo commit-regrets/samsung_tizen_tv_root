@@ -116,6 +116,26 @@ BLIND_SEEN = (BLIND[:-1] +
               [line(14, 20, 4, 5300, "fail no new PHYRFORK seen=1 skip-orphan=0 "
                                      "stale-tag=0 pu=ffffffff")])
 
+# v45's answer to the same state: after the long pass, exit for a fresh process
+# (bounded), and the relaunch roots on the next attempt.
+LONGEXIT = [
+    line(15, 0, 0, 5300, "start uid=5001 pid=15001"),
+    line(15, 0, 1, 5302, "attempt=5 (long retry mode)"),
+    line(15, 0, 2, 5305, "fail no new PHYRFORK seen=0 skip-orphan=0 "
+                        "stale-tag=0 pu=ffffffff"),
+    line(15, 0, 3, 5390, "fail round 5"),
+    line(15, 0, 4, 5392, "long-exit attempt=5 count=1"),
+    line(15, 0, 5, 5394, "start uid=5001 pid=15002"),
+    line(15, 0, 5, 5394, "attempt=6 (long retry mode)"),
+    line(15, 0, 6, 5396, "round=0 pre=0"),
+    line(15, 0, 7, 5397, "child=d1ce9140 self=cad25080 pu=5001 tag=exact stale=0"),
+    line(15, 0, 7, 5397, "self cred=d1a76c80 real=d1a76c80"),
+    line(15, 0, 8, 5398, "self-patch uid=0"),
+    line(15, 0, 9, 5400, "SUCCESS-R00T DSHROOT uid=0 pid=15002 self=cad25080 "
+                        "kernel=20008000 init_task=c0957180"),
+    line(15, 0, 9, 5400, "ROOTCHAN 31337 uid=0 bind=192.0.2.10"),
+]
+
 SICK = [
     line(11, 0, 0, 10, "start uid=5001 pid=200"),
     line(11, 0, 0, 10, "attempt=1 (fast mode)"),
@@ -204,6 +224,17 @@ def test_beacons():
     check("blind: a round that saw a landmark suppresses BLIND-WALK",
           "BLIND-WALK" not in {f["code"] for f in r7["findings"]},
           str({f["code"] for f in r7["findings"]}))
+
+    # v45: the long-mode pass exits for a fresh process, and the relaunch roots
+    p8 = write_log(LONGEXIT)
+    r8 = beacons.analyse_boot(
+        beacons.group_boots(list(beacons.parse_lines(p8.read_text())))[0], 0)
+    codes8 = {f["code"] for f in r8["findings"]}
+    check("v45: long-exit decoded", "LONG-EXIT" in codes8, str(codes8))
+    check("v45: the relaunched process roots (boot is ROOTED)",
+          r8["rooted"] and "ROOTED" in r8["verdict"], r8["verdict"])
+    check("v45: no BLIND-WALK note on the recovered boot",
+          "BLIND-WALK" not in codes8, str(codes8))
 
     # sick boot: device held, window off, bind fallback, crash -> error hint
     p2 = write_log(SICK)

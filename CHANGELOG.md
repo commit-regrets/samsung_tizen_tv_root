@@ -15,6 +15,43 @@ entry is an incomplete change. `AGENTS.md` repeats this rule for agents.
 
 ---
 
+## 2026-11-01 — v45: LONG mode exits for a fresh process instead of hunting in one
+
+The v44 deploy restart exposed the last dead end in the retry design: four fast
+attempts are allowed, then LONG mode keeps **one process** alive for good. When
+that process's mapping is stale, the pass ends without root and the payload idles
+for 120 s and repeats the same reads — it found the landmark child but could not
+read `self`, the parent pointer translated to junk, and the cred-scan budget was
+spent. Five minutes later nothing had changed; the mains cycle rooted on
+attempt 3.
+
+**The fix (v45):** a LONG-mode pass that ends without root now exits —
+`CloseDevice()`, `KillChildren()`, beacon `long-exit attempt=<n> count=<k>`,
+`Environment.Exit(0)` — so AUL relaunches a fresh process, which is the only
+thing that re-rolls the mmap. Bounded by `/tmp/.dsh_long` at **3 exits per boot**
+(tmpfs, so it resets at boot like `/tmp/.dsh_try`); after that the old idle
+behaviour returns, so a pathological boot cannot become a relaunch storm.
+
+The design note's original criterion was **wrong** and is corrected in
+[`docs/V45-BLIND-WALK.md`](docs/V45-BLIND-WALK.md): it proposed firing only on a
+fully blind pass (`seen=0` in every round), and the observed pass *had* latched
+its child, so that gate would not have fired. The rule is therefore "any rootless
+long pass". Cost to know: each fresh process also resets the process-wide
+cred-scan budget, so worst-case collateral across a pathological boot is 32
+uid-5001 cred patches instead of 8 — recorded in the note rather than silently
+accepted.
+
+Also: `tools/beacons.py` decodes the new beacon as `LONG-EXIT`, and the
+`BLIND-WALK` hint now says v45+ exits by itself (power-cycle only applies to v44
+and earlier). `tools/test_constants.py` locks the counter, the cap, the beacon and
+the ordering (device/children released before the exit); `tools/test_logs.py` has
+a fixture where the long pass exits and the relaunch roots, asserting `LONG-EXIT`
+is decoded and no `BLIND-WALK` is claimed.
+
+Artifact: 41,984 B, md5 `35cc7577c102ad04f0bb8522e974f7d9`, reproducible
+(two builds identical). **Not deployed yet** — the TV still runs v44; deploy +
+mains cycle is the acceptance, per the note's checklist.
+
 ## 2026-11-01 — review follow-up: an honest post-deploy gate, a budget reset, and the blind-walk signature
 
 The v44 deploy exposed a real gap: `root.ps1 -Force` printed "31337 is back;

@@ -221,6 +221,17 @@ def main() -> int:
     check("v44: payload TagFor and the sim probe tag both use uppercase hex",
           'return prefix + pid.ToString("X");' in prog
           and 'format(PROBE_PID, "X")' in sim)
+    # --- v45: a rootless LONG-mode pass exits for a fresh process ----------
+    check("v45: long mode exits for a fresh process, capped per boot",
+          'const string LongFile = "/tmp/.dsh_long";' in prog
+          and "const int LongExitMax = 3;" in prog
+          and 'Beacon("long-exit attempt="' in prog
+          and "if (longExits < LongExitMax)" in prog)
+    check("v45: the exit releases the device and children first",
+          prog.index('Beacon("long-exit attempt="')
+          > prog.index("if (longExits < LongExitMax)")
+          and "CloseDevice();" in prog[prog.index("if (longExits < LongExitMax)"):
+                                         prog.index('Beacon("long-exit attempt="')])
     check("sim_rpc mirrors the v44 tri-state pid read",
           "PID_UNREADABLE = 0" in sim and "def task_pid" in sim
           and "if w == 0 or w != g or w > 0x7FFFFFFF:" in sim

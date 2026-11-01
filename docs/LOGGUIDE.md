@@ -56,6 +56,7 @@ The on-TV marker keeps the `t=<n>s <payload line>` shape (no token).
 | `device <node> fd=<n>` | the node that actually opened | normal |
 | `reopen <node> fd=<n>` | second open of the boot (after the base scan); `fd=-1` = still held | `-1`: the payload now exits early for a fresh process instead of burning rounds |
 | `fast-exit attempt=<n>` | process exiting so AUL relaunches (fresh mmap = allocation re-roll) | normal, by design since v9 |
+| `long-exit attempt=<n> count=<k>` | v45: a LONG-mode pass ended without root and exited for a fresh process; `count` is this boot's k-th exit (cap 3) | normal after the four fast attempts when the mapping is stale; expect a relaunch and a root on a later attempt. `count=3` means the next long pass idles — power-cycle from there |
 | `SUCCESS-R00T …` | cred patched, `uid=0` proven | done |
 | `device closed` | the node is free for the browser path | normal after SUCCESS, and on every early exit since v39 |
 | `ROOTCHAN 31337 uid=0 bind=<ip>` | command channel serving | done; `bind=0.0.0.0` = offline fallback (see BIND-FALLBACK) |
