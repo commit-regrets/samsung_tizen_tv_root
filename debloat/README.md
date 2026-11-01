@@ -71,8 +71,10 @@ picture-settings loop, and fails if a listed unit is still restart-looping.
   confirmed 2026-10-29; the 37-row set first booted 2026-10-30 19:29:41 and
   again 2026-11-01 14:23:02 under v44). **Batch 2 was applied 2026-11-01
   21:38** (`disabled=29 failed=0 of 29`, readback 66 rows, 0 activating, undo
-  log on the TV at `/opt/usr/data/debloat-undo-20261101-213858.sh`); its cold
-  boot is the next acceptance step. Run log:
+  log on the TV at `/opt/usr/data/debloat-undo-20261101-213858.sh`); **cold boot
+  PASSED 2026-11-01 21:54** (mains cycle: 66 rows persisted, `masks=29
+  stopped=29 killed=3 fail=0 missing=0 activating=7 listed-activating=0
+  loop-check=ok` at t=40 s). Run log:
   `models/qnx1d/run-2026-10-29-tier1.md`. ~25.9 MB running ACR/ad
   processes freed by tier 1 (distinct processes, measured against the
   pre-debloat baseline), plus ~7 MB PSS from the voice set; batch 2 frees

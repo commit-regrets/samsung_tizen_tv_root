@@ -103,7 +103,9 @@ All TV reads/writes go through that channel (PC-side helpers:
   33 minus `com.samsung.ep.hotel.uigadgets`, which has no app row in
   `package_app_info` here (`pkgcmd -D` would fail); the three coupled ids
   stay out.  ~0 MB (hotel/factory code does not run at idle), so the gain is
-  storage and attack surface.  Cold boot still owed.  Live leftover:
+  storage and attack surface.  **Cold boot PASSED 2026-11-01 21:54** (mains
+  cycle): 66 rows persisted, `masks=29 stopped=29 killed=3 fail=0 missing=0
+  activating=7 listed-activating=0 loop-check=ok` at t=40 s.  Live leftover:
   `/usr/bin/rscmgr-service` (pid 619, Remote Shop Care) is a **service, not
   an app** - the app disable does not touch it; it is a q3deps-gated
   follow-up, not part of batch 2.
@@ -124,7 +126,7 @@ All TV reads/writes go through that channel (PC-side helpers:
   (tier2b claimed two applied ids were deferred; the README said 24/24 when
   the lists held 29/23).
   **Open:** tier 2b needs the Control Center layer; batch 2 is applied and
-  only its cold boot is owed (2026-11-01); batch 3 is
+  cold-boot verified (2026-11-01); batch 3 is
   voice-only and done; **tcc's five extra service candidates are
   EVALUATED AND REJECTED (2026-10-30)**: measured live, their sum-RSS (~35.5 MB)
   is ~10x the real cost - PSS is 1.77 (slive-provider-daemon) + 1.01

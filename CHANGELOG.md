@@ -15,6 +15,18 @@ entry is an incomplete change. `AGENTS.md` repeats this rule for agents.
 
 ---
 
+## 2026-11-01 — debloat: batch 2 cold boot passed
+
+Mains cycle 21:54 (boot #32): the 66 `app_disable` rows persisted, the payload
+rooted on attempt 2 (t=33 s, attempt 1 `fast-exit`) with `tok=`/`art=` on the
+launch line, and the mask step ran `masks=29 stopped=29 killed=3 fail=0
+missing=0 activating=7 listed-activating=0 loop-check=ok newhome=set(0),loop-started`
+at t=40 s. Live afterwards: `id -u` 0, 66 rows, 29 masks, 0 activating units,
+easysetup active, `rootchan.art` intact - so none of the 29 newly disabled
+commercial apps came back or left a restart loop. The batch-2 "cold boot owed"
+notes are gone from the state row, OPEN-ISSUES, debloat/AGENTS and
+debloat/README.
+
 ## 2026-11-01 — debloat: the decision registry (`registry.tsv`) + its gate
 
 The status of a package lived in three places that could disagree: the list

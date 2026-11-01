@@ -31,8 +31,11 @@ carried the deploy's token and `art=c540a6ab…`**, so the marker survives a col
 boot; live uid 0, full caps, installed DLL md5 `c540a6ab`.
 **Batch 2 applied 2026-11-01 21:38** (`lists/batch2-commercial.txt`, the
 commercial/hotel/factory ids): 29 disables, `disabled=29 failed=0 of 29`,
-readback **66 app rows**, 0 activating units, undo log on the TV; its cold boot
-is the next acceptance step. `com.samsung.ep.hotel.uigadgets` was dropped (no
+readback **66 app rows**, 0 activating units, undo log on the TV. **Cold-boot
+acceptance PASSED 2026-11-01 21:54 (mains cycle):** the 66 rows persisted,
+`masks=29 stopped=29 killed=3 fail=0 missing=0 activating=7 listed-activating=0
+loop-check=ok` at t=40 s, rooted attempt 2 at t=33 s, uid 0, `art=c540a6ab…` on
+the launch line. `com.samsung.ep.hotel.uigadgets` was dropped (no
 app row here), and the three coupled ids stay out. ~0 MB freed (nothing runs);
 the gain is storage and attack surface.
 The v45 boot before it (16:15) rooted on attempt 2 at t=37 s; the v44 boot
