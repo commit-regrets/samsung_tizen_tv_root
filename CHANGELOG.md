@@ -34,6 +34,8 @@ exit 0 with it running.
 - Offline stub: `is-active` answers with a state and honours `--quiet`; new
   cases for `state=activating` at stop time and a listed `active` unit in the
   dump.
+- The file-header and pass-5 comments now name both dump failure classes
+  (`activating`, and `active`/reloading/deactivating) instead of only the loop.
 
 Also: `-DryRun -NoWait` no longer prints a wait line (the real path skips it);
 `test_all` ends with "all selected tests passed, but N layer(s) were SKIPPED"

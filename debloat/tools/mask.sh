@@ -14,7 +14,9 @@
 #   pass 4: picture-guard - one SetNewHome + verify, then the persistent
 #   30 s `newhome-fix` transient unit (the flag can be re-set mid-session)
 #   pass 5: restart-loop check - a listed unit that is still "activating"
-#   fails the run (tcc's trap: a unit whose app is disabled restarts forever)
+#   fails the run (tcc's trap: a unit whose app is disabled restarts forever),
+#   and so does one that is "active" (or reloading/deactivating) in the dump:
+#   the stop pass released it and something brought it back afterwards.
 # SESSION-ONLY by design (/run is tmpfs, dies at reboot).  Durable
 # suppression = the boot payload re-writing these masks each boot (v42).
 # Undo = tools/unmask.sh with the same list; the picture loop is stopped with
@@ -248,8 +250,10 @@ fi
 # A unit whose app is disabled or whose binary is gone restarts every 2-5 s
 # forever ("activating (auto-restart)"): up to 130 restarts in minutes on
 # tcc's S90D.  The global count is reported for context (an idle boot already
-# has a couple), but the FAILURE signal is a LISTED unit still activating -
-# that means the mask did not hold.
+# has a couple).  The FAILURE signals are BOTH classes for a LISTED unit:
+# still "activating" (the loop), and "active"/reloading/deactivating (the stop
+# pass released it and something restarted it before this dump) - either way
+# the mask did not hold.
 loops=0; ourloops=0; ourrun=0; loopcheck=skipped
 if [ "$MASK" = "1" ] && command -v systemctl >/dev/null 2>&1; then
   units_file=/tmp/.dsh_units.$$
