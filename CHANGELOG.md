@@ -15,6 +15,49 @@ entry is an incomplete change. `AGENTS.md` repeats this rule for agents.
 
 ---
 
+## 2026-11-01 — review fixes: honest guards, and a mask pass that means stopped
+
+**Gateway test: the probe nonce.** The previous guard matched the test's tokens
+and `pid=701..705`; neither describes a test line — a refused token never
+reaches the log, the log records no peer (so `127.0.0.1` is not a signal), and
+those are ordinary pids a real beacon can carry. Every line the test injects
+now carries `probe=<random>`; the guard fails only if that nonce appears in the
+bytes appended to `beacons.log`. Mutation-checked: injecting a probe line fails
+the layer, restoring it passes.
+
+**root.ps1 -Force: a failed health check now fails the launcher.** Exit 4 =
+deployed, but the debloat acceptance did not pass (distinct from 1 = wait
+failed, 3 = two-witness failed). A health exit 2 (cannot read the TV) gets its
+own message and is not called drift. `--timeout 25` is passed explicitly —
+`tv_health.py` overwrites `ROOT_SHELL_TIMEOUT` per call from its own flag, so
+the old env assignment was inert. `-DryRun` now prints the health line as
+skipped for `-NoWait` and `-SkipHealth`.
+
+**test_all --tv: health is opt-in by address.** `--tv-ip <ip>` is required; the
+TV_IP/ROOT_TV env fallback is gone, so an exported address cannot turn a
+stub-only run into 12 live checks. Without an address the layer is recorded as
+SKIP — the summary says `1 layer(s) SKIPPED`, not just a printed line.
+
+**test_tv_health: TV_IP leaked into the "no --tv" test.** With TV_IP exported,
+`main([])` tried to read the TV instead of exiting 2, which is why the suite
+showed `tv-health` red while the layer passed standalone. The test now clears
+and restores TV_IP/ROOT_TV around that assertion.
+
+**mask.sh: stopped means stopped, and full names.** Pass 2 asks
+`is-active --quiet` after a successful stop and fails a unit that is still up
+(a `Restart=` unit can be re-arming); pass 5 fetches `list-units --full` so a
+name clipped at the terminal width cannot read as "no loop". Tests: a stubbed
+`is-active` that keeps one unit active makes `mask.sh` exit 1 with the FAIL
+line, and the dump is asserted to carry `--full`.
+
+**tv_health check 12 (`masked`).** One batched `is-enabled` over the payload's
+own list (its 93 comment lines filtered) requires all 29 units to answer
+`masked-runtime`, polling up to 5 s so a check right after rooting does not race
+the payload's background mask step. Live: 12/12.
+
+The payload's own `list-units` dump (`Program.cs`) has the same clipping risk
+and needs a v47 rebuild — recorded in HANDOFF pending, not done here.
+
 ## 2026-11-01 — three checks that were still manual
 
 **Gateway log check is no longer size-based.** `test_gateway.py` compared

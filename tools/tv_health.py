@@ -20,6 +20,8 @@ Checks (each maps to a registry/document claim):
   off-list    every installed never/deferred/reverted app is 'false'
   count       the disabled set is exactly the registry's `applied` set
   masks       masked-unit count == debloat/lists/services-units.txt
+  masked      every listed unit answers `is-enabled` = masked-runtime
+              (waits up to 15 s: the boot payload re-asserts them)
   loops       no unit is `activating`
   sentinels   canalysis-daemon + pisa-service sentinels present
   smarthome   org.tizen.easysetup-daemon.service is active
@@ -33,6 +35,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import os
 import subprocess
 import sys
@@ -102,6 +105,23 @@ def read(tv: str, *, run=None, timeout: float = 20.0, log: Path | None = None) -
     r["easysetup"] = run("systemctl is-active "
                          "org.tizen.easysetup-daemon.service").strip()
 
+    # The list is the payload's own copy (what it re-asserts each boot).  One
+    # batched `is-enabled` call for all units (29 separate calls cost >20 s on
+    # this TV), and poll up to 5 s so a check run right after rooting does not
+    # race the payload's background mask step.
+    masked_out = run(
+        "i=0; while [ $i -lt 5 ]; do "
+        "out=$(systemctl is-enabled "
+        "$(grep -v '^#' /opt/usr/data/debloat-masks.txt | grep -v '^$' | tr -d '\\r') "
+        "2>/dev/null); "
+        "n=$(printf '%s\\n' \"$out\" | grep -c .); "
+        "bad=$(printf '%s\\n' \"$out\" | grep -v '^masked-runtime$' | grep -c .); "
+        "[ \"$bad\" = 0 ] && break; i=$((i+1)); sleep 1; done; "
+        "echo \"masked=$n bad=$bad\"")
+    mm = re.search(r"masked=(\d+) bad=(\d+)", masked_out)
+    r["masked_units"] = int(mm.group(1)) if mm else -1
+    r["unmasked"] = int(mm.group(2)) if mm else -1
+
     launch = None
     log = log or BEACON_LOG
     if log.exists():
@@ -150,6 +170,8 @@ def evaluate(r: dict, reg: dict, units: int, payload_md5: str) -> list[dict]:
        f"tv={len(disabled_now)} registry={len(applied)} extra={sorted(disabled_now - applied)[:4]}")
 
     ck("masks", r.get("masks") == units, f"tv={r.get('masks')} list={units}")
+    ck("masked", r.get("masked_units") == units and r.get("unmasked") == 0,
+       f"masked-runtime={r.get('masked_units')}/{units} unmasked={r.get('unmasked')}")
     ck("loops", r.get("activating") == 0, f"activating={r.get('activating')}")
     ck("sentinels", r.get("sentinels") == 2, f"present={r.get('sentinels')}/2")
     ck("smarthome", r.get("easysetup") == "active", f"easysetup={r.get('easysetup') or 'unreadable'}")

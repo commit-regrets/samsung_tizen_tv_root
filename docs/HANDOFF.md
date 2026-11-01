@@ -77,8 +77,8 @@ Session history and *why* each change exists: `CHANGELOG.md` (eight entries,
 | # | Item | Needs | Proof |
 |---|---|---|---|
 | 1 | **Live-stub layer** — the only layer still SKIPped on this PC | TV browser opened on `http://<pc>/index.html`, wait for `RUNNING`, keep it open | `python tools/test_all.py --tv` ends with the live-stub layer OK (protocol, kernel read, oversize READ/WRITE refused, stub alive) |
-| 2 | **`mask.sh` lists units without `--full`** — a very long unit name could be ellipsized in the 80-column dump | one TV query | compare `systemctl list-units --no-legend` name widths against the committed list; if any is clipped, add `--full` in `mask.sh` and the payload's mask check |
-| 3 | **`mask.sh` counts a failed stop but not a unit that stays `active` after its stop exited 0** | TV | add an `is-active` pass over the units counted `stopped`; offline test with the stubbed `systemctl`, then one live run |
+| 2 | **The payload's mask check still parses `list-units` without `--full`** — `mask.sh` was fixed 2026-11-01 (`--full`), but the same dump in `Program.cs` can clip a long unit name, so `listed-activating` could read 0 while a listed unit loops | a payload rebuild (v47) + deploy + cold boot | after the rebuild, `masks=... listed-activating=0` must still hold and the offline `test_constants.py` should assert the `--full` flag in the payload's dump command |
+| 3 | **`mask.sh` counts a failed stop but not a unit that stays `active` after its stop exited 0** (fixed 2026-11-01) — kept here as the record; re-verify on the next live `mask.sh` run | TV | `mask.sh` now fails with `FAIL: <unit> is still active after a successful stop`; the offline case is in `test_debloat.py` |
 | 4 | **`HEAD` answers with a body; `OPTIONS` is served as `GET`** | nothing (offline) | a case in `tools/test_server_unit.py`; low value unless a client starts using them |
 | 5 | **Beacon tokens are self-service** | none — *by design*; the LAN is the boundary | revisit only if the server is exposed beyond the LAN (`SECURITY.md`) |
 | 6 | **High-half read mechanism** — one deliberate high-PA read; re-read the v38 `high-scan` verdicts against `high_memory` = `0xF0400000` | TV + browser lane | record the verdict in `OPEN-ISSUES.md` → Pending; no boot-path change |
@@ -100,7 +100,7 @@ python tools/sanitize_for_public.py --check
 
 python tools/beacons.py               # per-boot verdicts; --json for machines
 python tools/root_shell.py "id -u" <tv-ip>
-python tools/tv_health.py --tv <tv-ip>   # 11 checks: debloat registry vs TV
+python tools/tv_health.py --tv <tv-ip>   # 12 checks: debloat registry vs TV
 python tools/root_shell.py \
   "grep -E '^CapEff' /proc/self/status; md5sum /opt/usr/apps/com.samsung.tv.MultiControl-Service/bin/MultiControlService.dll" <tv-ip>
 ```

@@ -198,6 +198,11 @@ class Fixture:
                           '  case "$*" in *newhome-fix*)\n'
                           '    [ -f "$FLAGS.newhomefix" ] && exit 0 || exit 3;;\n'
                           '  esac\n'
+                          '  # a unit named in FLAGS.still_active keeps\n'
+                          '  # answering active even after a stop\n'
+                          '  for su in $(cat "$FLAGS.still_active" 2>/dev/null); do\n'
+                          '    case " $* " in *" $su "*) exit 0;; esac\n'
+                          '  done\n'
                           '  exit 3\n'
                           'fi\n'
                           'if [ "$1" = "start" ]; then\n'
@@ -587,6 +592,9 @@ def main() -> int:
           len(tmpf7.calls("systemctl start")) >= len(units))
     check("mask: daemon-reload called",
           len(tmpf7.calls("systemctl daemon-reload")) >= 1)
+    check("mask: the list-units dump is --full (a clipped name could never match)",
+          any("--full" in l for l in tmpf7.calls("list-units")),
+          str(tmpf7.calls("list-units")[:1]))
     check("mask: picture-guard ran (SetNewHome + verified available)",
           "picture-guard: new_home=0" in r.stdout
           and "(CheckAutoMotionPlus=1" in r.stdout)
@@ -625,6 +633,18 @@ def main() -> int:
           "newhome=active" in r.stdout
           and len(tmpf7.calls("systemd-run")) == 1,
           f"{len(tmpf7.calls('systemd-run'))} systemd-run call(s)")
+
+    # a stop that exits 0 but leaves the unit active must fail the run: the
+    # mask is in place, but the service is still up (2026-11-01 review)
+    tmpf12 = Fixture(DEB / "tools" / "mask.sh")
+    tmpf12.add_units(units)
+    ul12 = tmpf12.write_list("units.txt", units)
+    Path(str(tmpf12.flags) + ".still_active").write_text(units[0] + "\n", encoding="utf-8")
+    r = tmpf12.run([ul12], {"MASK": "1"})
+    check("mask: a unit still active after a successful stop fails the run",
+          r.returncode != 0
+          and "still active after a successful stop" in r.stdout,
+          f"rc={r.returncode} fail={[l for l in r.stdout.splitlines() if 'still active' in l][:1]}")
 
     # restart-loop detector (tcc's trap): a listed unit stuck in
     # "activating (auto-restart)" means the mask did not hold -> fail.

@@ -204,7 +204,7 @@ Adding a decision means adding a row **and** the list/denylist change; the
 test fails if you do one without the other.
 
 Live oracle: `python tools/tv_health.py --tv <tv-ip>` asks the TV whether the
-registry's claims are true (11 checks, exit 1 on any FAIL) — the post-boot /
+registry's claims are true (12 checks, exit 1 on any FAIL) — the post-boot /
 post-apply command in the parent toolkit.
 
 ## Safety

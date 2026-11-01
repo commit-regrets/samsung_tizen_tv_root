@@ -25,7 +25,13 @@
 
 .PARAMETER SkipHealth
   After a -Force deploy, skip the debloat health check (tools/tv_health.py).
-  By default it runs and reports; a mismatch is a WARNING, not a failure.
+  By default it runs after the wait; a drift or an unreadable channel exits 4
+  (the deploy still succeeded - see the WARNING lines).
+
+.PARAMETER NoWait
+  Do not wait for the re-rooted channel after the deploy.  This also skips the
+  debloat health check (it runs immediately after the wait, and an old payload
+  answering is not the deployed one).
 
 .PARAMETER ToolkitDir
   Directory containing tools/ and server/.
@@ -265,7 +271,13 @@ if ($DryRun) {
     } elseif ($tvRooted) {
         Say "would run     : $py $($layout.Tools)\root_shell.py `"curl -s $deployUrl | sh`" $TvIp"
         Say "would wait    : a rooted 31337 (id -u = 0) for up to $BootTimeoutSec s"
-        Say "would health  : $py $($layout.Tools)\tv_health.py --tv $TvIp$(if ($SkipHealth) { '  (skipped: -SkipHealth)' } else { '' })"
+        if ($NoWait) {
+            Say "would health  : skipped (-NoWait skips the wait AND the health check)"
+        } elseif ($SkipHealth) {
+            Say "would health  : skipped (-SkipHealth)"
+        } else {
+            Say "would health  : $py $($layout.Tools)\tv_health.py --tv $TvIp"
+        }
     } else {
         Say "would run     : $py $($layout.Tools)\auto_root.py --host $HostIp --script deploy.sh --stub-wait $StubWaitSec --root-retries 3"
         Say "then wait     : 31337 for up to $BootTimeoutSec s after the reboot"
@@ -438,21 +450,29 @@ if ($tvRooted -and $Force) {
         }
         # Debloat acceptance: debloat/registry.tsv is the single source of truth
         # for what is disabled; tv_health.py asks the TV whether that is true
-        # (11 checks: applied/off-list/count, masks, loops, sentinels, SmartThings,
-        # the art witness).  A mismatch is a WARNING, not a deploy failure - the
-        # deploy's job is the payload, and a stale registry must not fail a good
-        # deploy (the report names the drift).
+        # (12 checks: applied/off-list/count, masks, masked-runtime, loops, sentinels, SmartThings,
+        # the art witness).  Exit 4 = deployed but the acceptance did not pass,
+        # so a caller that only looks at the exit code cannot accept drift.
+        # --timeout 25 is passed explicitly: tv_health.py sets
+        # ROOT_SHELL_TIMEOUT per call from --timeout, so an env var here is inert.
         if (-not $SkipHealth) {
             Say ""
             Say "3) Debloat health (registry vs TV)..."
-            $env:ROOT_SHELL_TIMEOUT = "25"
-            & $py (Join-Path $layout.Tools "tv_health.py") --tv $TvIp
-            if ($LASTEXITCODE -eq 0) {
+            & $py (Join-Path $layout.Tools "tv_health.py") --tv $TvIp --timeout 25
+            $hrc = $LASTEXITCODE
+            if ($hrc -eq 0) {
                 Say "debloat health: all checks passed."
             } else {
-                Say "WARNING: debloat health exited $LASTEXITCODE - see the FAIL lines above."
-                Say "  It does not fail the deploy; fix or note the drift, then re-run"
-                Say "  'python tools/tv_health.py --tv $TvIp'."
+                if ($hrc -eq 2) {
+                    Say "WARNING: the health check could not READ the TV (exit 2) - the"
+                    Say "  channel may have closed after the wait, or tv_health.py could"
+                    Say "  not run; this is not evidence of drift."
+                } else {
+                    Say "WARNING: debloat health reported DRIFT (exit $hrc) - see the"
+                    Say "  FAIL lines above; re-run 'python tools/tv_health.py --tv $TvIp'."
+                }
+                Say "  Exiting 4: the deploy succeeded, the debloat acceptance did not."
+                exit 4
             }
         }
     }

@@ -452,6 +452,18 @@ def test_powershell_parse():
         check(f"ps1 parses: {name}", out.returncode == 0,
               out.stderr.strip().splitlines()[-1][:70] if out.stderr else "")
 
+    # Behavioural strings, not just syntax (2026-11-01 review): the debloat
+    # acceptance was added with a WARNING-only failure and an inert
+    # `ROOT_SHELL_TIMEOUT`, so pin both decisions.
+    root_ps1 = (ROOT / "root.ps1").read_text(encoding="utf-8")
+    check("root.ps1: a health failure exits 4 (not a silent warning)",
+          "exit 4" in root_ps1 and "the debloat acceptance did not" in root_ps1)
+    check("root.ps1: the health call passes --timeout (env here is inert)",
+          "--timeout 25" in root_ps1
+          and 'tv_health.py") --tv $TvIp --timeout 25' in root_ps1)
+    check("root.ps1: -NoWait dry run says the health check is skipped",
+          "-NoWait skips the wait AND the health check" in root_ps1)
+
 
 if __name__ == "__main__":
     test_beacons()

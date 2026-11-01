@@ -217,7 +217,10 @@ ran, in what order, with what exit code), not on output prose:
 - `restore.sh`: `-A --global` per id, sentinel removal, stop-at-first-failure;
 - `mask.sh`: `daemon-reload` before any `stop`/`start`, no start of a unit
   whose mask is ours only, `MISSING` unit names fail the run, all-missing
-  exits 2, the persistent `newhome-fix` loop (started once, reported
+  exits 2, **a stop that exits 0 but leaves the unit `active` fails the run**
+  (the stub keeps one unit answering `is-active`), the dump is fetched with
+  `--full` (a clipped name could never match a listed unit), the persistent
+  `newhome-fix` loop (started once, reported
   `newhome=started` then `active`), the restart-loop check (a listed unit
   still `activating` fails the run; an unrelated one only gets reported; a
   failed `list-units` dump is `loop-check=failed` and fails the run rather
@@ -251,7 +254,7 @@ real ash (`wsl -e sh`, or a Linux host) before trusting a green Git Bash run.
 ## 4d. Post-boot health — `tools/tv_health.py` (+ `tools/test_tv_health.py`)
 
 ```sh
-python tools/tv_health.py --tv <tv-ip>          # 11 checks, exit 1 on any FAIL
+python tools/tv_health.py --tv <tv-ip>          # 12 checks, exit 1 on any FAIL
 python tools/tv_health.py --tv <tv-ip> --json   # for machines
 ```
 
@@ -270,6 +273,9 @@ command per fact, then a pure comparison:
 - **count** — the disabled set is *exactly* the registry's applied set, no
   extra id (catches an out-of-band `pkgcmd -D`);
 - **masks** — masked-unit count = `debloat/lists/services-units.txt`;
+- **masked** — every unit in the payload's own list answers `is-enabled` =
+  `masked-runtime` (one batched call; the list has comment lines, filtered;
+  it polls up to 5 s because the boot payload re-asserts the masks);
 - **loops** — no unit is `activating`;
 - **sentinels** — both vendor sentinels present;
 - **smarthome** — `org.tizen.easysetup-daemon.service` active;
@@ -284,7 +290,7 @@ a new check without a fixture is visible as an untested PASS. The layer is
 
 The **live** run is a separate `--tv` layer so the ordinary suite stays
 offline: `python tools/test_all.py --tv --tv-ip <ip>` runs the browser-stub
-protocol test and then `tv-health-live` (`tools/tv_health.py`, the 11 checks
+protocol test and then `tv-health-live` (`tools/tv_health.py`, the 12 checks
 against the real TV). The address falls back to `TV_IP` / `ROOT_TV` when
 `--tv-ip` is omitted; without either, the layer SKIPs with a message.
 `root.ps1 -Force` runs the same health check after its deploy and reports a

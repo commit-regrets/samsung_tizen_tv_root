@@ -127,7 +127,16 @@ while IFS= read -r line || [ -n "$line" ]; do
     continue
   fi
   if systemctl stop "$u" 2>/dev/null; then
-    stopped=$((stopped+1))
+    # A stop that exits 0 does not prove the unit is down: a Restart= unit can
+    # already be re-arming, and counting it stopped hid a running service
+    # (2026-11-01 review).  Ask the unit itself; anything other than a clean
+    # inactive/failed is a failure of this run.
+    if systemctl is-active --quiet "$u" 2>/dev/null; then
+      echo "FAIL: $u is still active after a successful stop"
+      fail=$((fail+1))
+    else
+      stopped=$((stopped+1))
+    fi
   else
     # A failed stop leaves the unit RUNNING even though the mask is in place.
     # Counting only successes made the run exit 0 while the service was still
@@ -243,7 +252,10 @@ fi
 loops=0; ourloops=0; loopcheck=skipped
 if [ "$MASK" = "1" ] && command -v systemctl >/dev/null 2>&1; then
   units_file=/tmp/.dsh_units.$$
-  if systemctl list-units --all --no-legend --plain > "$units_file" 2>/dev/null; then
+  # --full: without it list-units clips names at the terminal width, and a
+  # clipped name can never match a listed unit - the loop check would report a
+  # clean 0 while a listed unit was restarting (2026-11-01 review).
+  if systemctl list-units --all --no-legend --plain --full > "$units_file" 2>/dev/null; then
     loopcheck=ok
     loops=$(grep -c ' activating ' "$units_file" 2>/dev/null) || loops=0
     grep ' activating ' "$units_file" 2>/dev/null | awk '{print $1}' > "$units_file.active"

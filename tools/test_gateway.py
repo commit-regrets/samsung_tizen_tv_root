@@ -130,6 +130,10 @@ def main() -> int:
     # Keep this test's fake beacons out of server/logs/beacons.log (the file the
     # operator reads): the server honours DSH_LOGS_DIR.
     scratch_logs = tempfile.mkdtemp(prefix="dsh_gw_logs_")
+    # Every beacon line THIS test injects carries `probe=<nonce>`: the log has
+    # no peer column, and both the test tokens and pids collide with real TV
+    # values eventually, so the nonce is the only unambiguous marker.
+    probe_id = os.urandom(8).hex()
     prod_beacon = SERVER_DIR / "logs" / "beacons.log"
     prod_before = prod_beacon.stat().st_size if prod_beacon.exists() else 0
     env = dict(os.environ, HTTP_PORT=str(http_port), RPC_PORT=str(rpc_port),
@@ -257,7 +261,7 @@ def main() -> int:
         # line.  The next request must not wait on it.
         stalled = connect(http_port)
         clients.append(stalled)
-        stalled.sendall(b"DSHROOT t=1s start uid=5001")
+        stalled.sendall(f"DSHROOT t=1s start uid=5001 probe={probe_id}".encode())
         t0 = time.time()
         status, _, _ = get(http_port, "/index.html")
         failed += not check(
@@ -377,7 +381,7 @@ def main() -> int:
             alias.bind(("127.0.0.2", 0))
             alias.settimeout(3)
             alias.connect(("127.0.0.1", http_port))
-            alias.sendall(b"DSHROOT t=1s start uid=5001\n")
+            alias.sendall(f"DSHROOT t=1s start uid=5001 probe={probe_id}\n".encode())
             alias.close()
             intruder = socket.socket()
             intruder.bind(("127.0.0.2", 0))
@@ -422,7 +426,7 @@ def main() -> int:
             alias4.bind(("127.0.0.4", 0))
             alias4.settimeout(3)
             alias4.connect(("127.0.0.1", http_port))
-            alias4.sendall(f"DSHROOT tok={btok} t=5s start uid=5001 pid=998\n".encode())
+            alias4.sendall(f"DSHROOT tok={btok} t=5s start uid=5001 pid=998 probe={probe_id}\n".encode())
             alias4.close()
             silent4 = socket.socket()
             silent4.bind(("127.0.0.4", 0))
@@ -483,7 +487,7 @@ def main() -> int:
         def send_beacon(tok: str, pid: str) -> None:
             s = connect(http_port)
             try:
-                s.sendall(f"DSHROOT tok={tok} t=5s start uid=5001 pid={pid}\n".encode())
+                s.sendall(f"DSHROOT tok={tok} t=5s start uid=5001 pid={pid} probe={probe_id}\n".encode())
                 try:
                     s.recv(8)
                 except OSError:
@@ -560,21 +564,24 @@ def main() -> int:
                 not beacon_logged("705"))
 
         # A live TV beacon during the run is legitimate (the TV is on the LAN
-        # and the production server is not always idle), so growth is allowed -
-        # what must never appear is a line from THIS test: its own rendered
-        # tokens, the unknown-token probe, or the pid=701..705 shapes.  Byte-
-        # size equality turned a busy TV into a red suite once (2026-11-01).
+        # and the production server is not always idle), so growth is allowed.
+        # What must never appear is a line from THIS test.  The log records no
+        # peer column, an accepted test token looks like any other token, and
+        # pid=701..705 are ordinary pids a real beacon can carry - so the only
+        # unambiguous marker is the per-run `probe=` nonce every injected line
+        # above carries.  (The refused-token probes never reach the log at all;
+        # they need no needle.)  Byte-size equality turned a busy TV into a red
+        # suite once (2026-11-01), and the token/pid needles that replaced it
+        # could both miss a real test line and flag a real TV line.
         appended = ""
         if prod_beacon.exists() and prod_beacon.stat().st_size > prod_before:
             with prod_beacon.open("rb") as fh:
                 fh.seek(prod_before)
                 appended = fh.read().decode("utf-8", "replace")
-        leaked = [t for t in (t_live, t_stale, "deadbeef") if t and t in appended]
-        leaked += re.findall(r"pid=(70[1-5])\b", appended)
         failed += not check(
-            "gateway test kept the production beacon log clean (no test-shaped lines)",
-            not leaked,
-            f"grew by {len(appended)} B; leaked test markers: {leaked[:5]}")
+            "gateway test kept the production beacon log clean (no probe= line)",
+            f"probe={probe_id}" not in appended,
+            f"grew by {len(appended)} B; the test's probe nonce leaked into it")
     finally:
         for c in clients:
             try:

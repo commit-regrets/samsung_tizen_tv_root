@@ -7,6 +7,7 @@ plus one mutation; `read()` is exercised with an injected `run()` that answers
 the channel commands from a canned TV, and the registry parser with a temp
 ledger.  A new check without a fixture shows up here as an untested PASS.
 """
+import os
 import sys
 import tempfile
 from pathlib import Path
@@ -34,7 +35,8 @@ def healthy():
         "uid": 0, "caps": H.FULL_CAPS, "dll_md5": MD5, "art": MD5,
         "rows": {"com.a": True, "com.b": True, "com.keep": False,
                  "com.later": False, "com.back": False},
-        "masks": UNITS, "activating": 0, "sentinels": 2,
+        "masks": UNITS, "masked_units": UNITS, "unmasked": 0,
+        "activating": 0, "sentinels": 2,
         "easysetup": "active", "beacon": {"tok": "deadbeef", "art": MD5},
     }
 
@@ -46,7 +48,7 @@ def failed(r, reg=REG, units=UNITS, md5=MD5):
 def test_evaluate():
     checks = H.evaluate(healthy(), REG, UNITS, MD5)
     check("healthy TV passes every check", not failed(healthy()), str(failed(healthy())))
-    check("evaluate returns the 11 checks", len(checks) == 11, str(len(checks)))
+    check("evaluate returns the 12 checks", len(checks) == 12, str(len(checks)))
     check("check names are unique", len({c["name"] for c in checks}) == len(checks))
 
     muts = {
@@ -58,6 +60,8 @@ def test_evaluate():
         "off-list": lambda r: r["rows"].update({"com.keep": True}),
         "count (extra disabled)": lambda r: (r["rows"].update({"com.extra": True}),),
         "masks": lambda r: r.update(masks=28),
+        "masked (one not masked-runtime)": lambda r: r.update(masked_units=UNITS - 1),
+        "masked (one unmasked)": lambda r: r.update(unmasked=1),
         "loops": lambda r: r.update(activating=1),
         "sentinels": lambda r: r.update(sentinels=1),
         "smarthome": lambda r: r.update(easysetup="inactive"),
@@ -100,6 +104,8 @@ def test_read():
             return MD5
         if "SELECT app_id" in cmd:
             return "com.a,true\ncom.b,true\ncom.keep,false"
+        if "is-enabled" in cmd:
+            return "masked=3 bad=0"
         if "find /run" in cmd:
             return "29"
         if "activating" in cmd:
@@ -120,6 +126,8 @@ def test_read():
     check("read: app rows", r["rows"] == {"com.a": True, "com.b": True, "com.keep": False}, str(r["rows"]))
     check("read: masks/loops/sentinels", (r["masks"], r["activating"], r["sentinels"]) == (29, 0, 2),
           str((r["masks"], r["activating"], r["sentinels"])))
+    check("read: masked-runtime counts", (r["masked_units"], r["unmasked"]) == (3, 0),
+          str((r["masked_units"], r["unmasked"])))
     check("read: easysetup", r["easysetup"] == "active", r["easysetup"])
     check("read: newest beacon launch", (r["beacon"] or {}).get("tok") == "deadbeef"
           and (r["beacon"] or {}).get("art") == MD5, str(r["beacon"]))
@@ -142,7 +150,16 @@ def test_registry():
 
 
 def test_cli():
-    check("no --tv exits 2", H.main([]) == 2)
+    # main() reads TV_IP / ROOT_TV when --tv is absent, so an exported address
+    # (as the live layers need) would make this call hit the TV instead of
+    # exiting 2.  Clear them for the assertion, then put them back.
+    saved = {k: os.environ.pop(k, None) for k in ("TV_IP", "ROOT_TV")}
+    try:
+        check("no --tv exits 2", H.main([]) == 2)
+    finally:
+        for k, v in saved.items():
+            if v is not None:
+                os.environ[k] = v
 
 
 def main() -> int:
