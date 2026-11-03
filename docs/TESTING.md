@@ -23,8 +23,9 @@ TV and matched against the DWARF dump of a same-family kernel. It exercises
 It also twins the payload hunt (`hunt_new_phyrfork` + pre-set), the v18
 MapPage-vs-kernel alias (`AliasedMemRPC`), per-instance device contention
 (`Video40`; two nodes can be open at once), pointers above `0xE0000000` (VMSPLIT_3G + HIGHMEM puts them inside the linear
-map, but the video40 read path returns garbage there — the DMA window is the
-suspect), and
+map, but the video40 read path returns garbage there — on the real unit the
+cause is the 156 MiB no-map carve-out at phys 0x40000000-0x49C00000, measured
+2026-11-03; `docs/OPEN-ISSUES.md` item 2), and
 a hole that must break the scanner's carry. Since v39 `patch_gate` also enforces
 `SaneCred`, `high_alloc_probe` emits `cred-miss` and models the 2.5 s sweep
 budget, and `high_alloc_gate` mirrors the payload's highCred back-fill.

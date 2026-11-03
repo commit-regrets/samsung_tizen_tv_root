@@ -105,12 +105,19 @@ is the ground truth (2026-10-27): Normal `start_pfn 0x20000`, HighMem
 `start_pfn 0x50400`, so `max_low_pfn = 0x50400` and `high_memory` is
 **VA `0xF0400000`** (`p2v(0x50400000)`). `meminfo` is vendor-adjusted here
 (HighTotal 303,104 pages > HighMem present 198,656), so the earlier
-meminfo-derived `0xE4E42000` estimate was wrong. The `0xE0000000` read failures
-are therefore **inside** the linear map: the video40 DMA window (~512 MiB,
-matching "reads past 0x46000000 hang") is the prime suspect, not the CPU map.
+meminfo-derived `0xE4E42000` estimate was wrong. **The `0xE0000000` read
+failures are the 156 MiB no-map carve-out at PA 0x40000000-0x49C00000** (DT
+`reserved-memory` reserved@0-4, measured 2026-11-03 from `/proc/iomem`,
+`/proc/device-tree` and zoneinfo — the old "video40 DMA window" theory is
+refuted; `docs/OPEN-ISSUES.md` item 2): VA 0xE0000000 is the carve-out EDGE,
+only VA 0xE9C00000-0xF0400000 (the top 104 MiB of the linear map) is still
+"high", and a deliberate video30 read of that band (the browser stub's node)
+returned coherent bytes.
 A high task/cred value is still treated as a garbage read (v31: 0/21 high creds,
-0/81 high task pointers), and the v38 `high-scan` verdicts must be re-read
-against `0xF0400000`. Attempt 2 remains the floor; do not add rounds/waits.
+0/81 high task pointers — every recorded high pointer was in the carve band,
+where no task allocates), and the v38 `high-scan` verdicts were re-read
+against `0xF0400000` on 2026-11-03. Attempt 2 remains the floor; do not add
+rounds/waits.
 
 Diagnostic beacons (fifth pass, `docs/OPEN-ISSUES.md`): the `child=` line now carries
 `pu=` (the latched child's parent-cred uid), and while the direct-parent patch gate
@@ -289,7 +296,7 @@ TV boot: com.samsung.tv.MultiControl-Service (dotnet-inhouse, app_onboot)
 | `tools/test_constants.py` | cross-checks the same offsets/limits/node names across `Program.cs`, `sim_rpc.py`, `kernel_root.py`, `physmap.py`, `physrpc.S`, the page and `deploy.sh` |
 | `tools/test_all.py` | runs every layer above; `--tv` adds the live stub, `--tv-ip <ip>` (or TV_IP/ROOT_TV) adds the live debloat-health layer |
 | `tools/test_debloat.py` | offline gate for `debloat/` (apply/restore/mask/unmask under `sh` with stubbed `pkgcmd`/`systemctl`/`dbus-send`, list hygiene, merge determinism); finds Git Bash even off PATH, so it no longer reports SKIP-as-PASS |
-| `tools/tv_health.py` | post-boot / post-apply health check over 31337 (12 checks: root, artifact md5, `art=` witness, registry applied/off-list/count, masks, masked-runtime, loops, sentinels, SmartThings unit, newest launch) - the TV-side oracle for `debloat/registry.tsv`; `--json`, exit 1 on any FAIL |
+| `tools/tv_health.py` | post-boot / post-apply health check over 31337 (16 checks: root, artifact md5, `art=` witness, bootrow, registry applied/off-list/count, masks, maskfile, masked-runtime, loops, sentinels, SmartThings unit, autoupdate, backups, newest launch) - the TV-side oracle for `debloat/registry.tsv` and the persistence/safety claims (boot row, OTA pin, root-owned policy files, stock backups); `--json`, exit 1 on any FAIL |
 | `tools/test_tv_health.py` | offline tests for it: healthy fixture + one mutation per check, injected `read()`, registry parser |
 | `debloat/` | debloat subtree (own `AGENTS.md`): per-model inventory, disable lists, TV-side tools. Needs only this toolkit's root channel — see [`debloat/README.md`](debloat/README.md) |
 | `payload/Program.cs` | boot payload source (v47: v46's artifact-md5 start beacon + v45's tri-state/ranked accepts + capped long-mode exit, plus `--full` on the mask dump; v46 deployed 2026-11-01 - see the §1 state row) |
@@ -556,8 +563,11 @@ gateway, deploy/uninstall control flow, source↔blob↔page consistency). Then:
    `high_memory` — **measured `0xF0400000`** (zoneinfo `max_low_pfn 0x50400`; meminfo is vendor-adjusted) — and anything
    above it is vmalloc/module space where `va - 0xA0000000` is not a valid
    translation. A value above that boundary is a garbage read, not a high allocation
-   (v31: 0/21 high creds, 0/81 high task pointers; `0xE0000000` is well *inside*
-   the map - its read failures are the video40 DMA window, not a map end). Keep accepting
+   (v31: 0/21 high creds, 0/81 high task pointers; `0xE0000000` is the EDGE of
+   the 156 MiB no-map carve-out at PA 0x40000000-0x49C00000 (DT reserved@0-4,
+   measured 2026-11-03) - its read failures are that carve-out, not the CPU map
+   and not a "DMA window": the top 104 MiB of the linear map reads fine).
+   Keep accepting
    the full kernel range for POINTER SHAPE, but do not expect to read there.
 6. **Post-fork managed code.** Use a pre-pinned buffer + raw
    `syscall(172,15,…)` in the child; a CLR allocation can deadlock.
@@ -611,7 +621,10 @@ gateway, deploy/uninstall control flow, source↔blob↔page consistency). Then:
 16. **A high-half read is a garbage read, not a slow allocation.** Every coherent
     task/cred read in the v30/v31 cold-boot logs was `< 0xE0000000`, but
     `high_memory` is **`0xF0400000`** (zoneinfo), so that line is inside the map;
-    the failures are the video40 DMA window (~512 MiB), not a map end. Attempt 1's
+    the failures are the 156 MiB no-map carve-out at PA 0x40000000-0x49C00000
+    (DT reserved@0-4, measured 2026-11-03 — the old "~512 MiB DMA window"
+    suspect is refuted; the carve band holds device content, no task allocates
+    there, and the top 104 MiB of the linear map reads fine). Attempt 1's
     fresh process does not "re-roll
     into a readable high allocation" — it re-rolls into lowmem. Do **not** "fix"
     attempt 1 with more rounds/waits (v31's 10 s last wait booted in 132 s vs
@@ -924,14 +937,18 @@ that downloads it) and reboot. Things to preserve when editing `Program.cs`:
   state: [`debloat/AGENTS.md`](debloat/AGENTS.md); placement and diagnostics:
   [`debloat/README.md`](debloat/README.md).
 - ~~Bind 31337 to a single address~~ — **done in v16**: the listener binds the TV address derived from the route to the recorded PC (re-derived every 30 s, `Any` fallback with a beacon if there is no route), so it is off Wi-Fi Direct/tethering while staying portable. `/proc/net/tcp` shows the TV's own address on 31337, not `00000000:7A69`.
-- **High-half read mechanism — boundary corrected by zoneinfo; DMA window suspect.**
-  `/proc/zoneinfo` has Normal `start_pfn 0x20000`, HighMem `start_pfn 0x50400`,
-  so `high_memory` is **VA `0xF0400000`**; `meminfo` is vendor-adjusted, which is
-  why the earlier `0xE4E42000` estimate was wrong. The `0xE0000000` read failures
-  are inside the map and point at the video40 DMA window (~512 MiB, matching
-  "reads past 0x46000000 hang"). One deliberate high-PA read and a re-read of the
-  v38 `high-scan` verdicts against `0xF0400000` are still worth doing; neither
-  blocks attempt 2.
+- ~~High-half read mechanism~~ — **measured 2026-11-03; the "video40 DMA
+  window (~512 MiB)" theory is refuted** (see `CHANGELOG.md` and
+  `docs/OPEN-ISSUES.md` item 2). The map: RAM 0x20000000-0x697fffff +
+  0x87000000-0xadffffff; a 156 MiB no-map carve-out (DT reserved@0-4) at PA
+  0x40000000-0x49C00000 inside the lowmem span; the 0x69800000-0x87000000
+  inter-bank gap and a 252 MiB reserved@10-19 tile at 0x87000000-0x96C00000;
+  `high_memory` VA `0xF0400000` confirmed. Every recorded high task/cred
+  pointer sat in the carve band; `0x46000000` itself reads, pages beyond wedge
+  the browser stub's video30 (base of DT reserved@3); the top 104 MiB of the
+  linear map reads fine through that same node. The 0x40000000 sweep cap is exactly the first absent
+  frame — proven optimal, unchanged. Operational rules stand: a high
+  task/cred value is still a garbage read, attempt 2 is the floor.
 - **Pending: portability.** No second model/firmware has been tested. Use the
   four gates and the file-by-file checklist in `docs/PORTABILITY.md`; record each
   unit there.

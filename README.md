@@ -1,8 +1,12 @@
 # Samsung Tizen 9 TV Root — Research Toolkit
 
 Unofficial security research on a 2024 Samsung Neo QLED running **Tizen 9**.
-No sdb, no developer mode, no firmware flashing: the TV is rooted from its own
-browser, and the root is made persistent through a stock on-boot service app.
+The exploit chain needs no sdb, no developer mode, no firmware flashing: the TV
+is rooted from its own browser, and the root is made persistent through a stock
+on-boot service app. (The test unit actually ships with Developer Mode ON and
+`sdbd` listening on 26101 — the shell is command-whitelisted and `sdb root`
+stays denied even so; see `docs/FAILED.md`. The toolkit simply does not need
+any of it.)
 
 | | |
 |---|---|
@@ -11,7 +15,7 @@ browser, and the root is made persistent through a stock on-boot service app.
 | Kernel | Linux 5.4.249, ARM32 (VMSPLIT_3G + HIGHMEM, no LPAE), `PAGE_OFFSET 0xC0000000`, `PHYS_OFFSET 0x20000000` |
 | Browser | Chromium 120.0.6099.5 (`SamsungBrowser/7.0`) |
 | Root | `uid=0`, `CapEff=0x3fffffffff` |
-| Persistent payload | repo **v41** (current md5/size in the `AGENTS.md` state row — regenerated from the artifact); the test unit runs the same build (deployed 2026-10-27, beacons carry `tok=`); `payload_backup.dll` keeps the previous build |
+| Persistent payload | repo **v47** (current md5/size in the `AGENTS.md` state row — regenerated from the artifact); the test unit runs the same build (deployed 2026-11-02, beacons carry `tok=` + `art=`); `payload_backup.dll` keeps the previous build |
 | Root channel | TCP **31337** on the TV, line protocol, replies end with `__END__` |
 
 ## Quick start
@@ -60,9 +64,10 @@ part; the stage-by-stage writeup with the measured constants is
 The package-inventory / disable-list work (QNX1D classification, apply and
 restore tooling, measured resource budget) lives in this repository under
 [`debloat/`](debloat/README.md). It consumes this toolkit's root channel as
-its only dependency. `root.ps1` will offer it at root time (opt-in,
-planned for the v42-era payload; not implemented yet). The
-former sibling repository was merged here in full and no longer exists.
+its only dependency. The payload re-asserts the durable service masks at every
+boot on its own, and `root.ps1` runs a debloat health check (`tools/tv_health.py`)
+against `debloat/registry.tsv` after a deploy. The former sibling repository was
+merged here in full and no longer exists.
 
 ## Documentation
 
@@ -149,13 +154,18 @@ is specific to Chromium 120. The short version:
    `WANT=` to edit), deploy via `root.ps1`, then cold boot. Attempt 2 is the
    expected floor.
 
-**Read-reliability limit found on the test unit:** the video40 physmap returns
-garbage for reads at/above `0xE0000000` even when the VA/PA alias is correct.
-The linear map itself is bigger (`zoneinfo`: `high_memory` = VA `0xF0400000`),
-so `0xE0000000` is *inside* it — the prime suspect is the V4L2 node's DMA
-window, not the CPU map. Either way: test a known low page and a known high
-page on the new model before trusting `Kptr`; all successful cred patches here
-were below `0xE0000000`, and it affects how you interpret "not found".
+**Read-reliability limit found on the test unit:** the payload's video40
+physmap returns unusable bytes for reads at/above `0xE0000000` (the browser
+stub's video30 reads the same band). Measured 2026-11-03 from the device tree
+and zoneinfo: PA `0x40000000` (= VA `0xE0000000`) is the edge of a 156 MiB
+no-map carve-out (`DT reserved-memory reserved@0-4`, ending at `0x49C00000`),
+so task/cred objects never live there — the bytes read back are device buffer
+content, not kernel memory. Reads past `0x46000000` (the base of `reserved@3`,
+a genuine hole) wedged the browser stub's video30 — potentially system-fatal
+with hours of delay; never read there except a planned diagnostic. Porting:
+test a known low page and a known high page on the new model before trusting
+`Kptr`; all successful cred patches here were below `0xE0000000`, and it
+affects how you interpret "not found".
 
 Full gates, measurement recipes, and a file-by-file porting checklist:
 [`docs/PORTABILITY.md`](docs/PORTABILITY.md).

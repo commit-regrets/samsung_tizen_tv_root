@@ -149,7 +149,11 @@ re-roots and 31337 is back within seconds.
   253 creds in one pass and the next shell came back `uid=0`.
 * **Where things live:** creds and task_structs sit in phys `0x20000000`–
   `0x40000000` on this unit. Do **not** scan past `0x46000000`: two full scans
-  hung there, so the scan is bounded to `0x40000000`.
+  hung there, so the scan is bounded to `0x40000000`. (2026-11-03: the
+  boundary is now precise — `0x46000000` is the base of DT reserved@3, a
+  deliberate read confirmed `0x46000000` itself reads and pages beyond wedge
+  the stub; `0x40000000` is the first absent frame of the 156 MiB no-map
+  carve-out. `docs/OPEN-ISSUES.md` item 2.)
 * **`ls` on this Tizen only prints the SMACK label with `-Z`.** A label check
   without `-Z` reads an empty string — that is how a deploy can look green and
   still produce an unlaunchable app. `chsmack <path>` with no options also prints

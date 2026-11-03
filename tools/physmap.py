@@ -49,7 +49,15 @@ PAGE_OFFSET = 0xC0000000
 RAM_LO = 0x20000000                      # managed RAM (QN90B-style PHYS_OFFSET)
 # Reads past ~0x46000000 have hung this driver family (two full scans died
 # there), so the default is the proven band; the sweeps use it.  TVPHYS_HI=<hex>
-# raises it for a measured experiment only.
+# raises it for a measured experiment only.  (Boundary made precise 2026-11-03:
+# 0x46000000 is the base of DT reserved@3 - a deliberate read confirmed
+# 0x46000000 itself reads and pages beyond wedge the stub; 0x40000000 is the
+# first absent frame of the 156 MiB no-map carve-out, so the cap is optimal.
+# The hazard is SYSTEM-level, not just stub-level, and DELAYED: on 2026-11-03 a
+# single isolated read (not a bulk scan) wedged a renderer at 0x46100000 and
+# the TV auto-rebooted hours later (docs/FAILED.md, browser-lane traps).  After
+# any TVPHYS_HI diagnostic, RSET the gateway AND reload the page to kill the
+# blocked renderer.  docs/OPEN-ISSUES.md item 2.)
 RAM_HI = int(os.environ.get("TVPHYS_HI", hex(0x40000000)), 0)
 
 # task_struct / cred offsets (verified against the Image and open source)

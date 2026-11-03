@@ -15,6 +15,238 @@ entry is an incomplete change. `AGENTS.md` repeats this rule for agents.
 
 ---
 
+## 2026-11-03 — the high-half read mechanism measured: DMA-window theory refuted
+
+OPEN-ISSUES item 2 / HANDOFF item 6, investigated on the live TV (v47 payload,
+root channel): passive `/proc/iomem`, `/proc/cmdline`, `/proc/zoneinfo`,
+`/proc/meminfo` and device-tree (`memory/reg`, `reserved-memory/reserved@*/reg`)
+reads, then deliberate **read-only** high-PA reads through the browser stub on
+video30 (the stub's node — corrected from an earlier video40 mis-attribution
+in this entry; `TVPHYS_HI=0x60000000`). No writes to the TV, no code behaviour
+changed — the only source edit is a comment in `Program.cs` (comments never
+enter the IL; the csproj pins `IncludeSourceRevisionInInformationalVersion=false`,
+so a rebuild stays byte-identical and the deployed v47 remains valid).
+
+- **The "video40 DMA window (~512 MiB)" suspect is REFUTED.** The real cause of
+  every unreadable "high" object is a **156 MiB no-map carve-out at PA
+  0x40000000-0x49C00000** (DT `reserved-memory` reserved@0-4, contiguous,
+  `no-map`), sitting INSIDE the lowmem span — so VA 0xE0000000 is the
+  carve-out EDGE, not "well inside the map". Cross-checked exact: zoneinfo
+  Normal spanned-present = 39,936 pages = the carve-out; HighMem
+  spanned-present = 724 MiB missing = the 472 MiB inter-bank gap
+  (0x69800000-0x87000000, reserved@5/6/7/9) + a 252 MiB reserved@10-19 tile
+  (0x87000000-0x96C00000). System RAM is 0x20000000-0x697fffff +
+  0x87000000-0xadffffff (`sdp_sparsemem`, `vmalloc=400M`); `high_memory`
+  VA `0xF0400000` confirmed. CmaTotal 408 MiB is buddy-managed present RAM,
+  not a hole.
+- **Deliberate reads (video30 — the browser stub's node, 32-byte, two reps each):** the carve band reads
+  fine but holds device content, not kernel objects (descriptors, tables,
+  ASCII — stable and structured); `0x46000000` itself READS, `0x46100000`
+  HANGS — the historical hang boundary is now precise (0x46000000 = base of
+  DT reserved@3, the first page reads, pages beyond wedge the stub). **New
+  fact:** the top 104 MiB of the linear map (PA 0x49C00000-0x50400000, VA
+  0xE9C00000-0xF0400000 — real present RAM) reads fine through video30 (the
+  browser stub's node). The
+  kernel-image control read byte-exact. One stub wedged at 0x46100000 as
+  expected and was cleared with `RSET`; no reboot was needed at the time —
+  the set rebooted on its own hours later (see the S90D entry below: the
+  wedged renderer stayed blocked in the driver read).
+- **Consequences (no boot-path change):** every high task/cred pointer ever
+  beaconed (PA 0x4083d000-0x448b8000) fell in the carve band — tasks never
+  allocate there, so the garbage-read treatment and the `high-alloc`
+  fast-exit stay correct; attempt 2 remains the floor. The repo's 0x40000000
+  sweep cap is exactly the first absent frame — proven optimal, unchanged
+  (AGENTS §9 forbids widening past proven RAM).
+- **high-scan verdict re-read (the second half of item 2):** all 12 lines are
+  3 pre-v43 (which predate per-run tags entirely — genuine misses of the
+  then-constant tag, not the v44 `hit+8` bug) + 9 post-v44; every post-v44
+  high parent translated into the carve band with `pc=0`. Misses are
+  ±16 MiB-band-limited (`SpanPages=4096`, so 6-32 MiB of the 512 MiB band):
+  five are budget-limited (ms 2501-2721 vs BudgetMs 2500) and one (2026-11-01
+  16:09:05, ms=829) was a COMPLETED full-band sweep with 0 hits — a bounded
+  miss, not evidence of absence. `cred-elsewhere` lines are not high-half
+  evidence (physical `at=`/`cred=` vs virtual `C=`/`P=` — LOGGUIDE already
+  said so); they only prove owner-ids creds read coherently in lowmem.
+
+Docs updated: AGENTS §1 / traps 5+16 / §11, OPEN-ISSUES item 2 + deferred
+list, EXPLOIT (memory map + high-half limit), LOGGUIDE (`high-alloc` /
+`high-scan` rows), HANDOFF item 6, PORTABILITY step 4 and TESTING (the two
+remaining living docs that still named the DMA window as the suspect);
+comment-only mechanism fixes in
+`tools/physmap.py`, `docs/BOOT-REGRESSION-SMACK.md` and `payload/Program.cs`.
+No clamp, bound or behaviour changed anywhere. Dated CHANGELOG history was
+left verbatim (the 2026-10-26/27 entries still name the DMA window as the
+then-current suspect — that is what the record is for).
+
+## 2026-11-03 — the two S90D falsifiable checks settled: SDB root-exec falsified, parseinfo already closed
+
+Both checks from OPEN-ISSUES' tizen-tv-control-center cross-reference are now
+closed. Live work on the TV (v47, root channel): the 2026-10-20 sdb recon
+probes re-run, one buxton key flipped 1→0→1 and restored (readback `=1`,
+handshake verified), `sdbd` restarted via its socket unit — nothing else. No
+toolkit code changed.
+
+- **Check 1 — SDB root-exec with Developer Mode ON: FALSIFIED.** Developer
+  Mode was found **already ON** live (`db/sdk/develop/mode = Int32: 1`, the PC
+  authorized in `db/sdk/develop/ip`), so `FAILED.md`'s premise ("measured with
+  Developer Mode OFF") was wrong and the re-probe ran under the S90D
+  precondition directly. The service matrix is IDENTICAL to the 2026-10-20
+  record: `shell:` open but whitelist-only (`shell:0 id` → STREAM CLOSED,
+  `applist` works), `sync:`/`tcp:` open, `root:` open but `root:on` →
+  `Permission denied`, all `local*:`/`dev:`/`framebuffer:`/`log:`/`jdwp:`/
+  `remount:` closed. Developer Mode ON does not unlock sdb root on this unit.
+- **New sdbd mechanism knowledge** (strings on `libsdbd_plugin.so` + live
+  flip test): the plugin reads `db/sdk/develop/{mode,ip}` directly, and
+  `develop/mode` gates **CONNECTION AUTHORIZATION**, not the root capability —
+  with `mode=0` the TCP connect succeeds but the CNXN handshake is reset, with
+  `mode=1` the handshake completes. `sdbd_rootperm` is a separate capability
+  string in `sdbd.bin` that stays unfilled regardless. The listener unit
+  `sdbd_tcp.socket` carries a drop-in with
+  `ConditionPathExists=/home/owner/apps_rw/com.samsung.tv.store/data/develop_mode`
+  (marker present, owner-owned), and `sdbd.service` runs as `User=sdk` with
+  only `cap_kill,cap_dac_override,cap_setgid,cap_setuid,cap_sys_admin=i` —
+  sdbd is not root anyway, so even a successful `root:on` could not have
+  produced a root shell. This strengthens the dead-end record.
+- **Operational trap (cost one repair):** flipping `db/sdk/develop/mode` left
+  `sdbd_tcp.socket` and `sdbd.service` FAILED with port 26101 closed —
+  something watches the key and tears the units down, and they do not come
+  back on their own. Repair used and verified the same day:
+  `systemctl start sdbd_tcp.socket` (listener back, handshake + `root:on` →
+  `Permission denied` identical to before). Recorded in `FAILED.md`.
+- **Check 2 — `parseinfo.sh` unsigned replacement: already settled, no new
+  experiment.** The S90D-proposed test was already run live on this TV on
+  2026-10-21 (private recon notes): the consumer is `AT-HUB.service`
+  (starter.target.wants, `ExecStart=/opt/etc/parseinfo.sh &` as root); an
+  append test with backup was rejected at exec — `[uep][bash] the file is NOT
+  signed!!`, the script did not run and its marker was never created. Today's
+  verification: the file is still pristine (md5 `2c4ccd56…`, 805 B, 0777,
+  root) and ran at that evening's boot (`/proc/target_version` carried the
+  expected OSU string) — UEP verifies scripts at exec, so the S90D wholesale
+  replacement cannot transfer to this unit. The test's `parseinfo.sh.bak`
+  backup is still on the TV — harmless residue.
+- **The ~21:48 reboot was automatic — owner-confirmed.** Nobody touched the
+  set and there was no mains cycle; boot beacons at 21:49:29 carry `t=46s`,
+  the deploy token and `ROOTCHAN` t=47 s, `masks=29 … loop-check=ok` t=60 s
+  (v47 rooted the boot normally, no PC involvement in the root). Credible
+  cause, by exclusion: the renderer left BLOCKED inside the video30 driver
+  read at 0x46100000 by the morning's high-PA diagnostic (~1-3 h earlier —
+  `RSET` freed the gateway socket, but the renderer process stayed wedged).
+  The platform keeps no panic record (`/sys/fs/pstore` and `/proc/pstore`
+  absent, current-boot dmesg has no watchdog/panic/ramoops lines), so the
+  cause cannot be proven from the device — this is attribution, not proof.
+  A heavy root-channel grep dispatched around the same minute raced the
+  reboot and is not causative (it runs through the payload's `Run()`
+  wrapper, 2 MiB cap + 120 s tree-kill; a userspace grep cannot take the
+  kernel down). This is the THIRD recorded hang at the 0x46000000 boundary
+  and the FIRST from a single isolated read rather than a bulk scan, with
+  the reboot following hours later, not immediately. Operational lesson:
+  a read past 0x46000000 through video30 (the browser stub's node) is
+  potentially SYSTEM-fatal with
+  delayed effect, not just stub-fatal — after any deliberate high-PA
+  diagnostic, `RSET` the gateway AND reload the browser page promptly to
+  kill the blocked renderer. Recorded in `FAILED.md`; the comment in
+  `tools/physmap.py` now says the same. (No toolkit path can hit this:
+  sweep caps 0x40000000, readmany clamp 0x46000000 — only deliberate
+  diagnostics with `TVPHYS_HI` reach the boundary.)
+
+Docs: OPEN-ISSUES (both checks struck with results, plus the
+system-fatal note on the high-half item), FAILED.md (sdb
+Developer-Mode-ON correction + mode-flip trap + unit facts; the parseinfo
+entry gains the AT-HUB consumer and the still-pristine confirmation; new
+browser-lane trap for the delayed automatic reboot).
+
+### 2026-11-03 addendum — README factual refresh
+
+The README still taught the refuted DMA-window theory in its porting section
+(it was missed by the memory-map doc sweep) and carried three stale facts,
+each now fixed with no code change:
+
+- **"No sdb, no developer mode"** reworded to a requirements statement ("the
+  exploit chain needs no …") with the measured reality spelled out: the test
+  unit ships with Developer Mode ON and `sdbd` listening on 26101
+  (whitelist-only shell, `sdb root` denied — `docs/FAILED.md`). The old
+  wording read as a device-fact claim that today's S90D check disproved.
+- **Read-reliability limit** rewritten around the measured 156 MiB no-map
+  carve-out at PA `0x40000000-0x49C00000` and the system-fatal note for reads
+  past `0x46000000` (was: "~512 MiB V4L2 DMA window suspect").
+- Persistent-payload row **v41 → v47** (deployed 2026-11-02, `tok=` + `art=`).
+- Debloat paragraph: "planned for the v42-era payload; not implemented yet"
+  replaced with what is true now — the payload re-asserts the masks at every
+  boot and `root.ps1` runs the `tv_health` debloat check after a deploy.
+
+### 2026-11-03 addendum — tv_health 12 -> 16 checks
+
+`tools/tv_health.py` verified the debloat registry claims but not four other
+documented persistence/safety claims, each previously checked only by hand
+(or only visible as a beacon line). Four new checks, batched into two extra
+channel calls (the channel is line-based; one `sh -c` per call):
+
+- **bootrow** — the `boot_sequence` row for the app in
+  `/opt/dbspace/user/5001/.appsvc.db` must be 1 (the persistence hook itself;
+  `deploy.sh` writes it, `uninstall.sh` deletes it, nothing verified it since).
+- **autoupdate** — both buxton `softwareupdate/autoupdate` keys read back
+  `Int32: 0`, queried live (the OTA pin was only ever shown by the payload's
+  boot beacon, which the tool never parsed).
+- **maskfile** — `/opt/usr/data/debloat-masks.txt` + `debloat-kill.txt` exist,
+  are root-owned and not world-writable (the mask step **executes what it
+  reads** — the v42 hardening; a uid-5001-writable policy file would be an
+  escalation path).
+- **backups** — `share/mcs_orig.dll` / `mcs_ni_orig.dll` still match the
+  `.md5` records `deploy.sh` wrote beside them, i.e. `uninstall.sh`'s recovery
+  path is intact without hardcoding stock md5s in the tool.
+
+`test_tv_health.py` extends the healthy fixture and adds one mutation per new
+check (including the unreadable/missing forms); the injected-`run` fake gained
+the two new command shapes. Two dispatch couplings in that fake are
+load-bearing: `ls -l /opt/usr/data` must stay ahead of the looser `ls `
+sentinel handler, and `cat`'s handler must stay `startswith` because the new
+files command contains `cat ` inside `$(…)`.
+**Verified live 2026-11-03: 16/16 on the TV** (v47; the backups check also
+surfaced the full stock md5s `f61f60dd…`/`6c9bdcc4…` for the first time,
+matching the recorded prefixes). AGENTS.md §5 table updated.
+
+### 2026-11-03 addendum — external review round: node attribution + residual honesty
+
+A second review pass found one factual error of ours and several places where
+the docs still hedged the old theory. All fixed; no behavior change anywhere.
+
+- **Node attribution corrected: today's deliberate high-PA read, the 0x46100000
+  hang and the delayed auto-reboot were all on video30 — the browser stub's
+  node — not video40.** The stub has opened `/dev/video30` since 2026-10-24
+  (`tools/physrpc.S`), so this *confirms* the recorded video30 hazard rather
+  than contradicting it (trap 3's "video40 scans to 0x60000000" stands, and
+  video40 was never read past the carve band by anything today). Fixed in the
+  2026-11-03 changelog entries (3 spots) and `docs/FAILED.md`'s browser-lane
+  trap. LOGGUIDE's video40 mentions are the payload's own probe and stay.
+- **`payload/Program.cs` `Kptr` comment rewritten** (was the last code comment
+  still teaching the refuted "map ends at 0xE0000000 / everything above is
+  vmalloc"): now states the measured map — linear map to `0xF0400000`, the
+  carve-out edge at `0xE0000000`, the readable top 104 MiB — and keeps the
+  operational rule (treat >= 0xE0000000 as a garbage read; attempt 2 the
+  floor). Comment-only; rebuild verified byte-identical (`0df29b15…`).
+- **`docs/EXPLOIT.md`** split two claims that read as one: slab objects live
+  in the linear part, which runs to `0xF0400000` — so one *could* live in the
+  readable top 104 MiB (none ever observed); "garbage read" is the operational
+  rule for the whole `>= 0xE0000000` band, and the v33 gate's rejection of the
+  readable top is recorded as a deliberate trade, not a closed question.
+- **`docs/PORTABILITY.md`** no longer presents the DMA window as the current
+  suspect in one paragraph and refutes it in the next.
+- **`tv_health` maskfile check also fails a GROUP-writable policy file** (the
+  parse now reads both write bits), with a raw `-rw-rw-rw-`/`-rw-r-----` ls
+  fixture pinning the mode indexes; offline tests and the live 16/16 re-run
+  green.
+
+Review-accepted-as-is (fail-safe, unreachable on this unit): a buxton warning
+line on its own stdout line would fail `autoupdate` (re-runnable); an
+uppercase `.md5` record would fail `backups` (deploy writes lowercase); a TV
+snapshotted before `deploy.sh` wrote `.md5` sidecars would permanent-FAIL
+`backups` until redeployed — worth remembering only when onboarding a second
+TV.
+
+### 2026-11-03 addendum — the kernel-pointer bullet stopped calling the readable top a failed read
+
+`docs/FAILED.md`'s kernel-pointer bullet said reads above `0xE0000000` fail and, in the same parenthesis, called `0xE9C00000-0xF0400000` the readable top. It now matches `docs/EXPLOIT.md`: the carve band (`0xE0000000-0xE9C00000`) is device content and every sampled high task/cred pointer fell there; the top 104 MiB reads and has never held an observed task/cred; `>= 0xE0000000` stays a garbage read operationally, so the v33 fast-exit still rejects that readable top. The `< 0xE0000000` sanity-check warning is unchanged. The same pass corrected two `AGENTS.md` sentences that still called the 2026-11-03 deliberate top-band read and the `0x46000000` wedge a video40 result; both were the browser stub's video30.
+
 ## 2026-11-02 — v47: the payload's mask dump asks for full unit names
 
 The mask step's restart-loop check parsed `systemctl list-units --all --no-legend

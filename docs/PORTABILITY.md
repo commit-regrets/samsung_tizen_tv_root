@@ -83,8 +83,9 @@ landed high, and no in-process wait changes the address. The payload's `Kptr`
 still accepts the full direct map (`>= 0xC0000000`) for **pointer shape**; the
 `high-alloc` gate (v33) is a **read-reliability** decision, not a validity bound.
 Since the zoneinfo measurement the boundary is known to sit *inside* the linear
-map (`high_memory` = VA `0xF0400000`), so the suspect is the video40 node's DMA
-window, not the CPU map — `docs/OPEN-ISSUES.md` item 2 has the current state.
+map (`high_memory` = VA `0xF0400000`); on this unit the cause turned out to be
+a 156 MiB no-map carve-out (DT `reserved-memory`) at phys 0x40000000-0x49C00000
+— `docs/OPEN-ISSUES.md` item 2 has the measured map.
 
 On a foreign unit, before trusting the root path:
 
@@ -93,10 +94,13 @@ On a foreign unit, before trusting the root path:
 2. If high reads are coherent there, the high gate is harmless but unnecessary.
 3. If high reads are junk like this unit, keep the gate and accept attempt 2;
    do not add waits (v31 proved they make the boot worse).
-4. The cache-visibility explanation was ruled out (v28); the current suspect is
-   the node's DMA window against a measured `high_memory` of VA `0xF0400000`
-   (`/proc/zoneinfo` — measure it on the new unit too), so do not generalise the
-   `0xE0000000` line: it is this unit's video40 read path, not a kernel bound.
+4. The cache-visibility explanation was ruled out (v28), and the DMA-window
+   theory was refuted by measurement (2026-11-03, `docs/OPEN-ISSUES.md`
+   item 2): on this unit the failures come from a 156 MiB no-map carve-out
+   (DT `reserved-memory`) at phys 0x40000000-0x49C00000 against a measured
+   `high_memory` of VA `0xF0400000` (`/proc/zoneinfo` — re-measure both on the
+   new unit too), so do not generalise the `0xE0000000` line: it is this
+   unit's memory map, not a kernel bound.
 
 ## Port checklist — what to edit
 

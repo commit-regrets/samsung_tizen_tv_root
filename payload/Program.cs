@@ -560,14 +560,20 @@ internal static class Program
     }
 
     // VMSPLIT_3G, not LPAE (the kernel .config has CONFIG_ARM_LPAE unset,
-    // CONFIG_VMSPLIT_3G=y, CONFIG_HIGHMEM=y, PAGE_OFFSET=0xC0000000).  The linear
-    // map covers lowmem only - at most 512 MiB of physical here, so it ends at VA
-    // 0xE0000000; everything above that is vmalloc/module space and `v - 0xA0000000`
-    // is NOT a valid translation there.  Accept the full 32-bit kernel range for
-    // POINTER SHAPE (trap 5), but do not expect to READ a task/cred above
-    // 0xE0000000: the v31 cold boot showed every coherent read below it (0/21
-    // creds, 0/81 task pointers high).  A high value is a garbage read, not a
-    // high allocation that needs more time.
+    // CONFIG_VMSPLIT_3G=y, CONFIG_HIGHMEM=y, PAGE_OFFSET=0xC0000000).  The
+    // linear map covers lowmem and ends at VA 0xF0400000 (high_memory;
+    // zoneinfo max_low_pfn 0x50400).  Measured 2026-11-03 from the device
+    // tree + zoneinfo: PA 0x40000000 (= VA 0xE0000000) is the edge of a
+    // 156 MiB no-map carve-out (DT reserved-memory reserved@0-4, ending at
+    // PA 0x49C00000), so no task/cred ever allocates there and every high
+    // pointer sampled on this unit fell in that band.  The top 104 MiB
+    // (VA 0xE9C00000-0xF0400000) is present, readable lowmem where a slab
+    // object could live - none observed.  Accept the full 32-bit kernel
+    // range for POINTER SHAPE (trap 5), but treat a task/cred at/above
+    // 0xE0000000 as a garbage read and let the fast-exit re-roll it (v33);
+    // attempt 2 is the floor.  Above 0xF0400000 is vmalloc/module space and
+    // `v - 0xA0000000` is NOT a valid translation.  Details:
+    // docs/EXPLOIT.md (high-half limit) and docs/OPEN-ISSUES.md item 2.
     static bool Kptr(uint v) => v >= 0xC0000000;
 
     // 5001 = our uid, 0 = already root, 0xFFFFFFFF = not a readable cred
@@ -868,9 +874,13 @@ internal static class Program
     // normally fits inside one page, so a page-local pattern find is correct
     // here; an offset-0 hit (the object starts in the previous page) is refused
     // rather than guessed at, without stopping the page.  The 0x60000000 stop
-    // is the end of the ARM32 direct map (the video30 stub's 0x46000000 hang
-    // line does NOT apply to video40: the v28 probe read phys 0x60000000
-    // through the payload successfully).
+    // is an empirical v28-era success boundary, NOT the end of the direct map
+    // (measured 2026-11-03: the linear map ends at phys 0x50400000, so
+    // 0x60000000 is inside HighMem; 0x40000000-0x49C00000 is a no-map
+    // carve-out - docs/OPEN-ISSUES.md item 2).  Keep the stop: AGENTS.md §9
+    // forbids widening the sweep past proven RAM.  The video30 stub's
+    // 0x46000000 hang line does NOT apply to video40 (the v28 probe read
+    // phys 0x60000000 through the payload successfully).
     // Sim twin: cred_scan_near in tools/sim_rpc.py.
     static int _scanPatched = 0;   // process-wide collateral budget, reset per process
     static bool CredScanNear(uint childCred, out int patched)
@@ -930,10 +940,11 @@ internal static class Program
     // plain garbage through two VA geometries):
     //   (a) wrong translation - a high VA is not a linear-map address, so
     //       `va - 0xA0000000` reads the wrong frame (junk = other RAM,
-    //       0xFF = unbacked).  NOTE: the linear map's end on THIS unit is
-    //       unmeasured - the 0xE0000000/0xE0800000 split traces to a stale
-    //       recon-tree comment that a later revision retracted, and nobody has
-    //       read high_memory here - so (a) is the lead, not a proven fact;
+    //       0xFF = unbacked).  MEASURED 2026-11-03: the linear map ends at
+    //       VA 0xF0400000 (zoneinfo), and the failing "high" band sits at
+    //       its START - phys 0x40000000-0x49C00000 is a 156 MiB no-map
+    //       carve-out (DT reserved@0-4) no slab object ever allocates in;
+    //       see the Kptr comment above and docs/OPEN-ISSUES.md item 2;
     //   (b) video40 returns wrong bytes even for the frame it is pointed at.
     // This probe is the measurement that tells them apart.  READS ONLY: no
     // Write32, no PatchCred.  It runs once, in the fast-mode gate branch right

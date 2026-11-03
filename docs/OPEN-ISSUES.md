@@ -7,20 +7,15 @@
 > Step log:
 > [docs/SMARTTHINGS-OFFLINE-2026-10-30.md](SMARTTHINGS-OFFLINE-2026-10-30.md).
 
-## Current state — 2026-11-01 (TV runs v46, deployed 21:01 and cold-boot verified
-21:10; 29-unit durable masks, 66 app rows, SmartThings phone control confirmed
-online; offline suite green)
+## Current state — 2026-11-03 (TV runs v47, deployed 2026-11-02 00:00 and
+cold-boot verified 00:11; 29-unit durable masks, 66 app rows, SmartThings phone
+control confirmed online; offline suite green)
 
-TV: **v46** (`c540a6ab…`, 42,496 B), rooted via 31337. Every beacon carries
+TV: **v47** (`0df29b15…`, 42,496 B), rooted via 31337. Every beacon carries
 `tok=<BEACON_TOKEN>` (from `rootchan.token`); forged and token-less beacons are refused.
-`id -u` = 0, `CapEff=0x3fffffffff`.
-**v46 is deployed (2026-11-01 21:01, over 31337) and its new stale-process proof
-fired live**: `PREV_IL=35cc7577…` (v45), `TOKEN_FILE` rotated, `ART_FILE` =
-`c540a6ab…`, `RESTART=kill 3141`, `COPY=ok`, `DEPLOY_DONE`; the relaunch rooted
-in 4 s on attempt 1 (`direct-patch uid=0`), the newest launch beaconed
-`tok=<deploy token> art=c540a6ab…` and `root.ps1` reported the two-witness
-`proven` line; `masks=29 stopped=29 killed=1 fail=0 missing=0 activating=0
-listed-activating=0 loop-check=ok`; `rootchan.art` 0644 and `restart.log` empty
+`id -u` = 0, `CapEff=0x3fffffffff`. See `CHANGELOG.md` 2026-11-02 for the v47
+deploy/acceptance detail and 2026-11-03 for the high-half memory-map measurement
+(DMA-window theory refuted; the deliberate high-PA read is done).
 (no failed kill/start).
 **Cold-boot acceptance PASSED 2026-11-01 21:10 (mains cycle, nothing touched
 during the boot):** launch t=18 s (attempt 1 `fast-exit`, the high-alloc
@@ -54,8 +49,11 @@ Backups: `mcs_orig.dll` (stock), `mcs_ni_orig.dll`, `payload_backup.dll` = v45
 The repo is green offline (`python tools/test_all.py`, 17/17 layers incl. the
 debloat tooling, in-process server and whole-tree hygiene layers) and
 `sanitize_for_public.py --check` passes. The kernel memory boundary is now
-zoneinfo-derived (`max_low_pfn 0x50400` → `high_memory` VA `0xF0400000`); the
-meminfo-derived `0xE4E42000` was wrong (vendor-adjusted counters): see item 2.
+zoneinfo-derived (`max_low_pfn 0x50400` → `high_memory` VA `0xF0400000`) and,
+since 2026-11-03, the full physical map is measured (the 156 MiB no-map
+carve-out at PA 0x40000000-0x49C00000 explains every "high-half" read failure;
+the meminfo-derived `0xE4E42000` was wrong, vendor-adjusted counters): see
+item 2.
 
 **Pending / next, in order:**
 
@@ -134,20 +132,42 @@ that stays `active` while its stop returned 0; `HEAD` answers with a body and
    `recover.sh` with the PC URL reinstalled v41 and that boot row fired on the next
    cold boot. The run also fixed two `recover.sh` bugs (rendered-guard marker grep,
    Tizen UEB unsigned-file refusal) and added `auto_root --script-args`.
-2. **High-half read mechanism — boundary corrected by zoneinfo; DMA window suspect.**
-   Reads at/above `0xE0000000` were unreliable (0/21 high creds, 0/81 high task
-   pointers), but that line is *inside* the linear map: `/proc/zoneinfo` (2026-10-27)
-   has Normal `start_pfn 0x20000`, HighMem `start_pfn 0x50400`, so `max_low_pfn =
-   0x50400` and `high_memory` is **VA `0xF0400000`**. `meminfo` is vendor-adjusted
-   (HighTotal 303,104 pages > HighMem present 198,656), so the earlier
-   `0xE4E42000` estimate was wrong. Prime suspect now: the video40 DMA window
-   (~512 MiB, matching "reads past 0x46000000 hang"), not the CPU map. One
-   deliberate high-PA read and a re-read of the v38 `high-scan` verdicts against
-   `0xF0400000` are still worth doing; neither blocks attempt 2. **The probe
-   itself was blind until v44:** its NUL check was a hardcoded `hit+8`, correct
-   only for the retired 8-byte constant tag, so every real per-run tag failed and
-   the sweep could only report `miss`. Any pre-v44 `miss`/`comm-only` verdict is
-   therefore not evidence of absence; re-run after the v44 deploy.
+2. **~~High-half read mechanism~~ — RESOLVED 2026-11-03: DMA-window theory refuted,
+   the memory map is measured.** Passive reads (`/proc/iomem`, `/proc/cmdline`,
+   `/proc/zoneinfo`, `/proc/meminfo`, DT `memory/reg` + `reserved-memory`)
+   over 31337, then deliberate **read-only** high-PA reads through the browser
+   stub (video30 — the stub's node; an earlier draft of this record said
+   video40). Findings:
+   - System RAM is 0x20000000-0x697fffff + 0x87000000-0xadffffff
+     (`sdp_sparsemem`, `vmalloc=400M`); `high_memory` VA `0xF0400000` confirmed.
+   - **A 156 MiB no-map carve-out (DT reserved@0-4) sits at PA
+     0x40000000-0x49C00000, inside the lowmem span** — cross-checked exact:
+     zoneinfo Normal spanned-present = 39,936 pages = the carve-out; HighMem
+     spanned-present = 724 MiB = the 472 MiB inter-bank gap
+     (0x69800000-0x87000000, reserved@5/6/7/9) + a 252 MiB reserved@10-19
+     tile (0x87000000-0x96C00000). So VA 0xE0000000 is the carve-out EDGE,
+     not "inside readable lowmem", and the old "video40 DMA window (~512 MiB)"
+     suspect is **refuted**.
+   - Deliberate reads: the carve band reads fine but holds device content
+     (no task allocates there — which is why every beaconed high pointer,
+     PA 0x4083d000-0x448b8000, was unreadable); `0x46000000` itself reads,
+     `0x46100000` HANGS (the historical boundary is precise: base of DT
+     reserved@3); **the top 104 MiB of the linear map (PA
+     0x49C00000-0x50400000) reads fine through video30** — new fact. The
+     repo's 0x40000000 sweep cap is exactly the first absent frame — proven
+     optimal, unchanged. One stub wedged at 0x46100000 as expected, cleared
+     with `RSET`; no reboot needed at the time — but past-0x46000000 reads
+     are potentially system-fatal with delayed effect (the wedged renderer
+     stayed blocked in the driver and the TV auto-rebooted hours later),
+     so kill the wedged renderer promptly (RSET + page reload).
+   - **Verdict re-read corrections:** the 3 pre-v43 `high-scan` lines predate
+     per-run tags entirely (genuine misses of the then-constant tag, not the
+     v44 `hit+8` bug); all 9 post-v44 high parents translated into the carve
+     band with `pc=0`; misses are ±16 MiB-band-limited (five budget-limited;
+     one full-band sweep at ms=829 with 0 hits — a bounded miss, not evidence
+     of absence); `cred-elsewhere` lines are not high-half evidence.
+   No boot-path change: a high task/cred value is still a garbage read and
+   attempt 2 remains the floor. Dated entry: `CHANGELOG.md` 2026-11-03.
 3. **31337 is an unauthenticated LAN root shell.** The allowlist is the only
    filter on the channel. The PC side gates the shell slot to peers that announced
    themselves, answers unknown HTTP methods with 405, caps the stub queue and
@@ -254,31 +274,45 @@ that stays `active` while its stop returned 0; `HEAD` answers with a body and
    publish time: blank `beacon_token` in `docs/state.json` (`--fix`) or leave
    it - it is LAN-local and rotates on every deploy.
 
-## New falsifiable checks — from the tizen-tv-control-center cross-reference
+## New falsifiable checks — from the tizen-tv-control-center cross-reference — both SETTLED 2026-11-03
 
 An independent S90D project (EU, **T-PTMxxxx** — the same firmware family as
 this unit) runs root commands **over SDB** with Developer Mode enabled, and
 replaces `/opt/etc/parseinfo.sh` wholesale as its persistence boot hook. Both
-conflict with our recorded findings and are cheap to settle now that we hold
-root (no Developer Mode needed to flip the switch ourselves):
+conflicted with our recorded findings; both are now closed (details in
+`FAILED.md` sdb/UEP sections and `CHANGELOG.md` 2026-11-03).
 
-1. **SDB root-exec on our unit.** Our `FAILED.md` closed `sdbd root:on`
-   (capability 10005 unimplemented) — measured with Developer Mode OFF. The
-   S90D project uses Developer Mode + SDB + a community root tool on the same
-   firmware family. Check: enable Developer Mode via the buxton keys we found
-   (`db/sdk/develop/{mode,ip}`) from the root shell, `sdb connect`, and re-run
-   the sdbd probes. If it opens, SDB becomes a redundant transport (their
-   chunked base64 push/pull mirrors our `write_root`).
-2. **`parseinfo.sh` as a second persistence hook.** Our `FAILED.md` says
-   editing it broke the boot service (UEP-signed file). Their S90D replaced it
-   wholesale with an unsigned script and it runs as root at boot. Check:
-   re-inspect our stock file's UEP appendix vs theirs, and whether the boot
-   runner executes an unsigned replacement (test with a no-op echo appended,
-   observe `/proc/target_version`, revert immediately).
-
-Both outcomes are useful: either our dead-end record gains a
-Developer-Mode-ON correction, or we gain a second root transport and a simpler
-persistence hook — on the same firmware family either way.
+1. **~~SDB root-exec on our unit~~ — FALSIFIED 2026-11-03.** Developer Mode
+   was found **already ON** live (`db/sdk/develop/mode=1`, the PC authorized),
+   so `FAILED.md`'s "measured with Developer Mode OFF" premise was wrong and
+   the 2026-10-20 recon probes re-ran under the S90D precondition directly:
+   the service matrix is IDENTICAL — `shell:` whitelist-only, `sync:`/`tcp:`
+   open, `root:` open but `root:on` → `Permission denied`, everything else
+   closed. Developer Mode ON does not unlock sdb root on this unit. New
+   mechanism knowledge: `develop/mode` gates CONNECTION AUTHORIZATION (a flip
+   test: `mode=0` → TCP connect ok, CNXN handshake reset; `mode=1` →
+   handshake completes), not the root capability — `sdbd_rootperm` stays
+   unfilled. `sdbd_tcp.socket` only runs while the store app's
+   `develop_mode` marker exists (ConditionPathExists drop-in), and
+   `sdbd.service` runs as `User=sdk` with a limited capability set — sdbd is
+   not root anyway, so even a successful `root:on` could not have produced a
+   root shell. **Operational trap:** flipping `develop/mode` leaves both
+   units FAILED and the port closed; `systemctl start sdbd_tcp.socket`
+   restores it (all recorded in `FAILED.md`'s sdb section).
+2. **~~`parseinfo.sh` as a second persistence hook~~ — ALREADY SETTLED;
+   confirmed 2026-11-03 with no new experiment.** The proposed test was
+   already run live on this TV on 2026-10-21 (private recon notes of that
+   date): the consumer is `AT-HUB.service` (starter.target.wants,
+   `ExecStart=/opt/etc/parseinfo.sh &` as root); an append test with backup
+   was rejected at exec — `[uep][bash] the file is NOT signed!!`, the script
+   did not run, its marker was never created, and the file was restored (md5
+   `2c4ccd56e3f89818e9bafd6bef809262`). Today's verification: the live file
+   is STILL md5 `2c4ccd56…` (805 B, 0777, root) and `/proc/target_version`
+   carried the expected OSU string after that evening's boot — the
+   unmodified script ran. UEP verifies script files at exec (direct and via
+   interpreter), so the S90D wholesale-replacement approach cannot transfer
+   to this unit. The test's `parseinfo.sh.bak` backup is still on the TV —
+   harmless residue (recorded in `FAILED.md`).
 
 ## Deliberately deferred
 
@@ -304,8 +338,10 @@ rediscover them:
 - **Remaining research ports:** `taskwalk.py` orphan detection, a QEMU/softmmu
   physmap harness, a C `cred_scan` utility - porting investments, not
   this-firmware work.
-- **High-PA deliberate read:** one falsifiable check left from the memory-model
-  work (`AGENTS.md` §11); the zoneinfo boundary is already measured.
+- ~~**High-PA deliberate read:** one falsifiable check left from the
+  memory-model work (`AGENTS.md` §11)~~ — **done 2026-11-03** (OPEN-ISSUES
+  item 2: the carve-out is measured and the deliberate reads are recorded;
+  the zoneinfo boundary was already measured).
 - **Encoding hardening beyond stdout:** TV-facing stdout already uses
   `errors="replace"` (a locale console used to crash the reporting tools on
   non-ASCII bytes), but a few tool file reads/writes still rely on the locale;

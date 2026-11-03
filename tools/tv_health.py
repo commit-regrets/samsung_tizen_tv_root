@@ -16,10 +16,15 @@ Checks (each maps to a registry/document claim):
   root        id -u == 0 and CapEff == 0x3fffffffff
   artifact    installed DLL md5 == server/payload.dll
   witness     rootchan.art == that md5 (the v46 start-beacon witness)
+  bootrow     the boot_sequence row for the app in .appsvc.db == 1
+              (the persistence hook itself)
   applied     every registry `applied` id is app_disable='true'
   off-list    every installed never/deferred/reverted app is 'false'
   count       the disabled set is exactly the registry's `applied` set
   masks       masked-unit count == debloat/lists/services-units.txt
+  maskfile    /opt/usr/data/debloat-masks.txt + debloat-kill.txt exist,
+              root-owned and not world-writable (the mask step executes
+              what it reads - the v42 hardening)
   masked      every listed unit answers `is-enabled` = masked-runtime
               (polls up to 5 s: the boot payload re-asserts them)
   loops       the newest mask beacon says listed-activating=0, loop-check=ok,
@@ -27,6 +32,10 @@ Checks (each maps to a registry/document claim):
               boot - a transient unit starting - and is shown as context)
   sentinels   canalysis-daemon + pisa-service sentinels present
   smarthome   org.tizen.easysetup-daemon.service is active
+  autoupdate  both buxton autoupdate keys read back Int32: 0
+              (the OTA-pinned-off claim, queried live - not from a beacon)
+  backups     mcs_orig.dll / mcs_ni_orig.dll exist and match their
+              deploy-written .md5 records (uninstall's recovery path)
   beacon      the newest launch line carries tok= and art=<repo md5>
 
 The comparison logic (`evaluate`) is pure and unit-tested offline in
@@ -108,6 +117,56 @@ def read(tv: str, *, run=None, timeout: float = 20.0, log: Path | None = None) -
     r["easysetup"] = run("systemctl is-active "
                          "org.tizen.easysetup-daemon.service").strip()
 
+    # Persistence + policy facts, batched one `sh -c` per call (the channel is
+    # line-based).  bootrow is the persistence hook; the two autoupdate keys
+    # are the OTA pin (queried live, not from a beacon).
+    persist_out = run(
+        'echo BOOT=$(sqlite3 -readonly /opt/dbspace/user/5001/.appsvc.db '
+        '".timeout 5000" '
+        '"select count(*) from boot_sequence where '
+        "appid='com.samsung.tv.MultiControl-Service';\" 2>/dev/null); "
+        "echo AUS=$(buxton2ctl get system "
+        "db/menu/support/softwareupdate/autoupdate 2>/dev/null); "
+        "echo AUU=$(buxton2ctl get user "
+        "db/menu/support/softwareupdate/autoupdate 2>/dev/null)")
+    mb = re.search(r"BOOT=(\d+)", persist_out)
+    r["bootrow"] = int(mb.group(1)) if mb else None
+    au = {}
+    for key, tag in (("system", "AUS"), ("user", "AUU")):
+        m = re.search(tag + r"=.*Int32: (\d+)", persist_out)
+        au[key] = m.group(1) if m else None
+    r["autoupdate"] = au
+
+    # The mask policy files must stay root-owned and not world-writable (the
+    # mask step executes what it reads), and the stock backups must still
+    # match the .md5 records deploy.sh wrote next to them (uninstall's path).
+    files_out = run(
+        "ls -l /opt/usr/data/debloat-masks.txt "
+        "/opt/usr/data/debloat-kill.txt 2>/dev/null; "
+        "echo IL=$(md5sum /opt/usr/home/owner/share/mcs_orig.dll 2>/dev/null "
+        "| cut -d' ' -f1)-$(cat /opt/usr/home/owner/share/mcs_orig.md5 "
+        "2>/dev/null); "
+        "echo NI=$(md5sum /opt/usr/home/owner/share/mcs_ni_orig.dll 2>/dev/null "
+        "| cut -d' ' -f1)-$(cat /opt/usr/home/owner/share/mcs_ni_orig.md5 "
+        "2>/dev/null)")
+    files: dict = {}
+    for line in files_out.splitlines():
+        f = line.split()
+        if len(f) >= 8 and f[0].startswith("-"):
+            files[f[-1].rsplit("/", 1)[-1]] = {
+                "owner": f[2],
+                "size": int(f[4]) if f[4].isdigit() else 0,
+                "world_writable": len(f[0]) > 8 and f[0][8] == "w",
+                "group_writable": len(f[0]) > 5 and f[0][5] == "w",
+            }
+    r["maskfiles"] = files
+    bk: dict = {}
+    for key, tag in (("il", "IL="), ("ni", "NI=")):
+        m = re.search(tag + r"([0-9a-f]*)-([0-9a-f]*)", files_out)
+        bk[key] = {"md5": m.group(1), "expected": m.group(2)} if m \
+            else {"md5": "", "expected": ""}
+    r["backups"] = bk
+
     # The list is the payload's own copy (what it re-asserts each boot).  One
     # batched `is-enabled` call for all units (29 separate calls cost >20 s on
     # this TV), and poll up to 5 s so a check run right after rooting does not
@@ -182,6 +241,8 @@ def evaluate(r: dict, reg: dict, units: int, payload_md5: str) -> list[dict]:
        f"tv={r.get('dll_md5') or 'unreadable'} repo={payload_md5}")
     ck("witness", r.get("art") == payload_md5,
        f"rootchan.art={r.get('art') or 'absent/mismatch'}")
+    ck("bootrow", r.get("bootrow") == 1,
+       f"boot_sequence rows={r.get('bootrow')}")
 
     rows = r.get("rows") or {}
     applied = reg.get("applied", set())
@@ -198,6 +259,14 @@ def evaluate(r: dict, reg: dict, units: int, payload_md5: str) -> list[dict]:
     ck("masks", r.get("masks") == units, f"tv={r.get('masks')} list={units}")
     ck("masked", r.get("masked_units") == units and r.get("unmasked") == 0,
        f"masked-runtime={r.get('masked_units')}/{units} unmasked={r.get('unmasked')}")
+    mf = r.get("maskfiles") or {}
+    bad_files = [n for n, s in mf.items()
+                 if s.get("owner") != "root" or s.get("world_writable")
+                 or s.get("group_writable") or not s.get("size")]
+    ck("maskfile",
+       set(mf) == {"debloat-masks.txt", "debloat-kill.txt"} and not bad_files,
+       f"{len(mf)}/2 files" + (f", bad: {sorted(bad_files)}" if bad_files else
+                               " root-owned, not world-writable"))
     m = r.get("mask") or {}
     ck("loops", m.get("listed_activating") == 0 and m.get("loop_check") == "ok"
        and m.get("fail") == 0 and m.get("missing") == 0,
@@ -206,6 +275,18 @@ def evaluate(r: dict, reg: dict, units: int, payload_md5: str) -> list[dict]:
        f"missing={m.get('missing')} (global activating={r.get('activating')})")
     ck("sentinels", r.get("sentinels") == 2, f"present={r.get('sentinels')}/2")
     ck("smarthome", r.get("easysetup") == "active", f"easysetup={r.get('easysetup') or 'unreadable'}")
+    au = r.get("autoupdate") or {}
+    ck("autoupdate", au.get("system") == "0" and au.get("user") == "0",
+       f"system={au.get('system') or 'unreadable'} "
+       f"user={au.get('user') or 'unreadable'}")
+    bk = r.get("backups") or {}
+    bad_bk = [k for k in ("il", "ni")
+              if not (bk.get(k) or {}).get("md5")
+              or (bk[k].get("md5") != bk[k].get("expected"))]
+    ck("backups", not bad_bk,
+       "il=" + ((bk.get("il") or {}).get("md5") or "missing")
+       + " ni=" + ((bk.get("ni") or {}).get("md5") or "missing")
+       + (f" (mismatch: {sorted(bad_bk)})" if bad_bk else " match .md5 records"))
     launch = r.get("beacon") or {}
     ck("beacon", bool(launch.get("tok")) and launch.get("art") == payload_md5,
        f"tok={'yes' if launch.get('tok') else 'no'} art={launch.get('art') or 'none'}")

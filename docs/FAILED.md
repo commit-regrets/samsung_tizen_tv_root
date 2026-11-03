@@ -16,6 +16,34 @@ was tested on the live unit; "do not retry" means it was measured, not assumed.
   implements capability 10005, so it is permanently "disabled". Patching the
   cached string in RAM only changes the banner; the plugin's command whitelist
   still blocks execution. RAM-only, cannot bootstrap.
+- **sdbd `root:on` with Developer Mode ON** — still a dead end (re-probed
+  2026-11-03). Developer Mode was found **already ON** live
+  (`db/sdk/develop/mode=1`, the PC authorized in `db/sdk/develop/ip`), so the
+  earlier record's "measured with Developer Mode OFF" premise was wrong — the
+  re-probe ran under the S90D precondition directly. The service matrix is
+  identical to the 2026-10-20 record (`shell:` whitelist-only, `sync:`/`tcp:`
+  open, `root:` open but `root:on` → `Permission denied`); Developer Mode ON
+  does not unlock sdb root on this unit.
+- **`develop/mode` semantics** (strings on `libsdbd_plugin.so` + live flip
+  test, 2026-11-03): the plugin reads `db/sdk/develop/{mode,ip}` directly
+  ("Verifying ip to connect"), and the key gates **CONNECTION AUTHORIZATION**,
+  not the root capability — with `mode=0` the TCP connect succeeds but the
+  CNXN handshake is reset; with `mode=1` the handshake completes.
+  `sdbd_rootperm` is a separate capability string in `sdbd.bin` that stays
+  unfilled regardless.
+- **sdbd is not root anyway** (2026-11-03): `sdbd_tcp.socket` carries a
+  drop-in (`sdbd_tcp.socket.d/store-develop-mode-release.conf`) with
+  `ConditionPathExists=/home/owner/apps_rw/com.samsung.tv.store/data/develop_mode`
+  — the TCP listener on 26101 only runs while that store-app marker exists
+  (it does; owner-owned). `sdbd.service` runs as `User=sdk` with only
+  `cap_kill,cap_dac_override,cap_setgid,cap_setuid,cap_sys_admin=i` — even a
+  successful `root:on` could not have produced a root shell through it.
+- **Trap: do not flip `db/sdk/develop/mode` casually** (2026-11-03). Flipping
+  it (1→0→1, readback restored `=1`) left `sdbd_tcp.socket` and
+  `sdbd.service` FAILED and port 26101 closed — something watches the key and
+  tears the units down, and they do not come back on their own. Repair,
+  verified: `systemctl start sdbd_tcp.socket` (listener back, handshake +
+  `root:on` → `Permission denied` identical to before).
 - **Other sdbd services** — `sync:` and `tcp:` are open, the rest closed.
   Useful for metadata and loopback tunnels, not for code execution.
 
@@ -35,7 +63,17 @@ was tested on the live unit; "do not retry" means it was measured, not assumed.
   the file check. This is the useful escape hatch, but it runs as the caller
   (owner), not root.
 - **`/opt/etc/parseinfo.sh`** — carries a `##UEP…` signature; editing it breaks
-  the boot service. Restored, md5 verified.
+  the boot service. Restored, md5 verified. The consumer is `AT-HUB.service`
+  (starter.target.wants, `ExecStart=/opt/etc/parseinfo.sh &` as root). A
+  wholesale unsigned replacement (the S90D approach) cannot transfer here: an
+  append test with backup was rejected at exec — `[uep][bash] the file is NOT
+  signed!!`, the script did not run and its marker was never created (UEP
+  verifies script *files* at exec, direct and via interpreter). Re-confirmed
+  2026-11-03: the live file is still pristine (md5
+  `2c4ccd56e3f89818e9bafd6bef809262`, 805 B, 0777, root) and ran at that
+  day's boot (`/proc/target_version` carried the expected OSU string).
+  Residue: the test's `/opt/etc/parseinfo.sh.bak` backup is still on the TV —
+  harmless.
 
 ## Privilege boundaries
 
@@ -85,9 +123,16 @@ was tested on the live unit; "do not retry" means it was measured, not assumed.
 - **`fork()` copies the cred.** Patching a forked child does not change the
   parent's uid. Find the parent through the child's `real_parent` and patch
   *that*. Two payload generations failed exactly here.
-- **Kernel pointer range.** The linear map (VMSPLIT_3G, no LPAE) covers lowmem only (`0xC0000000..high_memory`, measured to end at `0xF0400000` (zoneinfo `max_low_pfn 0x50400`; meminfo is vendor-adjusted));
-  task/cred addresses above `0xE0000000` are normal. A `<0xE0000000` sanity
-  check makes the parent scan fail with "no parent".
+- **Kernel pointer range.** The linear map (VMSPLIT_3G, no LPAE) covers lowmem only (`0xC0000000..high_memory`, measured to end at `0xF0400000` (zoneinfo `max_low_pfn 0x50400`; meminfo is vendor-adjusted)).
+  Addresses above `0xE0000000` are valid pointer shape: the map runs to
+  `0xF0400000`, and a slab object could live in `0xE9C00000-0xF0400000`.
+  On this unit the carve band below that (`0xE0000000-0xE9C00000`, phys
+  `0x40000000-0x49C00000`) holds device content, not kernel objects, and every
+  sampled high task/cred pointer fell there and read unusable. The top 104 MiB
+  itself reads; no task/cred pointer has been observed in it. The operational
+  rule still treats a pointer at/above `0xE0000000` as a garbage read (the v33
+  fast-exit rejects the readable top as well). A `<0xE0000000` sanity check
+  makes the parent scan fail with "no parent".
 - **Post-fork managed code.** A string marshal or allocation in the child after
   `fork()` can deadlock in the CLR; use a pre-pinned buffer and raw syscalls.
 - **Long op-7 commands.** About 100 characters is the practical limit; a
@@ -103,6 +148,23 @@ was tested on the live unit; "do not retry" means it was measured, not assumed.
   nothing else. The server now prefers a freshly queued stub; after a TV hard
   power-cycle, restart the server anyway (no FIN arrives, so the old socket
   looks alive).
+- **A read past 0x46000000 through video30 (the browser stub's node) is
+  SYSTEM-fatal with delayed effect, not just stub-fatal** (2026-11-03). A
+  single isolated 32-byte read at PA 0x46100000 (the morning high-PA
+  diagnostic) wedged the renderer in the video30 driver read; `RSET` freed
+  the gateway but the renderer process stayed blocked. ~1-3 h later the TV
+  **rebooted by itself** — owner-confirmed
+  automatic, nothing touched, no mains cycle — and v47 rooted that boot
+  normally, so recovery was the boot itself. No pstore/ramoops on the platform
+  (`/sys/fs/pstore` and `/proc/pstore` absent; no watchdog/panic lines in the
+  current-boot dmesg), so the cause is attribution by exclusion, not proof.
+  Third recorded hang at that boundary, first from a single read rather than
+  a bulk scan. Rule: after any deliberate high-PA diagnostic, `RSET` the
+  gateway AND reload the browser page promptly to kill the blocked renderer;
+  treat past-0x46000000 as never-read territory except in a planned
+  diagnostic with the set expected to go down. (No toolkit path can hit this:
+  sweep caps 0x40000000, readmany clamp 0x46000000 — only `TVPHYS_HI`
+  diagnostics reach it.)
 
 ## SMACK labels — the wall, and how it was actually solved
 
