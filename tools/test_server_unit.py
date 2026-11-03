@@ -89,9 +89,9 @@ def get(path: str, host: str = "192.0.2.9") -> bytes:
 
 def main() -> int:
     # ---- the request gate: a class table, not one filename -------------------
-    reply = get("/")
-    check("GET / serves the page", b"200" in status(reply),
-          status(reply).decode("latin-1"))
+    page_reply = get("/")
+    check("GET / serves the page", b"200" in status(page_reply),
+          status(page_reply).decode("latin-1"))
 
     # The expected class is HARDCODED, not taken from the module: a loop over
     # `server.DENY_SUFFIX` silently stops testing an entry the moment it is
@@ -154,6 +154,25 @@ def main() -> int:
         reply = exchange(b"PATCH / HTTP/1.1\r\nHost: t\r\n"
                          b"Content-Length: 0\r\n\r\n")
         check("an unknown method gets 405", b"405" in status(reply),
+              status(reply).decode("latin-1"))
+
+        # The two known method residuals, pinned rather than fixed (the
+        # 2026-10-31 decision, OPEN-ISSUES "residual, deliberately not
+        # changed"): HEAD is answered as GET *with* a body and OPTIONS is
+        # served as GET.  No client uses either; these checks exist so an
+        # accidental change of either lane shows up as a visible diff.
+        page_body = page_reply.split(b"\r\n\r\n", 1)[-1]
+        reply = exchange(b"HEAD / HTTP/1.1\r\nHost: 192.0.2.9\r\n"
+                         b"Connection: close\r\n\r\n")
+        check("HEAD is served as GET with the body included (documented residual)",
+              status(reply) == status(page_reply)
+              and reply.split(b"\r\n\r\n", 1)[-1] == page_body,
+              status(reply).decode("latin-1"))
+        reply = exchange(b"OPTIONS / HTTP/1.1\r\nHost: 192.0.2.9\r\n"
+                         b"Connection: close\r\n\r\n")
+        check("OPTIONS is served as GET (documented residual)",
+              status(reply) == status(page_reply)
+              and reply.split(b"\r\n\r\n", 1)[-1] == page_body,
               status(reply).decode("latin-1"))
     finally:
         for p in planted:

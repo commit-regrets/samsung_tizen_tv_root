@@ -15,6 +15,63 @@ entry is an incomplete change. `AGENTS.md` repeats this rule for agents.
 
 ---
 
+## 2026-11-03 — small maintenance: the two documented HTTP residuals pinned, the last locale-dependent file read closed, and `mask.sh` pass 5 re-verified live
+
+No server or TV-side behaviour changed; the only source edits are two test
+assertions and an `encoding=` argument, so the deployed v47 stays valid and the
+§1 state row is untouched.
+
+- **The two documented HTTP-method residuals are now pinned, not fixed** (the
+  2026-10-31 decision, kept): `tools/test_server_unit.py` gains two checks
+  right after the 405 check — `HEAD` is served as GET *with the body included*
+  and `OPTIONS` is served as GET — so an accidental change of either lane shows
+  up as a visible test diff instead of a silent server change. No client uses
+  either method. Closes HANDOFF pending item 4.
+- **`tools/beacons.py` reads the beacon log as UTF-8.** The two
+  `read_text(errors="replace")` calls (the `--newest-start` read and the main
+  grouping read) now pass `encoding="utf-8"` — the log is written by
+  `server.py` as UTF-8, and a cp1252-console locale could crash or mangle the
+  read. This was the only genuine locale-dependent TV-data read left: a sweep
+  found everything else already pinned or binary-mode, and `test_logs.py`'s
+  fixtures are ASCII written and read under the same locale on purpose (left
+  as-is). Closes the "encoding hardening" bullet in OPEN-ISSUES "Deliberately
+  deferred".
+- **`mask.sh` pass 5 re-verified on the TV** (HANDOFF pending item 3's
+  "re-verify on the next live run" is satisfied): 2026-11-03 ~23:45, freshly
+  mains-cold-booted on v47 (boot rooted t=37 s, payload mask step `masks=29
+  stopped=29 killed=3 fail=0 missing=0 listed-activating=0 loop-check=ok`).
+  The script was served from a temporary copy in `server/` (`.sh` is not in
+  DENY_SUFFIX, so the static handler serves it; the copy was deleted after the
+  run), the two lists fetched over HTTP matched the committed files
+  byte-for-byte, and it ran as `curl -s http://<pc>/mask.sh | sh -s <units>
+  <binaries>` over the root channel. Summary:
+  `newly-masked=0 already=29 stopped=29 refusal-ok=29 missing-units=0
+  symlink-fail=0 kill-refused=0 fail=0 killed=1 reload_ok=1 loop-check=ok
+  activating=0 listed-activating=0 listed-running=0 newhome=active` — the
+  is-active parsing found no listed unit active/activating after the stop pass,
+  and the kill pass removed one leftover `p2p-asm-UI` process. TV tmpfs files
+  cleaned up.
+- **Operational notes from the same session (no repo change):** the TV's
+  `curl` to the PC failed (rc=28) mid-session because the port-80 server was
+  DOWN — no listener, no `pysrv.exe` process; restarting it under `pysrv.exe`
+  (AGENTS §5) fixed it and beacons then flowed for the cold boot. On the
+  31337 channel, one compound command
+  (`curl -s http://<pc>/debloat-masks.txt -o /tmp/u.txt && curl -s
+  http://<pc>/debloat-kill.txt -o /tmp/b.txt && wc -c /tmp/u.txt /tmp/b.txt`,
+  ~130 chars) never returned `__END__` inside a 90 s client timeout and the
+  channel only recovered after the 120 s `Run()` cap killed the tree — while
+  short commands kept working. The mechanism is NOT trap 7's >100-char
+  fragility (that stays a browser-stub observation, AGENTS §8): the channel
+  is single-threaded, so any command occupies it until it exits or the 120 s
+  cap kills it — these two curls were hanging on the dead PC server and the
+  channel simply waited. Measured the same evening: a 135-char instant
+  `echo` answers immediately. The durable rule for the channel is therefore
+  "bound every remote fetch" (`curl -m <s>`), not "keep commands short" —
+  a hung command costs the channel for up to 120 s regardless of length.
+
+Docs: HANDOFF (pending items 3 and 4 done), OPEN-ISSUES (HEAD/OPTIONS residual
+marked pinned, encoding item closed), `debloat/AGENTS.md` (live re-verify line).
+
 ## 2026-11-03 — the high-half read mechanism measured: DMA-window theory refuted
 
 OPEN-ISSUES item 2 / HANDOFF item 6, investigated on the live TV (v47 payload,

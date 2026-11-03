@@ -120,11 +120,15 @@ request, evictable live beacon token, dangling `tv_sock` and stale RPC waiter,
 the Python lane's missing sane-cred gate, the cred-scan desync/budget and the
 `smack_relabel` PA/VA mix. **Residual, deliberately not changed:** the peer
 tokens are self-service (a host that can reach port 80 can fetch a token; the
-LAN is the boundary - `SECURITY.md` now says so); `mask.sh` and the payload list
-units without `--full` (a very long unit name could be ellipsized at 80 columns
-- unverified on the TV); `mask.sh` counts a failed stop but not a listed unit
-that stays `active` while its stop returned 0; `HEAD` answers with a body and
-`OPTIONS` is served as `GET`.
+LAN is the boundary - `SECURITY.md` now says so); ~~`mask.sh` and the payload
+list units without `--full`~~ (fixed 2026-11-01 in `mask.sh` and 2026-11-02 in
+the payload, v47 - `test_constants.py` asserts the flag in both); ~~`mask.sh`
+counts a failed stop but not a listed unit that stays `active` while its stop
+returned 0~~ (fixed 2026-11-01, re-verified live on the TV 2026-11-03 -
+`CHANGELOG.md`); `HEAD` answers with a body and `OPTIONS` is served as `GET`
+(**pinned 2026-11-03**, behaviour unchanged: two checks in
+`tools/test_server_unit.py` assert both lanes so an accidental change shows as
+a visible test diff).
 
 1. **~~Deploy v41 / cold boot / kill -9 / uninstall + recover~~ — all done 2026-10-27.**
    Restart-rooted in ~1 s; token live; cold boots 36 s and 49 s; `kill -9` back in
@@ -342,10 +346,16 @@ rediscover them:
   memory-model work (`AGENTS.md` §11)~~ — **done 2026-11-03** (OPEN-ISSUES
   item 2: the carve-out is measured and the deliberate reads are recorded;
   the zoneinfo boundary was already measured).
-- **Encoding hardening beyond stdout:** TV-facing stdout already uses
+- ~~**Encoding hardening beyond stdout:** TV-facing stdout already uses
   `errors="replace"` (a locale console used to crash the reporting tools on
   non-ASCII bytes), but a few tool file reads/writes still rely on the locale;
-  pin `encoding="utf-8"` when touching them.
+  pin `encoding="utf-8"` when touching them.~~ — **done 2026-11-03** for the
+  one real TV-data read path: `tools/beacons.py`'s two `read_text` calls (the
+  `--newest-start` read and the main grouping read) now pass
+  `encoding="utf-8"` (the log is UTF-8; a cp1252 console could crash or mangle
+  the read). A sweep found everything else already pinned or binary-mode;
+  `test_logs.py`'s fixtures are ASCII written and read under the same locale
+  on purpose and stay as-is.
 
 ## Closed history
 

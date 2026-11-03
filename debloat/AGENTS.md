@@ -248,6 +248,14 @@ All TV reads/writes go through that channel (PC-side helpers:
    `NRestarts=654` (5 s cycle) and nobody noticed. So *every* app disable
    needs a unit check (`systemctl show <unit> -p NRestarts -p ActiveState`),
    and `mask.sh` now fails if a listed unit is still `activating`.
+   The 2026-11-01 hardening reads the state instead of the exit code (only
+   `inactive`/`failed` accepted, and pass 5 fails a listed unit that is
+   `active` in the dump too); **re-verified live 2026-11-03** on a freshly
+   mains-cold-booted v47 set (boot rooted t=37 s): `already=29 stopped=29
+   fail=0 killed=1 reload_ok=1 loop-check=ok activating=0 listed-activating=0
+   listed-running=0 newhome=active` - the is-active parsing found no listed
+   unit active/activating after the stop pass, and the kill pass removed one
+   leftover `p2p-asm-UI` process (record: `CHANGELOG.md` 2026-11-03).
    (b) **The avocd `new_home` flag can be re-set mid-session**, not only at
    the moment of masking, so a one-shot SetNewHome is not enough: `mask.sh`
    installs the persistent `newhome-fix` 30 s loop (`systemctl stop

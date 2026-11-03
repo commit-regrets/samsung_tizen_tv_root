@@ -415,11 +415,12 @@ def main(argv=None) -> int:
     if args.newest_start:
         # One implementation of "which launch is newest" for the launcher too;
         # exit 1 with null fields when there is no launch line at all.
-        ns = newest_start(p.read_text(errors="replace"))
+        ns = newest_start(p.read_text(encoding="utf-8", errors="replace"))
         print(json.dumps(ns or {"ts": None, "tok": None, "art": None,
                                 "line": None}))
         return 0 if ns else 1
-    boots = group_boots(list(parse_lines(p.read_text(errors="replace"))))
+    boots = group_boots(list(parse_lines(p.read_text(encoding="utf-8",
+                                                        errors="replace"))))
     if not boots:
         print(f"beacons: no DSHROOT lines in {p}", file=sys.stderr)
         return 2
