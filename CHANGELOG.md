@@ -37,8 +37,13 @@ Deployed as v48 (`bf3df7dc…`, 43,008 B) over 31337 on 2026-11-04 22:01
 `ART_FILE=bf3df7dc…`, `COPY=ok`, `DEPLOY_DONE`); the relaunch rooted on attempt 1
 (`direct-patch uid=0`), beaconed `art=bf3df7dc…` and `masks=29 stopped=29
 killed=0 fail=0 missing=0 activating=0 listed-activating=0 loop-check=ok
-newhome=set(1),loop-active`, and `tv_health` reported 16/16. A mains-cycle cold
-boot is the remaining proof (`docs/HANDOFF.md` pending row 10).
+newhome=set(1),loop-active`, and `tv_health` reported 16/16.
+**Cold-boot acceptance PASSED 2026-11-04 22:11** (mains cycle, no PC): launch
+t=28 s (attempt 1 `high-alloc … fast-exit`), attempt 2 `direct-patch uid=0`
+t=36 s, `ROOTCHAN` t=36, `masks=29 stopped=29 killed=4 fail=0 missing=0
+activating=13 listed-activating=0 loop-check=ok newhome=set(0),loop-started`
+t=42 s; both starts carried `art=bf3df7dc…`; `tv_health` 16/16; zero
+`counter-write-failed` lines.
 `test_constants.py` locks the three properties (read-back helper, fast→long
 fallback, suppressed exit), `beacons.py` decodes the new line as `COUNTER-WRITE`,
 and `LOGGUIDE.md` carries both new rows. Offline suite 17/17.

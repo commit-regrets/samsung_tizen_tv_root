@@ -277,7 +277,7 @@ a visible test diff).
    6 files tracked since 1b05289 despite the .gitignore rule) ships. Also at
    publish time: blank `beacon_token` in `docs/state.json` (`--fix`) or leave
    it - it is LAN-local and rotates on every deploy.
-8. **FIXED in v48 (deployed 2026-11-04; cold boot owed): the payload's counter
+8. **FIXED in v48 (deployed 2026-11-04; cold boot passed 22:11): the payload's counter
    writes are read back and a failure is beaconed — the 2026-11-04 failure
    mode cannot recur silently.** (History: the failure was demonstrated live,
    and the live failure was the diagnostic's own artifact.) The degraded long-mode process beaconed `long-exit attempt=5
@@ -294,13 +294,15 @@ a visible test diff).
    root, attempt 1 creates it as uid 5001, attempt 2 updates it (roll 6: pid
    18227 wrote `1`, pid 19110 read `1` and beaconed `attempt=2`). A normal
    boot therefore has no counter defect: attempt 1 creates `.dsh_try` itself
-   and later attempts update it. **v48 (deployed 2026-11-04; cold boot owed)**
+   and later attempts update it. **v48 (deployed 2026-11-04; cold boot passed 22:11)**
    closes the gap: both counters go through `WriteCounter` (write, read back,
    `counter-write-failed file=<name> want=<n> got=<...>` beacon, never a silent
    retry). A failed `.dsh_try` write forces long mode, so the fast-exit budget
    cannot loop; a failed `.dsh_long` write suppresses the exit (`long-exit
    suppressed (counter write failed)`) and falls through to the idle, so the
-   3-exit cap cannot be disarmed. Cold boot is the remaining proof.
+   3-exit cap cannot be disarmed. Cold boot passed 2026-11-04 22:11:
+   `masks=29 stopped=29 killed=4 fail=0 missing=0 listed-activating=0
+   loop-check=ok`, `tv_health` 16/16, zero `counter-write-failed` lines.
 
 ## New falsifiable checks — from the tizen-tv-control-center cross-reference — both SETTLED 2026-11-03
 

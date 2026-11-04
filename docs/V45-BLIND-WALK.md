@@ -48,7 +48,7 @@ records.
 - Bounded per boot by `/tmp/.dsh_long` (`LongExitMax = 3`, tmpfs, so it resets at
   boot like `/tmp/.dsh_try`). After 3 exits the old 120 s in-process idle returns,
   so a pathological boot cannot become a relaunch storm. **v48 closes the
-  2026-11-04 caveat** (deployed 2026-11-04; cold boot owed): both counters are
+  2026-11-04 caveat** (deployed 2026-11-04; cold boot passed 22:11): both counters are
   written through `WriteCounter`, which reads each value back and beacons
   `counter-write-failed file=<name> want=<n> got=<...>` on any failure. A failed
   `.dsh_try` write forces long mode (no repeated fast-exit at an uncounted
