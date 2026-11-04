@@ -15,6 +15,253 @@ entry is an incomplete change. `AGENTS.md` repeats this rule for agents.
 
 ---
 
+## 2026-11-04 — kernel symbols recovered for Ghidra: no kallsyms proven, `__ksymtab` parsed, the live RAM dump is the authoritative analysis target
+
+No payload change, and no TV state change beyond one read-only RAM capture
+(`tools/dump_kernel_ram.py`). This entry records a Ghidra analysis session
+(both kernels symbolized, every exploit constant cross-checked), corrections
+to [`docs/KERNEL-DUMPS.md`](docs/KERNEL-DUMPS.md) (its flash-vs-RAM drift
+numbers had compared raw file offsets from mismatched dump bases, and its
+`init_task.cred` line compared a cred VALUE against an ADDRESS), and review
+fixes to the two new dump tools (below).
+
+**No kallsyms — now proven, not assumed.** A full-image search for both
+layouts (absolute `kallsyms_addresses` and base-relative
+`kallsyms_offsets`+`relative_base`, plus the `token_table`/`token_index`
+signature) found nothing real on either build; the only hits were trivial
+0..255 u16 tables. The `init_task` string visible in Ghidra at `0xc08992d8`
+(flash image) is `__ksymtab_strings` content, not a kallsyms entry. The
+AGENTS.md "no kallsyms" note (blocked pid-hash/IDR locators) stands, now
+verified.
+
+**The actual symbol source is `__ksymtab`.** Export entries are 12-byte
+`{u32 value (absolute VA), u32 name_ptr, u32 namespace_ptr}` — the 5.4
+`struct kernel_symbol`; 0 means NO namespace (all 9,118 entries on this
+build, verified word-by-word), CRCs live in a separate `__kcrctab` when
+`CONFIG_MODVERSIONS` is on and are not inferable from this table,
+name-sorted across the ksymtab + ksymtab_gpl arrays, strings tail-shared.
+Parsing them (structural scan for `(VA, VA, 0)` at stride 12, decode through
+the string area, validate by uniqueness/sortedness/known-symbol anchor)
+recovers **9,118 exports** from the RAM dump and **9,114** from the OTA
+extraction, zero name conflicts — including the whole credential family
+(`commit_creds`, `prepare_kernel_cred`, `prepare_creds`, `override_creds`,
+`revert_creds`) and `init_task`. `init_cred` is NOT an export (no such
+string in either image) — its address is the value of `init_task.cred`
+(`0xc095ce04` RAM / `0xc094ae44` OTA). An earlier flash pass applied only
+8,328 symbols from a tighter scan; the corrected 9,114-symbol table is what
+the current `Image_5.4.249_v8.bin` program carries.
+
+**Two builds in play, quantified in VA space** (all measured, see
+KERNEL-DUMPS.md): `.text` moves ~0 (commit_creds `0xc0050c14` flash →
+`0xc0050b5c` RAM, −0xB8); `.rodata` +0x10000 (banner `0xc0768098` →
+`0xc0778098`); `.data`: init_task `0xc0945180` → `0xC0957180` = +0x12000,
+exactly `DATA_SHIFT` in kernel_root.py/physmap.py — but init_cred moved
+`0xc094ae44` → `0xc095ce04` = **+0x11FC0** (−0x40 off DATA_SHIFT), so the
+shift is per-symbol inside `.data`, not section-uniform; `DATA_SHIFT` is the
+init_task anchor only. The running build's banner: `abuild@A1305DKG`, Wed Feb
+18 18:20:43 UTC 2026; the flash image: `abuild@A0609LHG`, Dec 29 2025.
+
+**Ghidra state (MCPTest project, ghidra-mcp fork on :8089):** `Image_TV_full.bin`
+(RAM, authoritative) and `Image_5.4.249_v8.bin` (OTA extraction, re-imported
+under the v8 variant — the first `Image_5.4.249.bin` import landed v5t, which
+mis-decodes movw/movt/Thumb-2, and is superseded) are both at base
+`0xC0008000`, fully symbolized and SAVED — the RAM program:
+7,993 function renames + 1,125 data labels = all 9,118 symbols, 0 failures,
+plus a hand-added `init_cred` label at `0xc095ce04`; the flash program:
+all 9,114 symbols as labels (adopting names at Auto Analyze).
+`commit_creds` (0xc0050b5c, 788 B),
+`prepare_kernel_cred` (0xc0050e70) and the cred family resolve by name;
+`init_task` sits at the AGENTS.md value with a validated struct. The
+intermediate shifted-base program was deleted, and so were the trimmed/12 MB
+captures: neither starts at the kernel entry (both begin mid-code at VA
+`0xC0107FC0` of some earlier capture), neither matches the verified capture
+(the trimmed file agrees on ~11.6% of overlapping bytes and shows the static
+`swapper` comm), and their provenance could not be established — re-dump
+rather than analyse strays. Fork quirks recorded in KERNEL-DUMPS.md:
+`/run_script_inline` is disabled unless `GHIDRA_MCP_ALLOW_SCRIPTS=1`,
+`/import_file` is GET-only and names the program after the file basename
+(ELF-wrap a copy named `Image_TV_full.bin` to control the load address — the
+on-disk dump keeps the name `Image_TV_running_full.bin`),
+`/rename_functions` has no bulk form (~27 min per 9.1k symbols),
+`/run_analysis` is a no-op, and multi-program writes need a `program` field
+on every call.
+
+**Review fixes to the new dump tools** (both untracked until now, caught by
+post-session review): `dump_kernel_chunked.py` no longer defaults its host to
+this LAN's TV address — `<tv-ip>` argument or `TV_IP` env is required
+(`tools/sanitize_for_public.py` treats the real address as a private token,
+so a hardcoded default would have failed the public-release gate) — and its
+default output is now `ghidra/Image_flash_partition.bin` (the old default
+name said "TV_running" for a FLASH capture); `dump_kernel_ram.py` drops its
+unused hardcoded host fallback (the physmap lane needs no TV IP — it pairs
+through the PC gateway) and its stub-wedge note now cites the correct
+reference (the AGENTS.md §2 read-band note, not trap 9, which is the
+`/mnt/systemrw` trap). README's flash-vs-RAM paragraph now names the
+mechanism (different builds, per-build link layout — not a runtime shift).
+A second review pass fixed the same trap-9 mislabel in KERNEL-DUMPS.md's
+RAM-dumper section (the tool docstrings had been fixed, the paragraph had
+not), and `dump_kernel_ram.py` now rejects `-h`/`--help`/any `-`-flag
+instead of swallowing them as the output filename — an argument IS the
+output path and the tool dumps immediately, so a stray `--help` once
+triggered a real (read-only) dump; flags now exit before any TV contact.
+A third review pass fixed three more: (1) the ksymtab third word is the
+5.4 `namespace` pointer, not a CRC — MODVERSIONS state is not inferable
+from it (doc corrected; on this build all 9,118 third words are 0, so the
+`(VA, VA, 0)` scan stays complete, and KERNEL-DUMPS.md now warns that a
+namespaced build needs a looser filter); the scan doc also gained the
+`.bss` caveat — symbol values reach `0xc0ac3ef4`, past the file end
+`0xC0A28000`, so scan bounds must not be the image size; (2)
+`dump_kernel_chunked.py` now length-checks every chunk against the request
+(a short transfer used to be written silently), dumps to
+`Image_flash_partition.bin.partial` and renames only on md5 match, and
+exits 1 on MISMATCH or an unparseable TV md5 (it used to print MISMATCH
+and exit 0); (3) the artifact-size distinction is documented — the script
+always pulls a 12 MiB partition window while the OTA-package image the
+symbol counts came from is `0x9C8400` (10,257,408 B) — same flashed
+build, different artifacts.
+A fourth review pass closed the rest: the docs gate (`tools/test_docs.py`)
+caught the README declutter dropping the EBUSY / ENOENT/ENODEV tokens
+(restored) and a hand-copied short md5 in the AGENTS.md RAM-dump row
+(de-duplicated to the §3 pointer) — and `docs/KERNEL-DUMPS.md` now joins the
+LIVING list, with one deliberate exemption: the full md5 there pins the
+git-ignored LOCAL RAM capture's identity so a re-dump can be compared, which
+is not a repo artifact. The flash export count was corrected 8,328 → 9,114
+(the old number was the tighter scan's parse, conflated with the applied
+label count); `init_cred` corrected to NOT-an-export; the three artifacts
+(OTA extraction / partition dump / RAM dump) are now named explicitly and
+the partition-dump section is phrased as procedure — its on-unit specifics
+(mmcblk0p5, 1 MiB header, p6 mirror) have no recorded successful run in the
+tree, so the TV-side md5 match is the stated acceptance gate; the dead
+"research tree" reference now points at the downloaded zip's layout.
+`dump_kernel_chunked.py` gained the remaining guards: parent-dir creation
+for the `.partial` (a fresh clone has no git-ignored `ghidra/`), `__END__`
+detection on the accumulated buffer (a marker split across recvs used to
+hit the 60 s timeout), and `-h`/`--help` rejection (an argument IS the
+hostname). Ghidra: the OTA-extraction program was re-imported at
+`ARM:LE:32:v8` as `Image_5.4.249_v8.bin` and carries the corrected 9,114
+exports as labels (21 s, label-first, 0 failures) — the v5t
+`Image_5.4.249.bin` program is superseded and was deleted from the project on
+2026-11-04 (leaving the RAM `Image_TV_full.bin` and `Image_5.4.249_v8.bin`).
+
+**Constants re-validated, zero mismatches, `tools/` untouched:** find_task.py's
+`0xC0957180`, physmap.py's `OFF_INIT_TASK` (0x93D180 + DATA_SHIFT = file
+0x94F180), and every struct offset the payload uses (comm +0x400, cred
++0x3F8 / real_cred +0x3F4, ptracer_cred +0x3F0 — NULL on init — tasks +0x23C,
+children/sibling +0x2F8/+0x300, pid/tgid +0x2E8/+0x2EC) were read back
+directly at the live init_task.
+
+## 2026-11-04 — live hardware evidence: the v45 `long-exit` repair branch fired for real (and recovered in ~25 s)
+
+No repo or payload change — this entry records the first live observation that
+closes HANDOFF pending item 9 / `V45-BLIND-WALK.md` acceptance item 2, plus
+one new finding it surfaced (OPEN-ISSUES item 8).
+
+**Method.** The natural route to LONG mode (four consecutive failed fast
+attempts) never occurred: of six `root.ps1 -Force` deploy restarts, five
+rooted on attempt 1 and the sixth (roll 6) drew the natural
+`fast-exit attempt=1` precursor — a single degraded process — and rooted on
+its attempt-2 re-roll ~1 s later. LONG mode was therefore entered the way the
+v45 acceptance doc invites ("force the bad case if it recurs"): over the root
+channel, `/tmp/.dsh_try` was pre-set to 4 and the app killed with deploy.sh's
+restart shape (detached `kill -9` by cmdline match + `aulctl start`), so the
+relaunched process read `attempt=5 (long retry mode)` on its first pass. Only
+the ENTRY to long mode was forced; whether a pass is degraded stayed the
+natural stale-read lottery. Both counter files are tmpfs and reset at boot;
+nothing durable was touched. Pid index for the (git-ignored) beacon log:
+deploy rolls 1-5 rooted attempt 1 (pids 13639, 14608, 15554, 16451, 17335),
+roll 6 fast-exited (18227) and rooted attempt 2 (19110); forced long-mode
+starts 19275 and 20072 rooted round 0, 19667 rooted after two failed rounds,
+20806 drew the degraded pass and long-exited, 20974 was the post-exit re-roll
+that rooted.
+
+**What fired.** Four forced long-mode starts: two rooted in round 0 (first
+live proof that a *coherent* long pass also roots normally), one rooted after
+two failed hunt rounds, and the fourth drew the fully degraded state — rounds
+0-5 failing, `self=00000000`, `pu=unread`, the parent pointer translating
+into device-buffer content (`phead=` is ASCII `SEARCH_RESULT__JUMP_IN`, the
+carve-band signature), and the cred-scan budget exhausted (`cred-scan miss
+patched=4 total=8`). That pass then ended, exactly per design:
+
+```
+fail round 5
+device closed
+long-exit attempt=5 count=1        <- the v45 beacon, first time live
+start uid=5001 pid=... art=0df29b15...   (relaunch ~2 s later, fresh window)
+attempt=5 (long retry mode)        <- re-read the still-4 counter: the degraded
+                                      pass's own .dsh_try write had silently
+                                      failed (see below)
+(round 0 also degraded, then:)
+child=... pu=5001 tag=exact stale=0
+direct-patch uid=0  ->  SUCCESS-R00T  ->  ROOTCHAN
+masks=29 stopped=29 killed=0 fail=0 ... loop-check=ok newhome=set(1),loop-active
+```
+
+**Recovery: ~25 s** from the `long-exit` beacon (t=43185) to a rooted channel
+(t=43211) — vs. the v44 baseline this branch replaces (five minutes re-reading
+one stale mapping, recoverable only by a mains cycle). The relaunched process
+carried the deploy's `art=` witness; `tools/beacons.py` decodes the line as
+`LONG-EXIT` with the expected hint, and `id -u` = 0 / the v47 artifact md5
+verified after the cascade. `count` reached 1 of the cap 3 — the count=2/count=3
+cascade and the post-cap idle remain offline-tested only, and the natural
+four-fast-fail entry has still never been observed on hardware (attempt 2
+stays the floor; nothing about the normal boot path changed).
+
+**New hardening note (OPEN-ISSUES item 8), cause identified after review:**
+the degraded process's `.dsh_try` write failed silently — and the cause was
+the diagnostic itself. The counter had been planted over the root channel
+(`echo 4 > /tmp/.dsh_try` as root), leaving a root-owned file in sticky
+`/tmp`; the payload updates the counter at start while still uid 5001, so
+the write threw and `catch { }` hid it. All four forced starts read the
+unchanged root-owned `4` (pids 19275, 19667, 20072 and 20806 all beaconed
+`attempt=5`); `.dsh_long` was created by the payload itself (live-verified:
+`1`, owner, 11:39 — so the cap stayed armed; an earlier reading of that file
+as "absent" was a misparse of `cat` output without a trailing newline); and
+the same log holds the control case — deploy.sh removes the counter as root,
+attempt 1 creates it as uid 5001, attempt 2 updates it (roll 6: pid 18227
+wrote `1`, pid 19110 beaconed `attempt=2`). A normal boot creates `.dsh_try`
+as uid 5001 on attempt 1 and updates it normally — there is no normal-path
+counter defect. Residual: the beaconed `attempt=`/`count=` are computed from
+read+1 without verifying the write, so any counter-write failure (the
+root-planted file being the demonstrated case) desynchronizes the
+fast-attempt budget and can disarm `LongExitMax=3` with no beacon. Fix idea
+(design + review before any payload change): read back each counter write and
+beacon a dedicated failure line.
+
+## 2026-11-04 — docs: README decluttered for a reader audience
+
+No code, payload or TV-side behaviour changed. The README carried
+research-session detail a toolkit user does not need, all of it already on
+record elsewhere (nothing deleted from the project's memory):
+
+- Removed the Developer Mode/`sdbd` side-note from the intro — the test unit's
+  own quirk, falsified as a root path and recorded in `docs/FAILED.md`'s sdb
+  section (OPEN-ISSUES item on the S90D cross-check).
+- Fact table: the "Persistent payload" row drops the deploy date and the
+  `tok=`/`art=` beacon detail (the `AGENTS.md` §1 state row is the single
+  source for the artifact).
+- Dropped the sibling-repository merge-history sentence from the debloat
+  section.
+- Requirements: the deploy-template marker mechanics (`H=`/`WANT=`/`SIZE_WANT=`/
+  `TOKEN=`, TEST-NET placeholder) condensed to the user-facing fact — nothing
+  is committed with a real address; the mechanics live in `AGENTS.md` §5/§9
+  and `docs/SERVER-HOSTING.md`.
+- Porting: the read-reliability paragraph keeps the operational rules
+  (`0xE0000000` limit, `0x46000000` wedge danger, low/high page test) and links
+  OPEN-ISSUES item 2 for the 156 MiB carve-out measurement, instead of
+  repeating the device-tree forensics inline.
+- Safety: the video40 `EBUSY`/`ENOENT` fallback rationale condensed to the
+  operational rule (the why stays in AGENTS.md trap 3); the stale
+  "per-host generated deploy script" phrase in Repository layout dropped
+  (deploy.sh has been a rendered template since v37 — nothing generated on
+  disk).
+- Also cleared two stale "owed" statuses this sweep found, plus one
+  cross-reference: `AGENTS.md` §9 still called v47 "built; deploy owed" (it
+  deployed 2026-11-02 00:00 and cold-booted 00:11), `docs/HANDOFF.md`'s v46.1
+  paragraph still said "the live proof still needs a real deploy + boot" (it
+  landed 2026-11-01 21:01/21:10), and `docs/KERNEL-DUMPS.md`'s RAM section said
+  "trap 9 there" (traps live in `AGENTS.md` §8; it now cites §2 + trap 5, and
+  keeps trap 9 only as the unrelated `/mnt/systemrw` risk).
+
 ## 2026-11-03 — small maintenance: the two documented HTTP residuals pinned, the last locale-dependent file read closed, and `mask.sh` pass 5 re-verified live
 
 No server or TV-side behaviour changed; the only source edits are two test

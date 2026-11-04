@@ -277,6 +277,30 @@ a visible test diff).
    6 files tracked since 1b05289 despite the .gitignore rule) ships. Also at
    publish time: blank `beacon_token` in `docs/state.json` (`--fix`) or leave
    it - it is LAN-local and rotates on every deploy.
+8. **Hardening note 2026-11-04, cause identified (from the long-exit
+   session): the payload's counter writes are unverified — the failure mode
+   was demonstrated live, and the live failure was the diagnostic's own
+   artifact.** The degraded long-mode process beaconed `long-exit attempt=5
+   count=1`, but its post-exit relaunch beaconed `attempt=5` again instead of
+   `attempt=6`: that process's `.dsh_try` write-back had failed silently.
+   Cause: the diagnostic planted the counter over the root channel (`echo 4
+   > /tmp/.dsh_try` as root), leaving a root-owned file in sticky `/tmp`,
+   while the payload updates the counter at start as uid 5001 — the write
+   throws and `catch { }` hides it. Corroboration: all four forced starts
+   read the unchanged root-owned `4` (pids 19275/19667/20072/20806 all
+   beaconed `attempt=5`); `.dsh_long` was created by the payload itself and
+   is owned by `owner` (live `ls`), which is why its write persisted; and
+   the same log holds the control case — deploy.sh removes the counter as
+   root, attempt 1 creates it as uid 5001, attempt 2 updates it (roll 6: pid
+   18227 wrote `1`, pid 19110 read `1` and beaconed `attempt=2`). A normal
+   boot therefore has no counter defect: attempt 1 creates `.dsh_try` itself
+   and later attempts update it. Residual gap, worth closing: the beaconed
+   `attempt=`/`count=` are computed from read+1 regardless of whether the
+   write landed, so ANY counter-write failure — the root-planted file being
+   the demonstrated case — silently desynchronizes the fast-attempt budget
+   and can disarm `LongExitMax=3` with no beacon. Fix idea, design + review
+   before any payload change: read each counter write back and beacon a
+   dedicated failure line; never a silent retry.
 
 ## New falsifiable checks — from the tizen-tv-control-center cross-reference — both SETTLED 2026-11-03
 

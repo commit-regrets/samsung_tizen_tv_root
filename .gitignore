@@ -86,6 +86,14 @@ tmp/
 payload/out*/
 python/
 
+# ------------------------------------------------------ kernel analysis dumps
+# Kernel images extracted from the TV or the OTA package (Samsung proprietary
+# binaries, 10-13 MB each). Regenerate with tools/dump_kernel_ram.py (RAM, via
+# the physmap RPC) or tools/dump_kernel_chunked.py (flash, via the root
+# channel); the scripts are tracked, the dumps are local-only.
+# (Scoped to ghidra/ on purpose - tools/physrpc_shellcode.bin stays tracked.)
+ghidra/
+
 # independent review notes (not part of the toolkit)
 docs/codreview.md
 

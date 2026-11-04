@@ -213,6 +213,7 @@ thread (auto-update off) can run commands concurrently with the channel.
 | Browser | Chromium 120.0.6099.5 (WasmGC available) |
 | Kernel Image | phys `0x20008000`, signature `ee4400eb00900fe1` |
 | `init_task` | `0xC0957180` (phys `0x20957180`) |
+| RAM dump (running kernel, authoritative for analysis) | `ghidra/Image_TV_running_full.bin` — 10,616,832 B, VA `0xC0008000..0xC0A28000`; symbols (9,118 exports, no kallsyms) + method + capture md5: [`docs/KERNEL-DUMPS.md`](docs/KERNEL-DUMPS.md) §3 |
 | Task list offset | `0x23C` (`prev` links; `next` unusable) |
 | cred / real_cred / comm | task+`0x3F8` / `0x3F4` / `0x400` |
 | Full caps | `0x0000003fffffffff` |
@@ -278,6 +279,8 @@ TV boot: com.samsung.tv.MultiControl-Service (dotnet-inhouse, app_onboot)
 | `tools/physrpc_shellcode.bin` | the assembled stub (committed; `embed_physrpc.py` needs it) |
 | `tools/embed_physrpc.py` | writes the blob into `browser_payload.js`'s `SHELLCODE` (`--check`) |
 | `tools/taskwalk.py` | task-list chain diagnostic (`next`/`prev`; not a validated pair) |
+| `tools/dump_kernel_ram.py` | read-only RAM dump of the running kernel via the physmap RPC (phys `0x20008000`, len `0xA20000`); no TV IP needed - pairs through the PC gateway; rejects flags (an argument is the out-file and it dumps immediately). Method + acceptance gates: [`docs/KERNEL-DUMPS.md`](docs/KERNEL-DUMPS.md) |
+| `tools/dump_kernel_chunked.py` | read-only dump of the kernel flash partition over 31337 in 384 KiB chunks; per-chunk length check, `<out>.partial` renamed only on TV-md5 match, exit 1 on MISMATCH; requires `<tv-ip>` or `TV_IP` (no baked-in host) |
 | `tools/sim_rpc.py` | in-memory physmap RPC (no TV); `python tools/sim_rpc.py` self-test |
 | `tools/test_gateway.py` | gateway integration test (no TV): RSET, token pairing, forwarding, BUSY, /save cap |
 | `tools/sanitize_for_public.py` | public-release redaction: copy mode + `--check` gate (exits 1 on any private token) |
@@ -541,6 +544,34 @@ gateway, deploy/uninstall control flow, source↔blob↔page consistency). Then:
       `tv_health` 12/12. (The `loops` check now reads the mask beacon's
       `listed-activating=0` - a global `activating=1` is normal on an idle
       boot.)
+- [x] **v45 `long-exit` observed live 2026-11-04** (HANDOFF item 9; no repo or
+      payload change): the repair branch fired on hardware for the first time.
+      Of six natural deploy restarts, five rooted on attempt 1 and the sixth
+      drew the `fast-exit attempt=1` precursor and rooted on its attempt-2
+      re-roll ~1 s later, so long mode was entered the way the v45 acceptance
+      doc invites - `/tmp/.dsh_try` pre-set to 4 over the root channel, then
+      deploy.sh's detached-kill restart, so the relaunch started at
+      `attempt=5 (long retry mode)`. Only the ENTRY was forced; the degraded
+      pass itself was the natural stale-read lottery: rounds 0-5 failing,
+      `self=00000000`, the parent pointer reading device-buffer junk
+      (`phead=` = ASCII `SEARCH_RESULT__JUMP_IN`), cred-scan budget spent
+      (`patched=4 total=8`), then `device closed` + `long-exit attempt=5
+      count=1`; AUL relaunched ~2 s later with a fresh physmap window and the
+      re-roll rooted on round 1 (`tag=exact`, `direct-patch uid=0`) - **root
+      ~25 s after the beacon** vs. the v44 baseline of a five-minute
+      in-process sit. Same session, first live proof of the SUCCESS side: a
+      coherent long pass roots in round 0. `beacons.py` decodes the line as
+      LONG-EXIT. count=2/count=3 and the natural four-fast-fail entry remain
+      observed only offline; attempt 2 stays the floor and no boot-path change
+      follows. One new hardening note, cause identified after review: the
+      degraded pass's own `.dsh_try` write failed silently (the relaunch
+      re-read the still-4 counter and beaconed `attempt=5` again, where the
+      designed path gives `attempt=6`) because the diagnostic had planted the
+      counter root-owned over the root channel; a normal boot creates
+      `.dsh_try` as uid 5001 on attempt 1 and updates it fine. Residual:
+      counter writes are unverified (`catch { }`), so any write failure
+      silently desynchronizes the budget and can disarm the 3-exit cap -
+      OPEN-ISSUES item 8.
 
 ## 8. Traps (each cost hours — read `docs/FAILED.md`)
 
@@ -853,7 +884,7 @@ that downloads it) and reboot. Things to preserve when editing `Program.cs`:
   armed before the marker write, so an unconditional `rm` deletes the previous
   deploy's still-accurate marker. `wrc=3` ("rooted, but 31337 never dropped")
   exits 3 — it used to print a warning and exit 0.
-- **v47 (2026-11-02, built; deploy owed):** the mask step's `list-units` dump
+- **v47 (2026-11-02, deployed 00:00, cold boot 00:11):** the mask step's `list-units` dump
   passes `--full`. Without it systemd clips the UNIT column at the terminal
   width, and a clipped name can never match the policy list, so
   `listed-activating` could read 0 while a listed unit was restarting (the same
@@ -951,7 +982,10 @@ that downloads it) and reboot. Things to preserve when editing `Program.cs`:
   task/cred value is still a garbage read, attempt 2 is the floor.
 - **Pending: portability.** No second model/firmware has been tested. Use the
   four gates and the file-by-file checklist in `docs/PORTABILITY.md`; record each
-  unit there.
+  unit there. The kernel-symbol half of a port (RAM dump → `__ksymtab` parse →
+  Ghidra import; these builds have no kallsyms — the export table is the symbol
+  source) is documented in [`docs/KERNEL-DUMPS.md`](docs/KERNEL-DUMPS.md) §3 and
+  was proven end-to-end on this unit (2026-11-04).
 - ~~Validate the `root.ps1` auto-root retry from stock~~ — **done 2026-10-25.**
   The stock cycle failed on attempt 1 with `probe 0x40008000 timed out`;
   `auto_root` requested a reload, `RSET` the gateway, waited for the fresh stub,

@@ -31,12 +31,17 @@ LIVING = [
     "docs/ROOT-METHODS.md", "docs/TESTING.md", "docs/PORTABILITY.md",
     "docs/FAILED.md", "docs/SERVER-HOSTING.md", "docs/SCRIPT-REVIEW.md",
     "docs/BOOT-REGRESSION-SMACK.md", "docs/REFERENCE-MATERIALS.md",
-    "docs/OPEN-ISSUES.md", "docs/HANDOFF.md",
+    "docs/OPEN-ISSUES.md", "docs/HANDOFF.md", "docs/KERNEL-DUMPS.md",
 ]
 # dated history: narrative only, exempt from every check
 EXEMPT = {"CHANGELOG.md", "docs/CHANGELOG-ARCHIVE.md", "docs/REVIEW-HISTORY.md"}
 # state snapshot refreshed by hand each session: exempt from artifact hygiene only
 STATE_SNAPSHOT = {"docs/OPEN-ISSUES.md"}
+# KERNEL-DUMPS.md pins the md5 of the git-ignored LOCAL RAM capture
+# (ghidra/Image_TV_running_full.bin) so a re-dump can be compared against the
+# analysed one - it is the identity of a local input, not a repo artifact, and
+# is the one place a full md5 may live outside the STATE block/history.
+MD5_IDENTITY_OK = {"docs/KERNEL-DUMPS.md"}
 
 # (regex over backtick-stripped text, incident) - a reintroduction is a regression.
 BANNED = [
@@ -113,6 +118,8 @@ def main() -> int:
         if rel in STATE_SNAPSHOT:
             continue
         for pat, what in ARTIFACT_PATTERNS:
+            if what == "full md5" and rel in MD5_IDENTITY_OK:
+                continue
             for hit in sorted(set(re.findall(pat, body))):
                 fails += 1
                 print(f"FAIL {rel}: hand-copied artifact number {hit!r} ({what}) "

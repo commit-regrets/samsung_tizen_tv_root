@@ -3,10 +3,7 @@
 Unofficial security research on a 2024 Samsung Neo QLED running **Tizen 9**.
 The exploit chain needs no sdb, no developer mode, no firmware flashing: the TV
 is rooted from its own browser, and the root is made persistent through a stock
-on-boot service app. (The test unit actually ships with Developer Mode ON and
-`sdbd` listening on 26101 — the shell is command-whitelisted and `sdb root`
-stays denied even so; see `docs/FAILED.md`. The toolkit simply does not need
-any of it.)
+on-boot service app.
 
 | | |
 |---|---|
@@ -15,7 +12,7 @@ any of it.)
 | Kernel | Linux 5.4.249, ARM32 (VMSPLIT_3G + HIGHMEM, no LPAE), `PAGE_OFFSET 0xC0000000`, `PHYS_OFFSET 0x20000000` |
 | Browser | Chromium 120.0.6099.5 (`SamsungBrowser/7.0`) |
 | Root | `uid=0`, `CapEff=0x3fffffffff` |
-| Persistent payload | repo **v47** (current md5/size in the `AGENTS.md` state row — regenerated from the artifact); the test unit runs the same build (deployed 2026-11-02, beacons carry `tok=` + `art=`); `payload_backup.dll` keeps the previous build |
+| Persistent payload | repo **v47** (current md5/size in the `AGENTS.md` state row); `payload_backup.dll` keeps the previous build |
 | Root channel | TCP **31337** on the TV, line protocol, replies end with `__END__` |
 
 ## Quick start
@@ -48,7 +45,9 @@ manual fallback: [`docs/USAGE.md`](docs/USAGE.md).
 2. **Physmap** — the V4L2 codec nodes (`/dev/video40`/`30`/`60`) accept an
    attacker-chosen `vm_pgoff` in `mmap()` and pass it to `remap_pfn_range()`
    unvalidated: arbitrary physical memory read/write from an unprivileged
-   process (uid 5001, group `video`).
+   process (uid 5001, group `video`). Exclusivity is per instance: the
+   payload retries `video40` on `EBUSY` and falls back to `video30`/`video60`
+   only on `ENOENT`/`ENODEV` — never cycle nodes on busy.
 3. **Root** — find the kernel Image and `init_task` in physical memory, locate our
    own task through a forked child's `real_parent`, and zero the credentials.
 4. **Persistence** — replace the IL assembly of a stock `app_onboot` service with
@@ -59,6 +58,19 @@ No GPU CVE, no kernel exploit, no signed module. The physmap is the interesting
 part; the stage-by-stage writeup with the measured constants is
 [`docs/EXPLOIT.md`](docs/EXPLOIT.md).
 
+## Kernel analysis — firmware file first, TV dump when rooted
+
+The kernel you analyse comes from two sources, in order: the **OTA package**
+downloadable before rooting (strip the u-boot header off its `uImage`), and
+after rooting the **TV itself** — flash partition or live RAM — via
+`tools/dump_kernel_chunked.py` and `tools/dump_kernel_ram.py`. Key rule:
+trust RAM, not the firmware file, for any offset that goes into shellcode —
+the two are usually **different builds** (the TV may run a newer build than
+the package you downloaded, and each build links its sections at slightly
+different addresses; it is not a runtime relocation). Full procedure,
+measured examples and the flash-vs-RAM build differences:
+[`docs/KERNEL-DUMPS.md`](docs/KERNEL-DUMPS.md).
+
 ## After rooting — debloat
 
 The package-inventory / disable-list work (QNX1D classification, apply and
@@ -66,8 +78,7 @@ restore tooling, measured resource budget) lives in this repository under
 [`debloat/`](debloat/README.md). It consumes this toolkit's root channel as
 its only dependency. The payload re-asserts the durable service masks at every
 boot on its own, and `root.ps1` runs a debloat health check (`tools/tv_health.py`)
-against `debloat/registry.tsv` after a deploy. The former sibling repository was
-merged here in full and no longer exists.
+against `debloat/registry.tsv` after a deploy.
 
 ## Documentation
 
@@ -75,6 +86,7 @@ merged here in full and no longer exists.
 |---|---|
 | [`docs/USAGE.md`](docs/USAGE.md) | running it: options, prompts, expected output, uninstall detail, recovery |
 | [`docs/EXPLOIT.md`](docs/EXPLOIT.md) | the chain stage by stage, with the firmware-specific constants |
+| [`docs/KERNEL-DUMPS.md`](docs/KERNEL-DUMPS.md) | extracting the kernel: OTA file pre-root, flash/RAM dumps post-root, flash-vs-RAM build differences, `__ksymtab` symbol recovery |
 | [`docs/ROOT-METHODS.md`](docs/ROOT-METHODS.md) | every root/persistence method evaluated and the one that won |
 | [`docs/FAILED.md`](docs/FAILED.md) | what did not work and why — reads like a list of dead ends, saves weeks |
 | [`docs/BOOT-REGRESSION-SMACK.md`](docs/BOOT-REGRESSION-SMACK.md) | the subtlest bug in the project: a wrong SMACK label made the app die before `Main` |
@@ -107,20 +119,16 @@ SECURITY.md                 backdoor/scope/reporting
 
 The whole toolkit is committed, so a clone runs without any other working tree.
 `server/payload.dll` is included on purpose (byte-identical to the build output)
-so the toolkit works without a .NET SDK. Runtime logs, build output and the
-per-host generated deploy script are git-ignored and never served over HTTP.
+so the toolkit works without a .NET SDK. Runtime logs and build output are
+git-ignored and never served over HTTP.
 
 ## Requirements
 
 - The same TV family and firmware generation — see
   [`docs/PORTABILITY.md`](docs/PORTABILITY.md) before trying another model.
 - A PC on the same LAN, able to receive TCP/80 from the TV and reach TCP/31337
-  on it. No address is committed for the normal flow: `server/deploy.sh` is a
-  template whose `H=`/`WANT=`/`SIZE_WANT=`/`TOKEN=` markers `server.py` renders
-  per request
-  from the address the TV used and the payload actually served, the page rewrites
-  the shellcode's callback (IP **and** port), and the payload reads
-  `share/rootchan.host`. The compiled-in `Host` is a TEST-NET placeholder.
+  on it. Nothing is committed with a real address: the deploy script, the
+  exploit page and the payload all learn the PC's address at run time.
 - Python 3 on the PC. On Windows the server must run under an interpreter path the
   firewall allows (see [`docs/SERVER-HOSTING.md`](docs/SERVER-HOSTING.md)).
 - .NET SDK only if you rebuild the boot payload — `payload/global.json` pins
@@ -154,18 +162,17 @@ is specific to Chromium 120. The short version:
    `WANT=` to edit), deploy via `root.ps1`, then cold boot. Attempt 2 is the
    expected floor.
 
-**Read-reliability limit found on the test unit:** the payload's video40
-physmap returns unusable bytes for reads at/above `0xE0000000` (the browser
-stub's video30 reads the same band). Measured 2026-11-03 from the device tree
-and zoneinfo: PA `0x40000000` (= VA `0xE0000000`) is the edge of a 156 MiB
-no-map carve-out (`DT reserved-memory reserved@0-4`, ending at `0x49C00000`),
-so task/cred objects never live there — the bytes read back are device buffer
-content, not kernel memory. Reads past `0x46000000` (the base of `reserved@3`,
-a genuine hole) wedged the browser stub's video30 — potentially system-fatal
-with hours of delay; never read there except a planned diagnostic. Porting:
-test a known low page and a known high page on the new model before trusting
-`Kptr`; all successful cred patches here were below `0xE0000000`, and it
-affects how you interpret "not found".
+**Read-reliability limits found on the test unit:** the linear map ends at
+VA `0xF0400000` (above it is vmalloc/module space — no valid translation),
+and a 156 MiB no-map carve-out (VA `0xE0000000`–`0xE9C00000`) returns
+device-buffer content, not kernel memory — task/cred objects never live
+there. The top 104 MiB below `0xF0400000` does read. Past PA `0x46000000`
+the browser stub's video30 wedged during measurement — potentially
+system-fatal with hours of delay; never read there except a planned
+diagnostic. When porting, test a known low page and a known high page on the
+new model before trusting `Kptr`; all successful cred patches here were below
+`0xE0000000`, and it affects how you interpret "not found". Full measurement:
+[`docs/OPEN-ISSUES.md`](docs/OPEN-ISSUES.md) item 2.
 
 Full gates, measurement recipes, and a file-by-file porting checklist:
 [`docs/PORTABILITY.md`](docs/PORTABILITY.md).
@@ -177,11 +184,10 @@ Full gates, measurement recipes, and a file-by-file porting checklist:
 - **The root channel on 31337 is an unauthenticated LAN root shell** (the allowlist
   is the only filter). Never expose it to the internet or a network you do not
   control. See [`SECURITY.md`](SECURITY.md).
-- The boot payload takes a physmap node (`/dev/video40`; exclusivity is per
-  instance). It **retries video40 on `EBUSY`** and only moves to
-  `video30`/`video60` when a node reports `ENOENT`/`ENODEV` — switching on busy
-  would break the boot, because only video40 serves the payload's reads. It
-  closes the node after rooting so the browser path keeps working.
+- The boot payload opens a V4L2 physmap node (`/dev/video40`) while it roots
+  and closes it right after. The node is exclusive per instance, so the payload
+  waits (retries) while anything else — e.g. an open exploit page — holds it,
+  and only falls back to `video30`/`video60` if the node is gone.
 - Keep the stock `mcs_orig.dll` / `mcs_ni_orig.dll` backups and leave TV
   auto-update **off** — an OTA can replace the app and undo persistence.
 - No Samsung firmware, proprietary images or dumps are distributed here.

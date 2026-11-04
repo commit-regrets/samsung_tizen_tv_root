@@ -68,7 +68,8 @@ Session history and *why* each change exists: `CHANGELOG.md` (eight entries,
    `tools/beacons.py --newest-start` (the v46 duplicate kept an older art when
    a newer launch had none), `wrc=3` exits 3 instead of claiming success, and
    the rollback removes `rootchan.art`/`restart.log` only when this attempt
-   wrote them. The live proof still needs a real deploy + boot. The beacon
+   wrote them. The live proof landed with that deploy and boot (both fresh
+   launches carried `tok=` + `art=`, and `root.ps1` printed `proven`). The beacon
    format was designed fresh in v46 — it was never a proposal in
    `docs/V45-BLIND-WALK.md`.
 
@@ -85,7 +86,7 @@ Session history and *why* each change exists: `CHANGELOG.md` (eight entries,
 the stub's node). The "video40 DMA window (~512 MiB)" theory is **refuted** — the cause is a 156 MiB no-map carve-out (DT reserved@0-4) at phys 0x40000000-0x49C00000; `0x46000000` itself reads, pages beyond wedge the stub; the top 104 MiB of the linear map reads fine; the v38 `high-scan` verdicts were re-read against the measured map. Full evidence and verdict corrections in `OPEN-ISSUES.md` item 2; no boot-path change (a high task/cred value is still a garbage read, attempt 2 stays the floor) | — | record complete in `OPEN-ISSUES.md` item 2 + `CHANGELOG.md` 2026-11-03 |
 | 7 | **Portability** — no second model/firmware tested | a second TV | the four gates and the file-by-file checklist in `PORTABILITY.md`; record each unit there |
 | 8 | **Debloat tier 2b (Control Center layer)** | owner decision + measurements | next moves are listed in `debloat/AGENTS.md` |
-| 9 | **Opportunistic: watch `long-exit` fire for real** — the branch is offline-tested only; the acceptance boot never needed it | a deploy restart that lands in the stale window | expect `long-exit attempt=N count=1` then a relaunch instead of a multi-minute hunt; capture the log and add it to `CHANGELOG.md` + `AGENTS.md` §7 |
+| 9 | ~~**Opportunistic: watch `long-exit` fire for real**~~ — **DONE 2026-11-04**: the branch fired live (`long-exit attempt=5 count=1`, recovery ~25 s vs. the v44 five-minute sit; the coherent long pass also verified on its SUCCESS side). Long mode was entered per the v45 acceptance doc's "force the bad case" — `/tmp/.dsh_try` pre-set to 4 over the root channel, then a detached-kill restart; the degraded pass itself was natural. Of six natural deploy restarts that session, five rooted on attempt 1 and one (roll 6, `fast-exit attempt=1`) on its attempt-2 re-roll. One new hardening note: the degraded pass's `.dsh_try` write silently failed — explained after review as the diagnostic's root-planted counter (a normal boot creates it as uid 5001 and updates it fine); the residual gap is the unverified write (`OPEN-ISSUES.md` item 8). Evidence: `CHANGELOG.md` 2026-11-04 + `AGENTS.md` §7; count=2/count=3 remain offline-tested only | — | recorded |
 
 Nothing in the list blocks day-to-day use: the TV roots on every cold boot, the
 masks come back on their own, and a deploy is verified with `id -u` = 0.

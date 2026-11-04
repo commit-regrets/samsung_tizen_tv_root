@@ -1,6 +1,7 @@
 # v45 — exit LONG mode on a rootless pass
 
-Status: **implemented, deployed and cold-boot verified 2026-11-01.** Artifact
+Status: **implemented, deployed and cold-boot verified 2026-11-01; the
+`long-exit` branch observed live 2026-11-04 (acceptance item 2 below).** Artifact
 41,984 B, md5 `35cc7577…`; the TV runs it since 2026-11-01 16:15 (the deploy
 relaunch rooted in 10 s, the mains-cycle boot on attempt 2 at t=37 s with
 `masks=29 … loop-check=ok` at t=44 s and **no `long-exit` line** — the normal
@@ -46,7 +47,14 @@ records.
   Beacon("long-exit attempt=<n> count=<k>"); Environment.Exit(0)`.
 - Bounded per boot by `/tmp/.dsh_long` (`LongExitMax = 3`, tmpfs, so it resets at
   boot like `/tmp/.dsh_try`). After 3 exits the old 120 s in-process idle returns,
-  so a pathological boot cannot become a relaunch storm.
+  so a pathological boot cannot become a relaunch storm. **Live caveat
+  2026-11-04:** the beaconed `count=` is computed from read+1 regardless of
+  whether the write persisted, and the writes sit under `catch { }` — so any
+  silent counter-write failure would disarm this cap with no trace. In the
+  observed firing the pass's `.dsh_try` write failed for a known,
+  diagnostic-specific reason (the counter had been planted root-owned over
+  the root channel; a normal boot creates it as uid 5001 and updates it
+  fine), and its `.dsh_long` write did persist. See `OPEN-ISSUES.md` item 8.
 
 ### Where
 
@@ -97,6 +105,9 @@ but do not raise `LongExitMax` without measuring it.
 2. Deploy-restart path: force the bad case if it recurs, or accept the first
    natural occurrence — expect `long-exit attempt=N count=1` and a relaunch
    instead of a five-minute hunt; `tools/beacons.py` decodes it as `LONG-EXIT`.
+   **Satisfied 2026-11-04** (first live firing, recovery ~25 s; long mode was
+   entered by pre-setting `/tmp/.dsh_try` to 4 and restarting the app — the
+   degraded pass itself was natural. Full record: `CHANGELOG.md` 2026-11-04).
 3. The counter is per boot: a `count=3` line means the next long pass will idle
    (power-cycle from there).
 4. Boot-time envelope inside the recorded range; a regression on a normal boot
