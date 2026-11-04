@@ -57,6 +57,8 @@ The on-TV marker keeps the `t=<n>s <payload line>` shape (no token).
 | `reopen <node> fd=<n>` | second open of the boot (after the base scan); `fd=-1` = still held | `-1`: the payload now exits early for a fresh process instead of burning rounds |
 | `fast-exit attempt=<n>` | process exiting so AUL relaunches (fresh mmap = allocation re-roll) | normal, by design since v9 |
 | `long-exit attempt=<n> count=<k>` | v45: a LONG-mode pass ended without root and exited for a fresh process; `count` is this boot's k-th exit (cap 3) | normal after the four fast attempts when the mapping is stale; expect a relaunch and a root on a later attempt. `count=3` means the next long pass idles — power-cycle from there |
+| `counter-write-failed file=<name> want=<n> got=<...>` | **v48:** a retry counter did not read back as written; `got=` is the value read back, `unreadable`, or the exception type | **not normal**; the write is never retried. `.dsh_try`: this pass runs in long mode (no fast-exit loop); `.dsh_long`: the exit is suppressed and the pass idles instead of risking an uncountable relaunch storm. Fix `/tmp` ownership (a diagnostic planted as root) or power-cycle |
+| `long-exit suppressed (counter write failed)` | **v48:** the incremented `.dsh_long` count did not persist, so the pass stays in-process rather than exiting into an uncountable loop | read the `counter-write-failed` line above; power-cycle if it persists |
 | `SUCCESS-R00T …` | cred patched, `uid=0` proven | done |
 | `device closed` | the node is free for the browser path | normal after SUCCESS, and on every early exit since v39 |
 | `ROOTCHAN 31337 uid=0 bind=<ip>` | command channel serving | done; `bind=0.0.0.0` = offline fallback (see BIND-FALLBACK) |

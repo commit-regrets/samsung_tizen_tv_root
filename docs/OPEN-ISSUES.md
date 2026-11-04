@@ -277,10 +277,10 @@ a visible test diff).
    6 files tracked since 1b05289 despite the .gitignore rule) ships. Also at
    publish time: blank `beacon_token` in `docs/state.json` (`--fix`) or leave
    it - it is LAN-local and rotates on every deploy.
-8. **Hardening note 2026-11-04, cause identified (from the long-exit
-   session): the payload's counter writes are unverified — the failure mode
-   was demonstrated live, and the live failure was the diagnostic's own
-   artifact.** The degraded long-mode process beaconed `long-exit attempt=5
+8. **FIXED in v48 (deployed 2026-11-04; cold boot owed): the payload's counter
+   writes are read back and a failure is beaconed — the 2026-11-04 failure
+   mode cannot recur silently.** (History: the failure was demonstrated live,
+   and the live failure was the diagnostic's own artifact.) The degraded long-mode process beaconed `long-exit attempt=5
    count=1`, but its post-exit relaunch beaconed `attempt=5` again instead of
    `attempt=6`: that process's `.dsh_try` write-back had failed silently.
    Cause: the diagnostic planted the counter over the root channel (`echo 4
@@ -294,13 +294,13 @@ a visible test diff).
    root, attempt 1 creates it as uid 5001, attempt 2 updates it (roll 6: pid
    18227 wrote `1`, pid 19110 read `1` and beaconed `attempt=2`). A normal
    boot therefore has no counter defect: attempt 1 creates `.dsh_try` itself
-   and later attempts update it. Residual gap, worth closing: the beaconed
-   `attempt=`/`count=` are computed from read+1 regardless of whether the
-   write landed, so ANY counter-write failure — the root-planted file being
-   the demonstrated case — silently desynchronizes the fast-attempt budget
-   and can disarm `LongExitMax=3` with no beacon. Fix idea, design + review
-   before any payload change: read each counter write back and beacon a
-   dedicated failure line; never a silent retry.
+   and later attempts update it. **v48 (deployed 2026-11-04; cold boot owed)**
+   closes the gap: both counters go through `WriteCounter` (write, read back,
+   `counter-write-failed file=<name> want=<n> got=<...>` beacon, never a silent
+   retry). A failed `.dsh_try` write forces long mode, so the fast-exit budget
+   cannot loop; a failed `.dsh_long` write suppresses the exit (`long-exit
+   suppressed (counter write failed)`) and falls through to the idle, so the
+   3-exit cap cannot be disarmed. Cold boot is the remaining proof.
 
 ## New falsifiable checks — from the tizen-tv-control-center cross-reference — both SETTLED 2026-11-03
 

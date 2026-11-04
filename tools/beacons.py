@@ -177,6 +177,13 @@ SIGNATURES = [
      "stale; AUL relaunches and the next attempt re-rolls the mmap. Three "
      "exits per boot, then the old in-process idle - a boot that still fails "
      "after count=3 needs a power-cycle"),
+    ("COUNTER-WRITE", re.compile(
+        r"^counter-write-failed file=\.dsh_(?:try|long) want=\d+ got=\S+$"),
+     "warn", "v48: a retry counter did not read back as written (root-owned "
+     "/tmp file, full tmpfs, ...)",
+     "the write is never retried. .dsh_try: this pass runs in long mode (no "
+     "fast-exit loop); .dsh_long: the exit is suppressed instead of risking an "
+     "uncountable relaunch storm. Fix /tmp ownership or power-cycle"),
     # ---- v42 service masks (debloat) --------------------------------------
     ("MASK-BEGIN", re.compile(r"^masks begin n=\d+"), "info",
      "the v42 service-mask step started",

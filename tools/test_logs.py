@@ -252,6 +252,11 @@ def test_beacons():
     check("v45: no BLIND-WALK note on the recovered boot",
           "BLIND-WALK" not in codes8, str(codes8))
 
+    # v48: the counter-write failure line is decoded, not an unknown line
+    cw = {f["code"] for f in beacons.scan(
+        "counter-write-failed file=.dsh_long want=2 got=4")}
+    check("v48: counter-write-failed decoded", "COUNTER-WRITE" in cw, str(cw))
+
     # v46: the start beacon carries the deployed artifact md5; the newest run's
     # art is what the answering process started with (deploy-restart proof).
     p9 = write_log(ARTSWAP)

@@ -47,14 +47,13 @@ records.
   Beacon("long-exit attempt=<n> count=<k>"); Environment.Exit(0)`.
 - Bounded per boot by `/tmp/.dsh_long` (`LongExitMax = 3`, tmpfs, so it resets at
   boot like `/tmp/.dsh_try`). After 3 exits the old 120 s in-process idle returns,
-  so a pathological boot cannot become a relaunch storm. **Live caveat
-  2026-11-04:** the beaconed `count=` is computed from read+1 regardless of
-  whether the write persisted, and the writes sit under `catch { }` — so any
-  silent counter-write failure would disarm this cap with no trace. In the
-  observed firing the pass's `.dsh_try` write failed for a known,
-  diagnostic-specific reason (the counter had been planted root-owned over
-  the root channel; a normal boot creates it as uid 5001 and updates it
-  fine), and its `.dsh_long` write did persist. See `OPEN-ISSUES.md` item 8.
+  so a pathological boot cannot become a relaunch storm. **v48 closes the
+  2026-11-04 caveat** (deployed 2026-11-04; cold boot owed): both counters are
+  written through `WriteCounter`, which reads each value back and beacons
+  `counter-write-failed file=<name> want=<n> got=<...>` on any failure. A failed
+  `.dsh_try` write forces long mode (no repeated fast-exit at an uncounted
+  attempt) and a failed `.dsh_long` write suppresses the exit, so neither budget
+  can be disarmed silently. See `OPEN-ISSUES.md` item 8.
 
 ### Where
 

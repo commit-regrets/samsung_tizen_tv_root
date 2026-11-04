@@ -248,6 +248,21 @@ def main() -> int:
           > prog.index("if (longExits < LongExitMax)")
           and "CloseDevice();" in prog[prog.index("if (longExits < LongExitMax)"):
                                          prog.index('Beacon("long-exit attempt="')])
+    # --- v48: retry counters are written, read back, and a failed LONG write
+    #     must not exit (2026-11-04: the count is only a cap if it persisted) --
+    check("v48: both retry counters go through the read-back helper",
+          "static bool WriteCounter(string path, int value)" in prog
+          and "WriteCounter(TryFile, attempt)" in prog
+          and "WriteCounter(LongFile, longExits + 1)" in prog
+          and "File.WriteAllText(TryFile" not in prog
+          and "File.WriteAllText(LongFile" not in prog)
+    check("v48: a failed fast-counter write forces long mode (no fast loop)",
+          "if (!WriteCounter(TryFile, attempt) && attempt <= 4)" in prog
+          and "attempt = 5;" in prog)
+    check("v48: a failed long-counter write suppresses the exit",
+          'if (WriteCounter(LongFile, longExits + 1))' in prog
+          and 'Beacon("long-exit suppressed (counter write failed)")' in prog
+          and 'Beacon("counter-write-failed file="' in prog)
     check("sim_rpc mirrors the v44 tri-state pid read",
           "PID_UNREADABLE = 0" in sim and "def task_pid" in sim
           and "if w == 0 or w != g or w > 0x7FFFFFFF:" in sim

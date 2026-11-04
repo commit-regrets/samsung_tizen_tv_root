@@ -235,6 +235,35 @@ internal static class Program
         return msg;
     }
 
+    // v48: a retry counter is only a budget if the write persisted.  The
+    // 2026-11-04 long-exit session showed the failure mode: a root-owned
+    // /tmp/.dsh_try made every attempt write throw, the bare `catch { }` hid
+    // it, and the relaunch re-read the stale value (it beaconed attempt=5
+    // twice).  Write, read back, and beacon a dedicated line on any failure -
+    // never a silent retry.  The caller decides the consequence.
+    static bool WriteCounter(string path, int value)
+    {
+        string name = Path.GetFileName(path);
+        string got = "absent";
+        try
+        {
+            File.WriteAllText(path, value.ToString());
+            if (File.Exists(path))
+            {
+                int back;
+                if (int.TryParse(File.ReadAllText(path).Trim(), out back))
+                {
+                    if (back == value) return true;
+                    got = back.ToString();
+                }
+                else got = "unreadable";
+            }
+        }
+        catch (Exception e) { got = e.GetType().Name; }
+        Beacon("counter-write-failed file=" + name + " want=" + value + " got=" + got);
+        return false;
+    }
+
     // ---- physmap window (v24; 32 KiB slots since v27) --------------------------
     // The kernel's linear map of a physical page is at PA + 0xC0000000; ours is
     // wherever the allocator puts it.  On a VIPT L1 two mappings of one PA whose
@@ -1814,9 +1843,15 @@ internal static class Program
                     int prev;
                     if (int.TryParse(File.ReadAllText(TryFile).Trim(), out prev)) attempt = prev + 1;
                 }
-                File.WriteAllText(TryFile, attempt.ToString());
             }
             catch { }
+            if (!WriteCounter(TryFile, attempt) && attempt <= 4)
+            {
+                // v48: the fast-exit budget cannot be counted, so do not take
+                // the cheap exit path - a failed write would relaunch at the
+                // same attempt forever.  Long mode costs one in-process hunt.
+                attempt = 5;
+            }
             bool fastMode = attempt <= 4;
             Beacon("attempt=" + attempt + (fastMode ? " (fast mode)" : " (long retry mode)"));
 
@@ -2342,16 +2377,23 @@ internal static class Program
             catch { }
             if (longExits < LongExitMax)
             {
-                try { File.WriteAllText(LongFile, (longExits + 1).ToString()); } catch { }
-                CloseDevice();
-                KillChildren();
-                Beacon("long-exit attempt=" + attempt + " count=" + (longExits + 1));
-                Thread.Sleep(2000);
-                Environment.Exit(0);
+                // v48: exit only when the incremented count persisted.  A failed
+                // write would let the relaunch re-read the same count and make
+                // the cap uncountable, so stay in-process instead (the old idle).
+                if (WriteCounter(LongFile, longExits + 1))
+                {
+                    CloseDevice();
+                    KillChildren();
+                    Beacon("long-exit attempt=" + attempt + " count=" + (longExits + 1));
+                    Thread.Sleep(2000);
+                    Environment.Exit(0);
+                }
+                Beacon("long-exit suppressed (counter write failed)");
             }
-            // Long mode exhausted its rounds: release the node and the landmark
-            // children before idling, so the browser lane is not blocked for the
-            // whole sleep (v39: it used to keep the opener until exit).
+            // Long mode exhausted its rounds, or the exit counter could not be
+            // persisted: release the node and the landmark children before
+            // idling, so the browser lane is not blocked for the whole sleep
+            // (v39: it used to keep the opener until exit).
             CloseDevice();
             KillChildren();
             Thread.Sleep(120000);

@@ -15,6 +15,34 @@ entry is an incomplete change. `AGENTS.md` repeats this rule for agents.
 
 ---
 
+## 2026-11-04 — v48: the retry-counter writes are verified, so a failed write can no longer disarm the caps
+
+No boot-path behaviour changes on a normal boot. The 2026-11-04 long-exit
+session showed the gap: `/tmp/.dsh_try` was root-owned (the diagnostic planted
+it), every attempt write threw into `catch { }`, and the relaunch re-read the
+stale count. v48 adds `WriteCounter(path, value)` — write, read back, and on any
+mismatch/exception beacon `counter-write-failed file=<name> want=<n> got=<...>`;
+never a silent retry. The consequence is bounded in both directions:
+
+- `.dsh_try`: a failed write forces long mode (`attempt = 5`) instead of
+  fast-exiting at the same uncounted attempt, so the fast budget cannot become a
+  relaunch loop.
+- `.dsh_long`: the exit is taken only when the incremented count persisted;
+  otherwise the pass beacons `long-exit suppressed (counter write failed)` and
+  falls through to the old in-process idle, so `LongExitMax=3` cannot be
+  disarmed.
+
+Deployed as v48 (`bf3df7dc…`, 43,008 B) over 31337 on 2026-11-04 22:01
+(`PREV_IL=0df29b15` = the v47 rollback copy, `TOKEN_FILE=217ce51c`,
+`ART_FILE=bf3df7dc…`, `COPY=ok`, `DEPLOY_DONE`); the relaunch rooted on attempt 1
+(`direct-patch uid=0`), beaconed `art=bf3df7dc…` and `masks=29 stopped=29
+killed=0 fail=0 missing=0 activating=0 listed-activating=0 loop-check=ok
+newhome=set(1),loop-active`, and `tv_health` reported 16/16. A mains-cycle cold
+boot is the remaining proof (`docs/HANDOFF.md` pending row 10).
+`test_constants.py` locks the three properties (read-back helper, fast→long
+fallback, suppressed exit), `beacons.py` decodes the new line as `COUNTER-WRITE`,
+and `LOGGUIDE.md` carries both new rows. Offline suite 17/17.
+
 ## 2026-11-04 — kernel symbols recovered for Ghidra: no kallsyms proven, `__ksymtab` parsed, the live RAM dump is the authoritative analysis target
 
 No payload change, and no TV state change beyond one read-only RAM capture
