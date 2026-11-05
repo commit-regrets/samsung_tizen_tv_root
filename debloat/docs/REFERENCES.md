@@ -47,7 +47,8 @@ runtime here); reuse its `inventory.sh` checks per package.
 ## Vetro — classification data (done), dashboard maybe later
 
 Already harvested: `models/qnx1d/qnx1d-inventory.json` is classified with Vetro
-0.2.3's catalog. Its own root route (TV-local SDB) does not apply here, and
+0.3.5's catalog (the vendored `app-catalog.js`/`app-facts.js` are byte-identical
+to tag `v0.3.5`). Its own root route (TV-local SDB) does not apply here, and
 its signed-WGT install needs a Developer Mode/certificate dance that our root
 makes unnecessary. Its dashboard could still be driven by our root later
 (option B); tcc's Control Center is the stronger candidate for that role.

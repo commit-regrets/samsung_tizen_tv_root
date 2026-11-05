@@ -14,7 +14,7 @@ All TV reads/writes go through that channel (PC-side helpers:
 ## Current state (2026-10-30)
 
 - QNX1D (2024 Neo QLED, Tizen 9, QTV T09): inventory harvested (446 packages
-  from `/opt/dbspace/.pkgmgr_parser.db`), classified with Vetro 0.2.3+ rules.
+  from `/opt/dbspace/.pkgmgr_parser.db`), classified with Vetro 0.3.5 rules.
   **Tiers 1+2a applied live 2026-10-29**: 20 packages durably disabled
   (11 tracking + 9 tcc-optional),
   ~25.9 MB of running ACR/ad processes freed. Run log:
@@ -294,5 +294,5 @@ referencedBy), disable-plan.md (batches + apply protocol), optional-menu.md
 
 ## Attribution
 
-Vetro 0.2.3 catalog rules (MIT) - see `third_party/vetro/LICENSE`. List-file
+Vetro 0.3.5 catalog rules (MIT) - see `third_party/vetro/LICENSE`. List-file
 discipline inspired by cleanyourtv.

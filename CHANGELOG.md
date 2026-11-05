@@ -15,6 +15,25 @@ entry is an incomplete change. `AGENTS.md` repeats this rule for agents.
 
 ---
 
+## 2026-11-05 — docs: the Vetro version is 0.3.5 (the vendored catalog was already that tag)
+
+The local Vetro clone is at `v0.3.5-8-g52b02b4`, and its
+`app/service/app-catalog.js` and `app-facts.js` are **byte-identical to tag
+`v0.3.5`** (git blobs `f928e4d3…` / `4635d065…`) and to the copies under
+`debloat/third_party/vetro/`. Only the labels were stale: README/AGENTS/
+REFERENCES, `merge.js`'s header and generated `source` string, and the
+`qnx1d-inventory.json` `source` field now say **0.3.5**. No classification or
+decision changes.
+
+0.3.5's one catalog change (PR #44) is already in the vendored rules: `iacr` and
+`screen-analysis-dbmgr` classify as advertising/tracking. This project still
+keeps both **keep/system** by the two documented manual overrides —
+`screen-analysis-dbmgr` because tcc measured picture-processing breakage, and
+`iacr` because its coupling is unknown. `test_debloat`'s merge-regen layer
+confirms exactly those two flips and no other drift. The rest of 0.3.5 is the
+TV app/dashboard (screen redesign, tuner key, remote input renumbering, Node
+4.4 service, Frame home order) — not vendored catalog data, so nothing to port.
+
 ## 2026-11-05 — debloat batch 6: the utterance-recommender service core
 
 The parked voice leftover is now handled. The package

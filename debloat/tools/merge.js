@@ -1,7 +1,8 @@
 const fs = require('fs');
 const path = require('path');
 const Path = path;
-// Vendored from Vetro 0.2.3+ (MIT) - see third_party/vetro/LICENSE
+// Vendored from Vetro 0.3.5 (tag v0.3.5; app/service/ byte-identical), MIT
+// - see third_party/vetro/LICENSE
 const catalog = require('../third_party/vetro/app-catalog.js');
 // Usage: node tools/merge.js [registry-dump.txt] [out-inventory.json]
 //   defaults: models/qnx1d/registry-dump.txt -> models/qnx1d/qnx1d-inventory.json
@@ -38,5 +39,5 @@ summary.total = out.length;
 
 const outFile = process.argv[3] || Path.resolve(__dirname, '../models/qnx1d/qnx1d-inventory.json');
 fs.writeFileSync(outFile,
-  JSON.stringify({ generated: '2026-10-27', source: 'live QNX1D /opt/dbspace/.pkgmgr_parser.db (446 packages) classified with Vetro 0.2.3 app-catalog rules (Q80A T-NKM2DEUC manifests)', summary, packages: out }, null, 1));
+  JSON.stringify({ generated: '2026-10-27', source: 'live QNX1D /opt/dbspace/.pkgmgr_parser.db (446 packages) classified with Vetro 0.3.5 app-catalog rules (Q80A T-NKM2DEUC manifests)', summary, packages: out }, null, 1));
 console.log('summary:', JSON.stringify(summary));

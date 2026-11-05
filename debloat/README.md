@@ -18,7 +18,7 @@ from the root-owned policy path at every boot.
 ```
 models/<model>/        per-model inventory + plans + measurements
   qnx1d/               2024 Neo QLED (QNX1D, Tizen 9, QTV T09): 446 packages
-                       classified with Vetro 0.2.3's catalog; measured idle
+                       classified with Vetro 0.3.5's catalog; measured idle
                        RAM per disable group
 lists/                 owner-choosable disable lists (one app_id per line,
                        # comments, restore runs the same file)
@@ -238,8 +238,10 @@ network you control. See `../SECURITY.md`.
 ## Attribution
 
 - Package classification: [Vetro](https://github.com/andrearicci93/vetro)
-  0.2.3 `app-catalog` rules (Q80A manifests), MIT — see
-  [`third_party/vetro/LICENSE`](third_party/vetro/LICENSE).
+  0.3.5 `app-catalog` rules (Q80A manifests), MIT — see
+  [`third_party/vetro/LICENSE`](third_party/vetro/LICENSE). The vendored
+  `app-catalog.js` and `app-facts.js` are byte-identical to tag `v0.3.5`
+  (`app/service/`).
 - List-file discipline inspired by
   [cleanyourtv](https://github.com/Gathin23/cleanyourtv) (one package per
   line, validated bare names, restore from the same list).
