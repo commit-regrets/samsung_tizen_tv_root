@@ -15,6 +15,15 @@ entry is an incomplete change. `AGENTS.md` repeats this rule for agents.
 
 ---
 
+## 2026-11-05 — live hardware layer re-run on the 73-row set
+
+After a fresh TV browser launch, `python tools/test_all.py --tv --tv-ip
+192.168.178.175` passed **all 19 layers**. The live `stub-protocol` layer
+(hello `PGDB`, kernel image readable, normal read, oversize READ/WRITE refused,
+stub alive) and `tv-health-live` (16/16: 73 rows, 29/29 masks, artifact,
+sentinels, backups) both passed on the current set. This closes the live
+verification gap left after batch 6 and the v48 deploy; no code change.
+
 ## 2026-11-05 — debloat: tagpro service deferred by the owner
 
 `org.tizen.tv.tagpro-service-tv.service` stays unmasked. It is the only
