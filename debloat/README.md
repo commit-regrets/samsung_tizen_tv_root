@@ -31,6 +31,11 @@ tools/                 merge (registry dump + catalog -> inventory),
                        q3deps.sh (reverse-dependency gate for the unit list)
 ```
 
+`tools/merge.js` applies this project's two catalog overrides (`iacr`,
+`screen-analysis-dbmgr` → keep/system) itself, so a regen is reproducible
+without hand edits; `tools/test_debloat.py` checks both the override values and
+that a regen has no role flips.
+
 ## Quick start (after rooting)
 
 ```sh

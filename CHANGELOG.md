@@ -15,6 +15,23 @@ entry is an incomplete change. `AGENTS.md` repeats this rule for agents.
 
 ---
 
+## 2026-11-05 — debloat: merge.js now applies the two catalog overrides itself
+
+Previously `node debloat/tools/merge.js` wrote the raw Vetro roles, so a regen
+flipped `com.samsung.tv.iacr` and `com.samsung.tv.screen-analysis-dbmgr` to
+tracking and the committed inventory needed a manual post-edit; `test_debloat`
+encoded that as "exactly two flips". The merge now owns a small `OVERRIDES` map
+that sets **area=system, role=keep** for those two, and running it reproduces
+the committed inventory **exactly** (no diff after the change). A future Vetro
+catalog update therefore needs only `node debloat/tools/merge.js` — no hand
+edits.
+
+The reasons are unchanged: `screen-analysis-dbmgr` had tcc-measured
+picture-processing breakage, and `iacr`'s coupling is unknown. `test_debloat`'s
+merge layer now asserts no role flips, an equal summary, and keep/system in
+both the committed and regenerated outputs (instead of expecting the two
+flips). No TV-side change.
+
 ## 2026-11-05 — docs: the Vetro version is 0.3.5 (the vendored catalog was already that tag)
 
 The local Vetro clone is at `v0.3.5-8-g52b02b4`, and its

@@ -6,11 +6,17 @@ const Path = path;
 const catalog = require('../third_party/vetro/app-catalog.js');
 // Usage: node tools/merge.js [registry-dump.txt] [out-inventory.json]
 //   defaults: models/qnx1d/registry-dump.txt -> models/qnx1d/qnx1d-inventory.json
-// MANUAL OVERRIDES to know when regenerating: com.samsung.tv.iacr and
-// com.samsung.tv.screen-analysis-dbmgr classify as tracking under the current
-// catalog, but this project keeps them OUT of the disable tiers
+// The two manual overrides are applied HERE, deliberately: Vetro's catalog
+// classifies com.samsung.tv.iacr and com.samsung.tv.screen-analysis-dbmgr as
+// tracking, but this project keeps them OUT of the disable tiers
 // (screen-analysis: tcc measured picture-processing breakage; iacr: coupling
-// unknown) - that decision is encoded in the tier lists, not here.
+// unknown).  Applying them in the merge keeps a regen deterministic instead of
+// relying on someone to hand-edit the output afterwards.  test_debloat checks
+// both the override values and that a regen has no flips.
+const OVERRIDES = {
+  'com.samsung.tv.iacr': { area: 'system', role: 'keep' },
+  'com.samsung.tv.screen-analysis-dbmgr': { area: 'system', role: 'keep' },
+};
 
 const dump = process.argv[2] || Path.resolve(__dirname, '../models/qnx1d/registry-dump.txt');
 const rows = fs.readFileSync(dump, 'utf8').split('\n')
@@ -22,11 +28,12 @@ const rows = fs.readFileSync(dump, 'utf8').split('\n')
 
 const out = rows.map(r => {
   const d = catalog.describe({ packageId: r.pkg, appId: r.mainapp, origin: r.preload === 'true' ? 'preloaded' : 'installed' });
+  const o = OVERRIDES[r.pkg];
   return {
     package: r.pkg, type: r.type, mainApp: r.mainapp,
     removable: r.removable === 'true', preloaded: r.preload === 'true',
     system: r.system === 'true', disabled: r.disable === 'true',
-    area: d.area, role: d.role, purpose: d.purpose,
+    area: o ? o.area : d.area, role: o ? o.role : d.role, purpose: d.purpose,
     referencedBy: d.referencedBy, source: d.source,
   };
 });

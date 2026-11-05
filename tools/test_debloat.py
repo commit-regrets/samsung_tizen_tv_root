@@ -1075,10 +1075,9 @@ def main() -> int:
     check("registry: no applied id is also never",
           not (reg_set("applied") & never_apps))
 
-    # 11. merge determinism: regenerating the inventory from the committed
-    # registry dump must reproduce it EXCEPT the two documented manual
-    # overrides (iacr, screen-analysis-dbmgr) - anything else is catalog
-    # drift (the exact bug class the Vetro PR #44 reclassification exposed).
+    # 11. merge determinism: merge.js applies the two documented manual
+    # overrides itself (iacr, screen-analysis-dbmgr), so a regen must reproduce
+    # the committed inventory exactly - there is no post-regen edit step.
     node = shutil.which("node")
     if node:
         regen = Path(tempfile.mkdtemp(prefix="debloat_regen_")) / "regen.json"
@@ -1098,34 +1097,28 @@ def main() -> int:
               == committed["summary"]["total"],
               f'{len(committed["packages"])} vs {len(regened["packages"])}')
         known = {"com.samsung.tv.iacr", "com.samsung.tv.screen-analysis-dbmgr"}
-        flips = [(a["package"], a["role"], b["role"])
-                 for a, b in zip(committed["packages"], regened["packages"])
-                 if a["role"] != b["role"]]
-        check("merge regen: only the 2 documented overrides flip",
-              len(flips) == 2 and all(f[0] in known for f in flips), str(flips))
-        # the summary is derived from the roles, so it may differ only by the
-        # documented overrides - undo them and the two summaries must match
-        expected = dict(regened["summary"])
-        for _pkg, c_role, r_role in flips:
-            expected[r_role] = expected.get(r_role, 0) - 1
-            expected[c_role] = expected.get(c_role, 0) + 1
-        check("merge regen: summary == committed once the overrides are applied",
-              expected == committed["summary"],
-              f'{expected} vs {committed["summary"]}')
+        role_flips = [(a["package"], a["role"], b["role"])
+                      for a, b in zip(committed["packages"], regened["packages"])
+                      if a["role"] != b["role"]]
+        check("merge regen: no role flips (merge.js applies the two overrides)",
+              not role_flips, str(role_flips))
+        check("merge regen: summary == committed",
+              regened["summary"] == committed["summary"],
+              f'{regened["summary"]} vs {committed["summary"]}')
         other = [(a["package"], k)
                  for a, b in zip(committed["packages"], regened["packages"])
-                 if a["package"] not in known
                  for k in ("area", "purpose", "referencedBy")
                  if a[k] != b[k]]
         check("merge regen: area/purpose/referencedBy are reproducible",
               not other, str(other[:3]))
-        # area is derived from the catalog role, so the two overrides carry
-        # keep/system - the committed file must hold BOTH edits, not just one
-        over = [p["package"] for p in committed["packages"]
-                if p["package"] in known and p["role"] == "keep"
-                and p["area"] == "system"]
-        check("merge regen: the 2 overrides are committed as keep/system",
-              len(over) == 2, str(over))
+        # the overrides are a deliberate decision, not a catalog accident: both
+        # outputs must carry the keep/system pair.
+        for label, doc in (("committed", committed), ("regened", regened)):
+            over = [p["package"] for p in doc["packages"]
+                    if p["package"] in known and p["role"] == "keep"
+                    and p["area"] == "system"]
+            check(f"merge regen: {label} has the 2 overrides as keep/system",
+                  len(over) == 2, str(over))
     else:
         print("SKIP merge determinism: node not on PATH")
 

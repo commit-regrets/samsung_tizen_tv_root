@@ -292,6 +292,10 @@ All TV reads/writes go through that channel (PC-side helpers:
 `models/qnx1d/`: qnx1d-inventory.json (per-package: flags, area, role, purpose,
 referencedBy), disable-plan.md (batches + apply protocol), optional-menu.md
 (160 optional packages for owner selection), resource-math.md.
+`tools/merge.js` applies the two catalog overrides (`iacr`,
+`screen-analysis-dbmgr` → keep/system) itself, so a regen reproduces the
+committed inventory with no hand edits; `tools/test_debloat.py` asserts the
+override values and that a regen has no role flips.
 
 ## Attribution
 
