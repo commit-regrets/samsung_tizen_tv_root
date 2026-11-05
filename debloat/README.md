@@ -64,21 +64,24 @@ picture-settings loop, and fails if a listed unit is still restart-looping.
 
 ## Status
 
-- **Standing set: 66 app rows** — tier 1 (10) + tier 2a (5) + voice (22) +
-  batch 2 commercial (29), all durably disabled via `pkgcmd -D --global`. The
-  37-row subset is cold-boot verified (the original 20-row set on 2026-10-30:
-  `id -u` = 0, count = 20, both sentinels present, the 11 tier-1 rows first
-  confirmed 2026-10-29; the 37-row set first booted 2026-10-30 19:29:41 and
-  again 2026-11-01 14:23:02 under v44). **Batch 2 was applied 2026-11-01
-  21:38** (`disabled=29 failed=0 of 29`, readback 66 rows, 0 activating, undo
-  log on the TV at `/opt/usr/data/debloat-undo-20261101-213858.sh`); **cold boot
-  PASSED 2026-11-01 21:54** (mains cycle: 66 rows persisted, `masks=29
-  stopped=29 killed=3 fail=0 missing=0 activating=7 listed-activating=0
-  loop-check=ok` at t=40 s). Run log:
+- **Standing set: 69 app rows** — tier 1 (10) + tier 2a (5) + voice (22) +
+  batch 2 commercial (29) + batch 4 game trio (3), all durably disabled via
+  `pkgcmd -D --global`. The 37-row subset is cold-boot verified (the original
+  20-row set on 2026-10-30: `id -u` = 0, count = 20, both sentinels present, the
+  11 tier-1 rows first confirmed 2026-10-29; the 37-row set first booted
+  2026-10-30 19:29:41 and again 2026-11-01 14:23:02 under v44). **Batch 2 was
+  applied 2026-11-01 21:38** (`disabled=29 failed=0 of 29`, readback 66 rows, 0
+  activating, undo log on the TV at
+  `/opt/usr/data/debloat-undo-20261101-213858.sh`); **cold boot PASSED
+  2026-11-01 21:54** (mains cycle: 66 rows persisted, `masks=29 stopped=29
+  killed=3 fail=0 missing=0 activating=7 listed-activating=0 loop-check=ok` at
+  t=40 s). **Batch 4 (tier-2b game trio) applied 2026-11-05 12:21**:
+  `disabled=3 failed=0 of 3`, readback **69** rows, undo
+  `/opt/usr/data/debloat-undo-20261105-122100.sh`; cold boot owed. Run log:
   `models/qnx1d/run-2026-10-29-tier1.md`. ~25.9 MB running ACR/ad
   processes freed by tier 1 (distinct processes, measured against the
-  pre-debloat baseline), plus ~7 MB PSS from the voice set; batch 2 frees
-  ~0 MB (nothing runs at idle - storage and attack surface only).
+  pre-debloat baseline), plus ~7 MB PSS from the voice set; batches 2 and 4
+  free ~0 MB (nothing runs at idle - storage and attack surface only).
 - **Services layer: a 29-unit mask list, all of it masked durably (v42) and
   verified on the 2026-10-30 cold boot** (`masks=24 ... listed-activating=0` on
   the then-24-unit list), then 34 with the OTA stack at 14:50, and **29 since
@@ -144,13 +147,18 @@ picture-settings loop, and fails if a listed unit is still restart-looping.
     tier).
   - `lists/tier2a-tcc-apps.txt` (5): tcc list ∩ registry, optional/tracking,
     uncoupled.
-  - `lists/tier2b-home-dependent.txt` (22, commented): tcc apps that are
-    Vetro-keep or keeper-coupled — only with Home replacement or explicit
-    owner acceptance.
+  - `lists/tier2b-home-dependent.txt` (22): tcc apps that are Vetro-keep or
+    keeper-coupled — only with Home replacement or explicit owner acceptance.
+    **17 remain deferred; 5 are applied** (2 from batch 3, the game trio from
+    batch 4).
   - `lists/batch2-commercial.txt` (29): the plan's commercial/hotel/factory
     batch - `role=unused` components a home set never runs, 30 of the plan's
     33 ids (three coupled ids skipped) minus `com.samsung.ep.hotel.uigadgets`,
     which is not installed on this set. No keep-role referrer.
+  - `lists/batch4-tier2b-game.txt` (3): the tier-2b game trio
+    (`gamepadguide`, `gaminghub`, `gamehome`) accepted 2026-11-05 for a
+    PC-over-HDMI-only household; the Home `home.game` tile and the Game Bar app
+    are deliberately outside it.
   - `lists/services-units.txt` (29 masked units; `bluetooth-monitor.service`
     is a commented DO-NOT-MASK note with the evidence) +
     `lists/services-bind.txt` (23 `/usr/bin` binaries — the **kill list** for
@@ -192,7 +200,7 @@ The list files stay the **input** (`apply.sh` / `restore.sh` read them), and
 `apply.sh` keeps its runtime `DENY`. `tools/test_debloat.py` enforces the three
 agree:
 
-- `applied` == the union of the four applied lists, which must not overlap;
+- `applied` == the union of the five applied lists, which must not overlap;
 - `deferred` (apps) == the commented entries in `tier2b-home-dependent.txt`;
 - every `DENY` id has a `never` row, and the remaining `never` apps are the
   `unified-drm-*` ids (the glob guard);

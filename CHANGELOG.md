@@ -15,6 +15,30 @@ entry is an incomplete change. `AGENTS.md` repeats this rule for agents.
 
 ---
 
+## 2026-11-05 — debloat batch 4: the tier-2b game trio disabled (owner: PC over HDMI, no cloud gaming)
+
+The set is used as a PC monitor over HDMI, so the TV-side cloud-gaming trio is
+not used. Owner-accepted and applied 12:21 through the tested script:
+`lists/batch4-tier2b-game.txt` (`gamepadguide`, `gaminghub`, `gamehome`) —
+`disabled=3 failed=0 of 3`, readback **69** rows, 0 activating, undo
+`/opt/usr/data/debloat-undo-20261105-122100.sh`. All three app_disable rows
+read `true`; no gamehome/gaminghub/gamepadguide units or processes exist. The
+picture guard ran (`CheckAutoMotionPlus=0`, expected while Samsung Home is in
+front). No RAM gain: none of the three ran at idle — this is storage/attack
+surface only.
+
+Deliberately outside the batch: `com.samsung.tv.home.game` (Home tile — test
+separately if ever), the Game Bar app `com.samsung.tv.gamebar` (non-removable
+keep; its service is already masked and the key-launched app is not affected by
+this batch), and `ghdaemon`/`ghservice` (optional, unmeasured). The HDMI
+display path and Game Mode are not these packages. **Cold boot owed.**
+
+Ledger: the three registry rows move `deferred` → `applied`
+(`list:batch4-tier2b-game.txt`, 2026-11-05, owner); the tier-2b header now says
+17 deferred / 5 applied; `test_debloat.py` treats batch 4 as the fifth applied
+list (with a three-id exactness check); README/AGENTS standing set is **69 app
+rows**.
+
 ## 2026-11-04 — v48: the retry-counter writes are verified, so a failed write can no longer disarm the caps
 
 No boot-path behaviour changes on a normal boot. The 2026-11-04 long-exit

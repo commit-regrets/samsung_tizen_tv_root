@@ -93,9 +93,10 @@ All TV reads/writes go through that channel (PC-side helpers:
   The sharing-batch revert was a wrong guess from reading `referencedBy`
   backwards (`multiscreen` uses the client, not the reverse) - the 16 stay
   re-enabled as prudence.  The five SmartThings-stack ids are denylisted and
-  dropped from tier 2a (9 -> 5).  Standing set: **66 app rows** (tier 1 10 +
-  tier 2a 5 + voice 22 + batch 2 29) and **29 units / 23 binaries** (`pushd` /
-  `register-device` / `p2p-asm` unmasked: phone-path, ~1.5 MB).
+  dropped from tier 2a (9 -> 5).  Standing set: **69 app rows** (tier 1 10 +
+  tier 2a 5 + voice 22 + batch 2 29 + batch 4 game trio 3) and **29 units / 23
+  binaries** (`pushd` / `register-device` / `p2p-asm` unmasked: phone-path,
+  ~1.5 MB).
   **Batch 2 (commercial/hotel/factory) applied 2026-11-01 21:38**
   (`lists/batch2-commercial.txt`, 29 ids: `disabled=29 failed=0 of 29`,
   readback 66 rows, 0 activating, undo log
@@ -120,12 +121,18 @@ All TV reads/writes go through that channel (PC-side helpers:
   id with `status` (applied / deferred / never / reverted / rejected), reason,
   evidence, date and owner.  The list files stay the apply/undo input and
   `apply.sh` keeps its runtime DENY, but every decision must also have a row:
-  `tools/test_debloat.py` asserts all three agree (applied == the four lists,
+  `tools/test_debloat.py` asserts all three agree (applied == the five lists,
   deferred == tier2b, DENY ⊆ never, reverted recorded, no id twice).  Before
   this existed the same fact lived in 3+ files and drifted twice in one day
   (tier2b claimed two applied ids were deferred; the README said 24/24 when
   the lists held 29/23).
-  **Open:** tier 2b needs the Control Center layer; batch 2 is applied and
+  **Batch 4 (tier-2b game trio) applied 2026-11-05 12:21:**
+  `lists/batch4-tier2b-game.txt`, gamepadguide/gaminghub/gamehome:
+  `disabled=3 failed=0 of 3`, readback **69** rows, 0 activating, undo
+  `/opt/usr/data/debloat-undo-20261105-122100.sh`; **cold boot owed**. The Home
+  `home.game` tile and the Game Bar app (`com.samsung.tv.gamebar`, a
+  non-removable keep) are deliberately outside it.
+  **Open:** the remaining tier 2b (17 ids) needs the Control Center layer; batch 2 is applied and
   cold-boot verified (2026-11-01); batch 3 is
   voice-only and done; **tcc's five extra service candidates are
   EVALUATED AND REJECTED (2026-10-30)**: measured live, their sum-RSS (~35.5 MB)

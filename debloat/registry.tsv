@@ -83,9 +83,9 @@ org.tizen.widget_viewer_sdk	app	applied	commercial/hotel/factory (role=unused, ~
 HEPsqFNie0.tvplusstandalone	app	deferred	tcc keep/coupled [role=keep]	list:tier2b-home-dependent.txt	2026-10-29	needs Home replacement or owner acceptance
 com.samsung.tizen.mcf-agent	app	deferred	tcc keep/coupled [role=keep]	list:tier2b-home-dependent.txt	2026-10-29	needs Home replacement or owner acceptance
 com.samsung.tv.contentservicemanager	app	deferred	tcc keep/coupled [role=keep]	list:tier2b-home-dependent.txt	2026-10-29	needs Home replacement or owner acceptance
-com.samsung.tv.gamehome	app	deferred	tcc keep/coupled [role=keep]	list:tier2b-home-dependent.txt	2026-10-29	needs Home replacement or owner acceptance
-com.samsung.tv.gamepadguide	app	deferred	tcc keep/coupled [role=keep]	list:tier2b-home-dependent.txt	2026-10-29	needs Home replacement or owner acceptance
-com.samsung.tv.gaminghub	app	deferred	tcc keep/coupled [role=keep]	list:tier2b-home-dependent.txt	2026-10-29	needs Home replacement or owner acceptance
+com.samsung.tv.gamehome	app	applied	batch 4: owner accepted (PC-over-HDMI only; no cloud gaming)	list:batch4-tier2b-game.txt	2026-11-05	owner
+com.samsung.tv.gamepadguide	app	applied	batch 4: owner accepted (PC-over-HDMI only; no cloud gaming)	list:batch4-tier2b-game.txt	2026-11-05	owner
+com.samsung.tv.gaminghub	app	applied	batch 4: owner accepted (PC-over-HDMI only; no cloud gaming)	list:batch4-tier2b-game.txt	2026-11-05	owner
 com.samsung.tv.health-mde-service	app	deferred	tcc keep/coupled [role=keep]	list:tier2b-home-dependent.txt	2026-10-29	needs Home replacement or owner acceptance
 com.samsung.tv.health-mde-setting	app	deferred	tcc keep/coupled [role=keep]	list:tier2b-home-dependent.txt	2026-10-29	needs Home replacement or owner acceptance
 com.samsung.tv.health-mde-workout-tracker	app	deferred	tcc keep/coupled [role=keep]	list:tier2b-home-dependent.txt	2026-10-29	needs Home replacement or owner acceptance

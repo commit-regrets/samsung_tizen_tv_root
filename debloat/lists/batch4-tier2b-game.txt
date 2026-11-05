@@ -1,0 +1,11 @@
+# Batch 4 - the tier-2b game trio, owner-accepted 2026-11-05.
+# Context: the set is used as a PC monitor over HDMI; cloud gaming and the
+# TV-side controller guide are not used. This is NOT the Game Bar overlay
+# (com.samsung.tv.gamebar is a non-removable system app, not listed here) and
+# NOT the HDMI/Game Mode path.
+# Deliberately NOT in this batch: com.samsung.tv.home.game (Home tile - test
+# separately) and ghdaemon/ghservice (unmeasured, optional packages).
+# Order: controller guide, cloud-gaming app, Game Home entry point.
+com.samsung.tv.gamepadguide
+com.samsung.tv.gaminghub
+com.samsung.tv.gamehome

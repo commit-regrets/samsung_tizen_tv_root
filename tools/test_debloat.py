@@ -970,6 +970,15 @@ def main() -> int:
           "com.samsung.tv.multiscreen" not in b3
           and "com.samsung.tv.airplay-app-2" not in b3
           and "REVERTED 2026-10-30" in b3_txt)
+    # batch 4 = the tier-2b game trio accepted for PC-over-HDMI use.  The Home
+    # tile and the Game Bar app are deliberately outside it.
+    b4 = [l.strip() for l in
+          (DEB / "lists" / "batch4-tier2b-game.txt").read_text(encoding="utf-8").splitlines()
+          if l.strip() and not l.strip().startswith("#")]
+    check("batch4-tier2b-game.txt is exactly the three game ids",
+          set(b4) == {"com.samsung.tv.gamepadguide", "com.samsung.tv.gaminghub",
+                      "com.samsung.tv.gamehome"}
+          and "com.samsung.tv.home.game" not in b4)
 
     # 10. the decision registry: debloat/registry.tsv must agree with the
     # list files (applied), tier2b (deferred), apply.sh (never) and the
@@ -1002,16 +1011,17 @@ def main() -> int:
 
     applied_per_list = {}
     for name in ("tier1-tracking.txt", "tier2a-tcc-apps.txt",
-                 "batch3-optional.txt", "batch2-commercial.txt"):
+                 "batch3-optional.txt", "batch2-commercial.txt",
+                 "batch4-tier2b-game.txt"):
         applied_per_list[name] = [
             l.strip() for l in
             (DEB / "lists" / name).read_text(encoding="utf-8").splitlines()
             if l.strip() and not l.strip().startswith("#")]
     applied_all = set().union(*(set(v) for v in applied_per_list.values()))
-    check("registry: applied apps == the four applied lists",
+    check("registry: applied apps == the five applied lists",
           reg_set("applied") == applied_all,
           str(sorted(reg_set("applied") ^ applied_all))[:200])
-    check("registry: the four applied lists do not overlap",
+    check("registry: the five applied lists do not overlap",
           sum(len(v) for v in applied_per_list.values()) == len(applied_all))
 
     t2b_entries = set()
@@ -1019,7 +1029,7 @@ def main() -> int:
         m = re.match(r"#\s*([A-Za-z0-9@._-]+)\s*\[", line.strip())
         if m:
             t2b_entries.add(m.group(1))
-    check("registry: deferred apps == tier2b (the two APPLIED-marked ids excluded)",
+    check("registry: deferred apps == tier2b (the five APPLIED-marked ids excluded)",
           reg_set("deferred") == t2b_entries,
           str(sorted(reg_set("deferred") ^ t2b_entries))[:200])
 
@@ -1118,13 +1128,14 @@ def main() -> int:
           f"script-only={sorted(apply_deny - test_deny)}")
     readme = (DEB / "README.md").read_text(encoding="utf-8")
     applied_lists = ("tier1-tracking.txt", "tier2a-tcc-apps.txt",
-                     "batch3-optional.txt", "batch2-commercial.txt")
+                     "batch3-optional.txt", "batch2-commercial.txt",
+                     "batch4-tier2b-game.txt")
     applied_n = sum(
         len([l for l in (DEB / "lists" / n).read_text(encoding="utf-8").splitlines()
              if l.strip() and not l.strip().startswith("#")])
         for n in applied_lists)
     m_set = re.search(r"\*\*Standing set: (\d+) app rows\*\*", readme)
-    check("README standing-set count == the four applied lists",
+    check("README standing-set count == the five applied lists",
           m_set is not None and int(m_set.group(1)) == applied_n,
           f"readme={m_set.group(1) if m_set else None} lists={applied_n}")
     m_units = re.search(r"services-units\.txt` \((\d+) masked units", readme)
