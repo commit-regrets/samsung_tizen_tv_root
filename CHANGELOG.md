@@ -15,6 +15,17 @@ entry is an incomplete change. `AGENTS.md` repeats this rule for agents.
 
 ---
 
+## 2026-11-05 — docs: refresh OPEN-ISSUES from v47/66 rows to v48/73 rows
+
+`docs/OPEN-ISSUES.md` still opened with v47 (`0df29b15…`), 66 app rows and the
+2026-11-01/02 boots. The current-state block now says v48 (`bf3df7dc…`,
+43,008 B), **73 app rows / 29 units / 23 binaries**, the v48 cold boot
+(2026-11-04 22:11) and the batch 4/5/6 cold boots (2026-11-05 12:31/12:59),
+plus the live 19/19 re-run. Item 5's debloat paragraph is rewritten from
+"37 apps" to 73 and records the tagpro deferral and the 17 remaining tier-2b
+ids. The v44–v46 pending paragraphs are now labelled closed history, with a
+short current-pending list above them; no behaviour or TV change.
+
 ## 2026-11-05 — live hardware layer re-run on the 73-row set
 
 After a fresh TV browser launch, `python tools/test_all.py --tv --tv-ip

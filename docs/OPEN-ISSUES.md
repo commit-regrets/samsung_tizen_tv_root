@@ -7,55 +7,60 @@
 > Step log:
 > [docs/SMARTTHINGS-OFFLINE-2026-10-30.md](SMARTTHINGS-OFFLINE-2026-10-30.md).
 
-## Current state — 2026-11-03 (TV runs v47, deployed 2026-11-02 00:00 and
-cold-boot verified 00:11; 29-unit durable masks, 66 app rows, SmartThings phone
-control confirmed online; offline suite green)
+## Current state — 2026-11-05 (TV runs v48; 73 app rows; 29-unit durable masks; SmartThings online; all hardware lanes green)
 
-TV: **v47** (`0df29b15…`, 42,496 B), rooted via 31337. Every beacon carries
-`tok=<BEACON_TOKEN>` (from `rootchan.token`); forged and token-less beacons are refused.
-`id -u` = 0, `CapEff=0x3fffffffff`. See `CHANGELOG.md` 2026-11-02 for the v47
-deploy/acceptance detail and 2026-11-03 for the high-half memory-map measurement
-(DMA-window theory refuted; the deliberate high-PA read is done).
-(no failed kill/start).
-**Cold-boot acceptance PASSED 2026-11-01 21:10 (mains cycle, nothing touched
-during the boot):** launch t=18 s (attempt 1 `fast-exit`, the high-alloc
-lottery), relaunch t=29 s, `self-patch uid=0` t=32 s, `ROOTCHAN` t=32 s,
-`masks=29 stopped=29 killed=3 fail=0 missing=0 activating=15 listed-activating=0
-loop-check=ok newhome=set(0),loop-started` t=39 s; **both fresh launch lines
-carried the deploy's token and `art=c540a6ab…`**, so the marker survives a cold
-boot; live uid 0, full caps, installed DLL md5 `c540a6ab`.
-**Batch 2 applied 2026-11-01 21:38** (`lists/batch2-commercial.txt`, the
-commercial/hotel/factory ids): 29 disables, `disabled=29 failed=0 of 29`,
-readback **66 app rows**, 0 activating units, undo log on the TV. **Cold-boot
-acceptance PASSED 2026-11-01 21:54 (mains cycle):** the 66 rows persisted,
-`masks=29 stopped=29 killed=3 fail=0 missing=0 activating=7 listed-activating=0
-loop-check=ok` at t=40 s, rooted attempt 2 at t=33 s, uid 0, `art=c540a6ab…` on
-the launch line. `com.samsung.ep.hotel.uigadgets` was dropped (no
-app row here), and the three coupled ids stay out. ~0 MB freed (nothing runs);
-the gain is storage and attack surface.
-The v45 boot before it (16:15) rooted on attempt 2 at t=37 s; the v44 boot
-(14:23:02) had needed attempt 3 after the deploy restart landed in the stale
-window; see `CHANGELOG.md`.
-**All hardware gates are closed (2026-10-27):** v41 cold boots at **36 s**
-(attempt 1 fast-exit t=29, attempt 2 direct-parent t=36) and **49 s** after the
-recover cycle (AUL launched late; one direct-patch attempt); `kill -9` recovery
-**~2 s**; uninstall verified (stock IL `f61f60dd…`, AOT `6c9bdcc4…`, boot row 0,
-allow removed, 31337 stayed closed after a cold boot, stock 9197 back); recovery
-via `recover.sh <pc-url>` completed `DEPLOY_DONE`/`RECOVER_DONE` and the following
-cold boot rooted again.
-Backups: `mcs_orig.dll` (stock), `mcs_ni_orig.dll`, `payload_backup.dll` = v45
-(the v46 deploy's `PREV_IL=35cc7577`).
+TV: **v48** (`bf3df7dc…`, 43,008 B), deployed 2026-11-04 22:01 and cold-boot
+verified 22:11. Rooted via 31337. Every beacon carries `tok=<BEACON_TOKEN>`
+(from `rootchan.token`); forged and token-less beacons are refused. `id -u` = 0,
+`CapEff=0x3fffffffff`. See `CHANGELOG.md` 2026-11-04 for the v48 deploy and
+2026-11-05 for batches 4–6 and the live re-run.
 
-The repo is green offline (`python tools/test_all.py`, 17/17 layers incl. the
-debloat tooling, in-process server and whole-tree hygiene layers) and
-`sanitize_for_public.py --check` passes. The kernel memory boundary is now
-zoneinfo-derived (`max_low_pfn 0x50400` → `high_memory` VA `0xF0400000`) and,
-since 2026-11-03, the full physical map is measured (the 156 MiB no-map
-carve-out at PA 0x40000000-0x49C00000 explains every "high-half" read failure;
-the meminfo-derived `0xE4E42000` was wrong, vendor-adjusted counters): see
-item 2.
+**v48 cold boot (2026-11-04 22:11, mains cycle):** launch t=28 s (attempt 1
+`high-alloc … fast-exit`), attempt 2 `direct-patch uid=0` t=36 s, `ROOTCHAN`
+t=36, `masks=29 stopped=29 killed=4 fail=0 missing=0 activating=13
+listed-activating=0 loop-check=ok newhome=set(0),loop-started` t=42; both
+starts `art=bf3df7dc…`; `tv_health` 16/16; zero `counter-write-failed` lines.
 
-**Pending / next, in order:**
+**Debloat:** **73 app rows** (tier 1 10 + tier 2a 5 + voice 22 + batch 2 29 +
+batch 4 game trio 3 + batch 5 leftovers 3 + batch 6 utterance core 1) and
+**29 units / 23 binaries**. Batch 4 (game trio, 69 rows) applied 2026-11-05
+12:21, cold-boot passed 12:31. Batch 5 (`ghdaemon`/`ghservice` + Screen
+Mirroring, 72 rows) applied 12:33 and batch 6 (utterance core, 73 rows) at
+12:39; both cold-boot passed 12:59 (attempt 2 t=71; masks 29/29; `tv_health`
+16/16). Remaining: the 17 tier-2b ids need the Control Center layer or owner
+decisions; `tagpro-service-tv` is deferred (2026-11-05); HbbTV, Cobalt and AI
+Sound are non-removable. Details: `debloat/AGENTS.md`, `debloat/registry.tsv`.
+
+**Live hardware layer re-run 2026-11-05:** `tools/test_all.py --tv --tv-ip`
+passed all **19 layers**; `stub-protocol` OK and `tv-health-live` 16/16. The
+offline suite is 17/17 and `sanitize_for_public.py --check` is green.
+
+Earlier hardware gates (v41, 2026-10-27): cold boots 36 s and 49 s; `kill -9`
+recovery ~2 s; uninstall and recover verified (stock IL `f61f60dd…`, AOT
+`6c9bdcc4…`, boot row 0, allow removed, 31337 closed after a cold boot, stock
+9197 back). Backups: `mcs_orig.dll` (stock), `mcs_ni_orig.dll`,
+`payload_backup.dll` = **v47** (`0df29b15…`, the v48 deploy's `PREV_IL`).
+
+The kernel memory boundary is zoneinfo-derived (`max_low_pfn 0x50400` →
+`high_memory` VA `0xF0400000`) and the full physical map is measured (the
+156 MiB no-map carve-out at PA 0x40000000-0x49C00000 explains every "high-half"
+read failure; the meminfo-derived `0xE4E42000` was wrong, vendor-adjusted
+counters): see item 2.
+
+**Current pending work (the v44–v46 paragraphs below are closed history, kept for reference):**
+
+- **Portability** — no second model/firmware tested; the four gates in
+  `docs/PORTABILITY.md` are still unproven elsewhere (item 4).
+- **Public-release hygiene** — git history still contains private tokens
+  (real IPs, model/firmware strings, the device DUID); decide whether
+  `.zcode/` ships; blank the beacon token at publish (item 7).
+- **Debloat remainder** — the 17 tier-2b Home/TV Plus/Health/TAP/Art/coupled
+  ids need the Control Center layer or owner decisions; `tagpro-service-tv`
+  is deferred; HbbTV/Cobalt/AI Sound are non-removable (item 5).
+- **Docs freshness** — this file was refreshed 2026-11-05; `HANDOFF.md` still
+  has a 2026-11-01 header (its body is current).
+
+**Closed history — v44–v46 deploys (kept for reference):**
 
 **~~Owed: deploy v44~~ — done 2026-11-01** (over 31337, `COPY=ok`,
 `DEPLOY_DONE`, cold boot passed the same afternoon). The follow-up review fixed
@@ -185,50 +190,27 @@ a visible test diff).
    `docs/PORTABILITY.md`; the payload now tries `video40/30/60`, but the browser
    gate (Chromium 120) and the physmap primitive are still unproven elsewhere.
    Record each unit's results there.
-5. **Debloat — durable; service suppression is live (RESOLVED 2026-10-30).**
-   **37 apps are durably disabled** (`pkgcmd --global`; 10 from tier 1, 5
-   from tier 2a, 22 voice ids from batch 3) and **29 units are on the mask
-   list**, re-applied at every boot by the payload from
-   `/opt/usr/data/debloat-masks.txt`.  Two ids are **not** among them and
-   never will be, both phone-confirmed: `com.samsung.tizen.samsung-analytics`
-   (the SES privilege provider `smartthings-client` requests) and
-   `org.tizen.easysetup-daemon` - disabling that one alone flips the phone
-   from online to offline (owner-confirmed bisect 2026-10-30). The 16
-   sharing ids stay reverted (prudence, not the cause). **Cold-boot acceptance PASSED
-   2026-10-30 14:05:40** (mains cycle, no PC involved): `masks=24 stopped=24
-   killed=3 fail=0 missing=0 listed-activating=0 loop-check=ok
-   newhome=set(0),loop-started` at t=51 s, every unit masked-runtime and none
-   active, zero processes under the listed binaries, 20 app rows true, both
-   sentinels present. **Extended the same day to 34 units / 26 binaries** with
-   the OTA / firmware-update stack (see item 6): `masks=34 stopped=34 killed=1
-   fail=0 missing=0 activating=0 listed-activating=0 loop-check=ok
-   newhome=set(0),loop-active`, and a **second restart loop**
-   (`vdsystem-update-manager.service`, `Restart=always`) was found and stopped
-   by it. Later that evening the list was cut to **29 units / 23 binaries**
-   (the four phone-path units plus the `org.tizen.easysetup-daemon.service`
-   mask, all removed for SmartThings), and the 37-row / 29-unit standing set
-   was applied live at 18:56: `masks=29 stopped=29 killed=4 fail=0 missing=0
-   activating=0 listed-activating=0 loop-check=ok`, SmartThings stack alive,
-   phone **online** (owner-confirmed). Design: `debloat/models/qnx1d/v42-design-brief.md`
-   (reviewed, cleared, implemented as `MaskServices()`); the two policy files
-   are installed by `deploy.sh` and deleted by `uninstall.sh` — that is the
-   revert. **History:** round 4 (2026-10-29) masked 23/23 during that session
-   (`~192 MB` sum-RSS upper bound); the 24th (`org.tizen.easysetup-daemon.service`,
-   `NRestarts=654`) was added 2026-10-30 and **removed again the same evening**
-   (that daemon must keep running for SmartThings phone status, and masking its
-   unit stops it just like the app disable does); before v42 a reboot cleared
-   the masks, which is why the 12:35 reading that day was "one mask up". Both pre-checks are closed
-   (2026-10-30): (a) the mains cycle
-   read back **all 20** `app_disable='true'` rows with both sentinels present and
-   `id -u` = 0, so the store is durable as-is; (b) `bluetooth-monitor.service` is
-   **excluded from the mask list and the kill list on the owner's instruction** —
-   it is the boot-time Bluetooth re-activator (unit comment: "check previous
-   BT-connection status and re-activate BT when boot"; wanted by
-   `starter.target`; `bt-monitor` holds `/dev/micom-msg` and `/dev/eeprom`;
-   `Restart=on-abnormal`, 2 s). tcc blocks it and reports the remote still
-   works, but that is unverified on this set; the owner wants Bluetooth left
-   alone and ~5.8 MB is not worth the experiment. Placement/state:
-   `debloat/AGENTS.md`.
+5. **Debloat — durable; service suppression is live.**
+   **73 apps are durably disabled** (`pkgcmd --global`: tier 1 10, tier 2a 5,
+   voice 22, batch 2 29, batch 4 game trio 3, batch 5 leftovers 3, batch 6
+   utterance core 1) and **29 units / 23 binaries** are on the mask list,
+   re-applied at every boot by the payload from
+   `/opt/usr/data/debloat-masks.txt`. Batch 4 cold-boot passed 2026-11-05
+   12:31 (69 rows); batches 5 and 6 cold-boot passed 12:59 (73 rows;
+   `masks=29 stopped=29 killed=3 fail=0 missing=0 activating=2
+   listed-activating=0 loop-check=ok`; `tv_health` 16/16).
+   Two ids are **not** disabled and never will be, both phone-confirmed:
+   `com.samsung.tizen.samsung-analytics` (the SES privilege provider
+   `smartthings-client` requests) and `org.tizen.easysetup-daemon` (disabling
+   it alone flips SmartThings from online to offline). The 16 sharing ids stay
+   reverted (prudence, not the cause).
+   Remaining: the 17 tier-2b ids need the Control Center layer or owner
+   decisions; `org.tizen.tv.tagpro-service-tv.service` is **deferred**
+   (2026-11-05); `bluetooth-monitor.service` is excluded by the owner;
+   HbbTV/Cobalt/AI Sound are non-removable. Design:
+   `debloat/models/qnx1d/v42-design-brief.md`; the two policy files are
+   installed by `deploy.sh` and deleted by `uninstall.sh` — that is the
+   revert. Full history and per-batch detail: `debloat/AGENTS.md`.
 6. **Reference-derived follow-ups, in value order:** ~~a per-run task tag
    (`PHYSRPT`+pid) plus a pid/tgid and `real_cred == cred` check~~ - **DONE in
    v43 (2026-10-30)**: per-run `PHYSRPT`/`PHYRFORK` tags, the pid/tgid accept
