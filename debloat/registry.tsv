@@ -164,3 +164,4 @@ wifi_state_manager	binary	rejected	PSS 0.08 MB; the root channel depends on the 
 com.samsung.tv.ghdaemon	app	applied	Gaming Hub daemon/service (batch 5; cloud gaming unused)	list:batch5-tier2b-leftovers.txt	2026-11-05	owner
 com.samsung.tv.ghservice	app	applied	Gaming Hub daemon/service (batch 5; cloud gaming unused)	list:batch5-tier2b-leftovers.txt	2026-11-05	owner
 com.samsung.tv.utterance-recommender-core	app	applied	voice leftovers (batch 6; no voice)	list:batch6-tier2b-utterance.txt	2026-11-05	owner
+org.tizen.tv.tagpro-service-tv.service	unit	deferred	Tag Pro Service (purpose unclear; requires ps_agent; ~5.1 MB PSS; deferred by owner 2026-11-05)	live audit 2026-11-05	2026-11-05	owner

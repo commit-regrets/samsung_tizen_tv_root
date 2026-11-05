@@ -15,6 +15,15 @@ entry is an incomplete change. `AGENTS.md` repeats this rule for agents.
 
 ---
 
+## 2026-11-05 — debloat: tagpro service deferred by the owner
+
+`org.tizen.tv.tagpro-service-tv.service` stays unmasked. It is the only
+remaining service candidate with a measurable PSS (~5.1 MB), but its purpose is
+still unclear, it requires `ps_agent.service`, and it runs with high
+capabilities; the owner chose to defer it rather than test a mask for that
+gain. Recorded as a `unit` / `deferred` row in `debloat/registry.tsv`
+(2026-11-05, owner). No TV change and no new list.
+
 ## 2026-11-05 — debloat: merge.js now applies the two catalog overrides itself
 
 Previously `node debloat/tools/merge.js` wrote the raw Vetro roles, so a regen
