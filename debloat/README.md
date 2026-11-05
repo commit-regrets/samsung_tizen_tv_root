@@ -88,7 +88,8 @@ picture-settings loop, and fails if a listed unit is still restart-looping.
   (gaming daemon + mirroring) applied 12:33**: `disabled=3 failed=0 of 3`,
   readback **72** rows, undo `/opt/usr/data/debloat-undo-20261105-123302.sh`;
   **cold boot PASSED 12:59** (with batch 6; 73 rows, masks 29/29,
-  `tv_health` 16/16). **Batch 6 (utterance service core) applied 12:39**:
+  `tv_health` 16/16). Screen Mirroring's re-disable was phone-tested
+  2026-11-05: SmartThings online with it disabled. **Batch 6 (utterance service core) applied 12:39**:
   `disabled=1 failed=0 of 1`, readback **73** rows, undo
   `/opt/usr/data/debloat-undo-20261105-123912.sh`; **cold boot PASSED 12:59**
   (73 rows, masks 29/29, `tv_health` 16/16; boot attempt 2 at t=71). Run log:

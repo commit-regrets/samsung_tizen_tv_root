@@ -138,6 +138,8 @@ All TV reads/writes go through that channel (PC-side helpers:
   `org.tizen.ScreenMirroring-app-tv`: `disabled=3 failed=0 of 3`, readback
   **72** rows, undo `/opt/usr/data/debloat-undo-20261105-123302.sh`; **cold boot
   PASSED 12:59** (with batch 6; 73 rows, masks 29/29, `tv_health` 16/16).
+  Screen Mirroring's re-disable was phone-tested 2026-11-05: SmartThings
+  online with it disabled.
   **Batch 6 (utterance core) applied 2026-11-05 12:39:**
   `lists/batch6-tier2b-utterance.txt`,
   `com.samsung.tv.utterance-recommender-core` (`app_component=svcapp`,

@@ -152,7 +152,7 @@ com.samsung.tv.multiview-bluetooth-audio	app	reverted	sharing batch reverted 202
 com.samsung.tv.multiviewsetupapp	app	reverted	sharing batch reverted 2026-10-30 (SmartThings test; real cause easysetup) - kept enabled as prudence	batch3-optional.txt comment	2026-10-30	re-add only with a phone test
 com.samsung.tv.remoteapp	app	reverted	sharing batch reverted 2026-10-30 (SmartThings test; real cause easysetup) - kept enabled as prudence	batch3-optional.txt comment	2026-10-30	re-add only with a phone test
 org.tizen.SMSourceAPP	app	reverted	sharing batch reverted 2026-10-30 (SmartThings test; real cause easysetup) - kept enabled as prudence	batch3-optional.txt comment	2026-10-30	re-add only with a phone test
-org.tizen.ScreenMirroring-app-tv	app	applied	Smart View mirroring (batch 5; owner: no mirroring)	list:batch5-tier2b-leftovers.txt	2026-11-05	owner
+org.tizen.ScreenMirroring-app-tv	app	applied	Smart View mirroring (batch 5; owner: no mirroring; phone test 2026-11-05: SmartThings online)	list:batch5-tier2b-leftovers.txt; phone test 2026-11-05	2026-11-05	owner
 org.tizen.remotepc	app	reverted	sharing batch reverted 2026-10-30 (SmartThings test; real cause easysetup) - kept enabled as prudence	batch3-optional.txt comment	2026-10-30	re-add only with a phone test
 com.samsung.tv.multiscreen.service	unit	reverted	mask added with the sharing batch, removed when the app was re-enabled (app_launcher -r succeeds)	services-units.txt comment	2026-10-30	
 org.tizen.iacr	app	rejected	coupling unknown; absent from tcc's tested list - review before disabling	debloat/AGENTS.md / resource-math	2026-10-30	

@@ -29,7 +29,9 @@ Mirroring, 72 rows) applied 12:33 and batch 6 (utterance core, 73 rows) at
 12:39; both cold-boot passed 12:59 (attempt 2 t=71; masks 29/29; `tv_health`
 16/16). Remaining: the 17 tier-2b ids need the Control Center layer or owner
 decisions; `tagpro-service-tv` is deferred (2026-11-05); HbbTV, Cobalt and AI
-Sound are non-removable. Details: `debloat/AGENTS.md`, `debloat/registry.tsv`.
+Sound are non-removable. Screen Mirroring's re-disable was phone-tested
+2026-11-05 (SmartThings online with it disabled). Details:
+`debloat/AGENTS.md`, `debloat/registry.tsv`.
 
 **Live hardware layer re-run 2026-11-05:** `tools/test_all.py --tv --tv-ip`
 passed all **19 layers**; `stub-protocol` OK and `tv-health-live` 16/16. The

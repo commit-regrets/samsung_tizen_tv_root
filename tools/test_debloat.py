@@ -33,7 +33,7 @@ not output text:
   * every committed list file contains bare ids only, never a denylist
     entry, and the unit count matches the documented number;
   * the decision ledger `debloat/registry.tsv` agrees with all of them:
-    applied == the four applied lists (disjoint), deferred == tier2b,
+    applied == the seven applied lists (disjoint), deferred == tier2b,
     every `apply.sh` DENY id is `never` (the rest of `never` is the
     `unified-drm-*` glob), the phone-path/easysetup/BT ids are `never`,
     reverted ids are recorded and no id carries two statuses.

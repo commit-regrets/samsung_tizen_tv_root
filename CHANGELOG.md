@@ -15,6 +15,20 @@ entry is an incomplete change. `AGENTS.md` repeats this rule for agents.
 
 ---
 
+## 2026-11-05 — review follow-up: Screen Mirroring phone test and two stale sentences
+
+The review found that batch 5 re-disabled
+`org.tizen.ScreenMirroring-app-tv` without the phone test its reverted row
+required. The owner has now confirmed **SmartThings is online with it
+disabled** (2026-11-05); the registry row carries that phone-test evidence and
+README/AGENTS/OPEN-ISSUES record it. No app, unit or TV change.
+
+Two stale sentences are corrected: the `tools/test_debloat.py` module docstring
+said the applied set was "four applied lists" (the check uses seven), and the
+Vetro 0.3.5 changelog entry said the merge-regen gate still expects exactly two
+role flips (the later `merge.js` commit changed it to zero). Both now describe
+the current gate.
+
 ## 2026-11-05 — docs: refresh OPEN-ISSUES from v47/66 rows to v48/73 rows
 
 `docs/OPEN-ISSUES.md` still opened with v47 (`0df29b15…`), 66 app rows and the
@@ -76,7 +90,9 @@ decision changes.
 keeps both **keep/system** by the two documented manual overrides —
 `screen-analysis-dbmgr` because tcc measured picture-processing breakage, and
 `iacr` because its coupling is unknown. `test_debloat`'s merge-regen layer
-confirms exactly those two flips and no other drift. The rest of 0.3.5 is the
+now enforces those overrides with **zero role flips**; at the time of this
+0.3.5 entry it still expected exactly two, and the later same-day `merge.js`
+entry above changed that gate. The rest of 0.3.5 is the
 TV app/dashboard (screen redesign, tuner key, remote input renumbering, Node
 4.4 service, Frame home order) — not vendored catalog data, so nothing to port.
 
@@ -104,7 +120,9 @@ Follow-up to batch 4 after its cold boot passed. Owner-accepted and applied
 ghdaemon/ghservice/ScreenMirroring processes; the picture guard ran
 (`CheckAutoMotionPlus=0`, expected on Home). PSS before the change: ghdaemon
 ~2.5 MB, Screen Mirroring ~2.4 MB, ghservice idle — storage/attack surface
-plus a small memory gain, not a large one.
+plus a small memory gain, not a large one. Screen Mirroring's re-disable was
+phone-tested 2026-11-05: the owner confirmed SmartThings online with it
+disabled.
 
 Still excluded: `home.game` (Home tile), the Game Bar app (non-removable keep),
 HbbTV/Cobalt/AI Sound (non-removable system packages), and `tagpro`/`rscmgr`
