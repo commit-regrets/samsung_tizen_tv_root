@@ -15,6 +15,24 @@ entry is an incomplete change. `AGENTS.md` repeats this rule for agents.
 
 ---
 
+## 2026-11-05 — remote: minimal event6 daemon (observe and filter)
+
+Added `remote/RemoteDaemon.csproj` + `remote/Program.cs`: a net6.0 console daemon
+that opens `/dev/input/event6` with a blocking read, parses the 16-byte
+`input_event` records, and either logs keys (`observe`) or remaps them
+(`filter`). In filter mode it `EVIOCGRAB`s the remote, creates one `/dev/uinput`
+keyboard and forwards every unmapped key, so only mapped keys are withheld.
+Actions are `launch:<app-id>` via `/usr/bin/app_launcher`; a missing
+`/dev/uinput` or a failed grab refuses filter mode rather than half-applying.
+
+Tested on the QNX1D: observe logged Home `63`, OK `28`, Back `1`; filter mode
+with `map.140=launch:org.tizen.menu` launched Settings and forwarded
+Home/OK/Back through `uinput`. The daemon was then stopped and the TV config
+restored to `observe`. No `home_appid`, UI or boot change. Codes/mapping and
+usage are in `remote/README.md`; the `EVIOCGRAB`/`uinput` approach follows
+Vetro's public-domain input agent as a design reference. `.gitignore` ignores
+`remote/out|bin|obj`.
+
 ## 2026-11-05 — review follow-up: Screen Mirroring phone test and two stale sentences
 
 The review found that batch 5 re-disabled

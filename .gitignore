@@ -86,6 +86,11 @@ tmp/
 payload/out*/
 python/
 
+# remote daemon build output
+remote/out/
+remote/bin/
+remote/obj/
+
 # ------------------------------------------------------ kernel analysis dumps
 # Kernel images extracted from the TV or the OTA package (Samsung proprietary
 # binaries, 10-13 MB each). Regenerate with tools/dump_kernel_ram.py (RAM, via
