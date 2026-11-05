@@ -82,9 +82,11 @@ picture-settings loop, and fails if a listed unit is still restart-looping.
   12:31** (69 rows persisted, masks 29/29, `tv_health` 16/16). **Batch 5
   (gaming daemon + mirroring) applied 12:33**: `disabled=3 failed=0 of 3`,
   readback **72** rows, undo `/opt/usr/data/debloat-undo-20261105-123302.sh`;
-  cold boot owed. **Batch 6 (utterance service core) applied 12:39**:
+  **cold boot PASSED 12:59** (with batch 6; 73 rows, masks 29/29,
+  `tv_health` 16/16). **Batch 6 (utterance service core) applied 12:39**:
   `disabled=1 failed=0 of 1`, readback **73** rows, undo
-  `/opt/usr/data/debloat-undo-20261105-123912.sh`; cold boot owed. Run log:
+  `/opt/usr/data/debloat-undo-20261105-123912.sh`; **cold boot PASSED 12:59**
+  (73 rows, masks 29/29, `tv_health` 16/16; boot attempt 2 at t=71). Run log:
   `models/qnx1d/run-2026-10-29-tier1.md`. ~25.9 MB running ACR/ad processes
   freed by tier 1 (distinct processes, measured against the pre-debloat
   baseline), plus ~7 MB PSS from the voice set; batches 2, 4, 5 and 6 free

@@ -45,7 +45,8 @@ but `package_app_info` carries its service component
 `disabled=1 failed=0 of 1`, readback **73** rows, undo
 `/opt/usr/data/debloat-undo-20261105-123912.sh`; the running
 `utterance-recommender-core` process was killed and does not come back. The UI
-component `...-app` was already disabled in batch 3. **Cold boot owed.**
+component `...-app` was already disabled in batch 3. **Cold boot PASSED 12:59**
+(73 rows, masks 29/29, `tv_health` 16/16; boot attempt 2 at t=71).
 
 ## 2026-11-05 — debloat batch 5: the Gaming Hub daemon pair and Screen Mirroring disabled
 
@@ -61,7 +62,8 @@ plus a small memory gain, not a large one.
 
 Still excluded: `home.game` (Home tile), the Game Bar app (non-removable keep),
 HbbTV/Cobalt/AI Sound (non-removable system packages), and `tagpro`/`rscmgr`
-(unmeasured). **Cold boot owed.**
+(unmeasured). **Cold boot PASSED 12:59** (73 rows after batch 6, masks
+29/29, `tv_health` 16/16).
 
 Ledger: registry gains `ghdaemon`/`ghservice` as applied and moves
 `ScreenMirroring-app-tv` from `reverted` to applied; batch 6 adds the

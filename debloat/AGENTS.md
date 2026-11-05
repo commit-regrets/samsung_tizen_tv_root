@@ -137,12 +137,13 @@ All TV reads/writes go through that channel (PC-side helpers:
   `lists/batch5-tier2b-leftovers.txt`, `ghdaemon`/`ghservice`/
   `org.tizen.ScreenMirroring-app-tv`: `disabled=3 failed=0 of 3`, readback
   **72** rows, undo `/opt/usr/data/debloat-undo-20261105-123302.sh`; **cold boot
-  owed**.
+  PASSED 12:59** (with batch 6; 73 rows, masks 29/29, `tv_health` 16/16).
   **Batch 6 (utterance core) applied 2026-11-05 12:39:**
   `lists/batch6-tier2b-utterance.txt`,
   `com.samsung.tv.utterance-recommender-core` (`app_component=svcapp`,
   `onboot=true`): `disabled=1 failed=0 of 1`, readback **73** rows, undo
-  `/opt/usr/data/debloat-undo-20261105-123912.sh`; **cold boot owed**. The
+  `/opt/usr/data/debloat-undo-20261105-123912.sh`; **cold boot PASSED 12:59**
+  (73 rows, masks 29/29, `tv_health` 16/16; boot attempt 2 at t=71). The
   package has no app row, but its `...-core` app id does, so `pkgcmd` works.
   **Open:** the remaining tier 2b (17 ids) needs the Control Center layer; batch 2 is applied and
   cold-boot verified (2026-11-01); batch 3 is
