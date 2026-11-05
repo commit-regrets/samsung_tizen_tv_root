@@ -986,6 +986,11 @@ def main() -> int:
           set(b5) == {"com.samsung.tv.ghdaemon", "com.samsung.tv.ghservice",
                       "org.tizen.ScreenMirroring-app-tv"}
           and "com.samsung.tv.utterance-recommender-service" not in b5)
+    b6 = [l.strip() for l in
+          (DEB / "lists" / "batch6-tier2b-utterance.txt").read_text(encoding="utf-8").splitlines()
+          if l.strip() and not l.strip().startswith("#")]
+    check("batch6-tier2b-utterance.txt is exactly the core service",
+          b6 == ["com.samsung.tv.utterance-recommender-core"])
 
     # 10. the decision registry: debloat/registry.tsv must agree with the
     # list files (applied), tier2b (deferred), apply.sh (never) and the
@@ -1019,16 +1024,17 @@ def main() -> int:
     applied_per_list = {}
     for name in ("tier1-tracking.txt", "tier2a-tcc-apps.txt",
                  "batch3-optional.txt", "batch2-commercial.txt",
-                 "batch4-tier2b-game.txt", "batch5-tier2b-leftovers.txt"):
+                 "batch4-tier2b-game.txt", "batch5-tier2b-leftovers.txt",
+                 "batch6-tier2b-utterance.txt"):
         applied_per_list[name] = [
             l.strip() for l in
             (DEB / "lists" / name).read_text(encoding="utf-8").splitlines()
             if l.strip() and not l.strip().startswith("#")]
     applied_all = set().union(*(set(v) for v in applied_per_list.values()))
-    check("registry: applied apps == the six applied lists",
+    check("registry: applied apps == the seven applied lists",
           reg_set("applied") == applied_all,
           str(sorted(reg_set("applied") ^ applied_all))[:200])
-    check("registry: the six applied lists do not overlap",
+    check("registry: the seven applied lists do not overlap",
           sum(len(v) for v in applied_per_list.values()) == len(applied_all))
 
     t2b_entries = set()
@@ -1136,13 +1142,14 @@ def main() -> int:
     readme = (DEB / "README.md").read_text(encoding="utf-8")
     applied_lists = ("tier1-tracking.txt", "tier2a-tcc-apps.txt",
                      "batch3-optional.txt", "batch2-commercial.txt",
-                     "batch4-tier2b-game.txt", "batch5-tier2b-leftovers.txt")
+                     "batch4-tier2b-game.txt", "batch5-tier2b-leftovers.txt",
+                     "batch6-tier2b-utterance.txt")
     applied_n = sum(
         len([l for l in (DEB / "lists" / n).read_text(encoding="utf-8").splitlines()
              if l.strip() and not l.strip().startswith("#")])
         for n in applied_lists)
     m_set = re.search(r"\*\*Standing set: (\d+) app rows\*\*", readme)
-    check("README standing-set count == the six applied lists",
+    check("README standing-set count == the seven applied lists",
           m_set is not None and int(m_set.group(1)) == applied_n,
           f"readme={m_set.group(1) if m_set else None} lists={applied_n}")
     m_units = re.search(r"services-units\.txt` \((\d+) masked units", readme)

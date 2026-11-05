@@ -15,6 +15,19 @@ entry is an incomplete change. `AGENTS.md` repeats this rule for agents.
 
 ---
 
+## 2026-11-05 — debloat batch 6: the utterance-recommender service core
+
+The parked voice leftover is now handled. The package
+`com.samsung.tv.utterance-recommender-service` has no `app_id` row of its own,
+but `package_app_info` carries its service component
+`com.samsung.tv.utterance-recommender-core` (`app_component=svcapp`,
+`app_onboot=true`), and `pkgcmd -D -t app -n ...-core --global` succeeds
+(`rc=0`, row true). Applied 12:39 through a one-id list:
+`disabled=1 failed=0 of 1`, readback **73** rows, undo
+`/opt/usr/data/debloat-undo-20261105-123912.sh`; the running
+`utterance-recommender-core` process was killed and does not come back. The UI
+component `...-app` was already disabled in batch 3. **Cold boot owed.**
+
 ## 2026-11-05 — debloat batch 5: the Gaming Hub daemon pair and Screen Mirroring disabled
 
 Follow-up to batch 4 after its cold boot passed. Owner-accepted and applied
@@ -27,17 +40,14 @@ ghdaemon/ghservice/ScreenMirroring processes; the picture guard ran
 ~2.5 MB, Screen Mirroring ~2.4 MB, ghservice idle — storage/attack surface
 plus a small memory gain, not a large one.
 
-`com.samsung.tv.utterance-recommender-service` is **parked**: its service app id
-is `...-core` and the package has no `package_app_info` row, so `pkgcmd -D -t app
--n <package>` would fail mid-batch. It needs a separate service-level approach.
 Still excluded: `home.game` (Home tile), the Game Bar app (non-removable keep),
 HbbTV/Cobalt/AI Sound (non-removable system packages), and `tagpro`/`rscmgr`
 (unmeasured). **Cold boot owed.**
 
 Ledger: registry gains `ghdaemon`/`ghservice` as applied and moves
-`ScreenMirroring-app-tv` from `reverted` to applied; `test_debloat.py` treats
-batch 5 as the sixth applied list; README/AGENTS standing set is **72 app
-rows**.
+`ScreenMirroring-app-tv` from `reverted` to applied; batch 6 adds the
+utterance-core row; `test_debloat.py` treats batch 5 as the sixth applied list
+and batch 6 as the seventh; README/AGENTS standing set is **73 app rows**.
 
 ## 2026-11-05 — debloat batch 4: the tier-2b game trio disabled (owner: PC over HDMI, no cloud gaming)
 
