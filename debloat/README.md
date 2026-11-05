@@ -64,24 +64,28 @@ picture-settings loop, and fails if a listed unit is still restart-looping.
 
 ## Status
 
-- **Standing set: 69 app rows** — tier 1 (10) + tier 2a (5) + voice (22) +
-  batch 2 commercial (29) + batch 4 game trio (3), all durably disabled via
-  `pkgcmd -D --global`. The 37-row subset is cold-boot verified (the original
-  20-row set on 2026-10-30: `id -u` = 0, count = 20, both sentinels present, the
-  11 tier-1 rows first confirmed 2026-10-29; the 37-row set first booted
-  2026-10-30 19:29:41 and again 2026-11-01 14:23:02 under v44). **Batch 2 was
-  applied 2026-11-01 21:38** (`disabled=29 failed=0 of 29`, readback 66 rows, 0
-  activating, undo log on the TV at
+- **Standing set: 72 app rows** — tier 1 (10) + tier 2a (5) + voice (22) +
+  batch 2 commercial (29) + batch 4 game trio (3) + batch 5 leftovers (3), all
+  durably disabled via `pkgcmd -D --global`. The 37-row subset is cold-boot
+  verified (the original 20-row set on 2026-10-30: `id -u` = 0, count = 20, both
+  sentinels present, the 11 tier-1 rows first confirmed 2026-10-29; the 37-row
+  set first booted 2026-10-30 19:29:41 and again 2026-11-01 14:23:02 under v44).
+  **Batch 2 was applied 2026-11-01 21:38** (`disabled=29 failed=0 of 29`,
+  readback 66 rows, 0 activating, undo log on the TV at
   `/opt/usr/data/debloat-undo-20261101-213858.sh`); **cold boot PASSED
   2026-11-01 21:54** (mains cycle: 66 rows persisted, `masks=29 stopped=29
   killed=3 fail=0 missing=0 activating=7 listed-activating=0 loop-check=ok` at
   t=40 s). **Batch 4 (tier-2b game trio) applied 2026-11-05 12:21**:
   `disabled=3 failed=0 of 3`, readback **69** rows, undo
-  `/opt/usr/data/debloat-undo-20261105-122100.sh`; cold boot owed. Run log:
-  `models/qnx1d/run-2026-10-29-tier1.md`. ~25.9 MB running ACR/ad
-  processes freed by tier 1 (distinct processes, measured against the
-  pre-debloat baseline), plus ~7 MB PSS from the voice set; batches 2 and 4
-  free ~0 MB (nothing runs at idle - storage and attack surface only).
+  `/opt/usr/data/debloat-undo-20261105-122100.sh`; **cold boot PASSED
+  12:31** (69 rows persisted, masks 29/29, `tv_health` 16/16). **Batch 5
+  (gaming daemon + mirroring) applied 12:33**: `disabled=3 failed=0 of 3`,
+  readback **72** rows, undo `/opt/usr/data/debloat-undo-20261105-123302.sh`;
+  cold boot owed. Run log: `models/qnx1d/run-2026-10-29-tier1.md`. ~25.9 MB
+  running ACR/ad processes freed by tier 1 (distinct processes, measured
+  against the pre-debloat baseline), plus ~7 MB PSS from the voice set;
+  batches 2, 4 and 5 free ~0 MB (nothing runs at idle - storage and attack
+  surface only).
 - **Services layer: a 29-unit mask list, all of it masked durably (v42) and
   verified on the 2026-10-30 cold boot** (`masks=24 ... listed-activating=0` on
   the then-24-unit list), then 34 with the OTA stack at 14:50, and **29 since
@@ -159,6 +163,10 @@ picture-settings loop, and fails if a listed unit is still restart-looping.
     (`gamepadguide`, `gaminghub`, `gamehome`) accepted 2026-11-05 for a
     PC-over-HDMI-only household; the Home `home.game` tile and the Game Bar app
     are deliberately outside it.
+  - `lists/batch5-tier2b-leftovers.txt` (3): `ghdaemon` + `ghservice` (Gaming
+    Hub daemon pair) and `org.tizen.ScreenMirroring-app-tv`. The
+    `utterance-recommender-service` package is parked (service package with no
+    `package_app_info` row, so `pkgcmd` cannot target it safely).
   - `lists/services-units.txt` (29 masked units; `bluetooth-monitor.service`
     is a commented DO-NOT-MASK note with the evidence) +
     `lists/services-bind.txt` (23 `/usr/bin` binaries — the **kill list** for
@@ -200,7 +208,7 @@ The list files stay the **input** (`apply.sh` / `restore.sh` read them), and
 `apply.sh` keeps its runtime `DENY`. `tools/test_debloat.py` enforces the three
 agree:
 
-- `applied` == the union of the five applied lists, which must not overlap;
+- `applied` == the union of the six applied lists, which must not overlap;
 - `deferred` (apps) == the commented entries in `tier2b-home-dependent.txt`;
 - every `DENY` id has a `never` row, and the remaining `never` apps are the
   `unified-drm-*` ids (the glob guard);

@@ -1,0 +1,10 @@
+# Batch 5 - leftovers after batch 4: Gaming Hub daemon pair + Smart View
+# mirroring app. Owner: PC over HDMI; cloud gaming unused; no screen mirroring.
+# NOT the Game Bar app, not SmartThings-referenced services, not HbbTV/Cobalt
+# (non-removable), not tagpro/rscmgr (unmeasured).
+# `com.samsung.tv.utterance-recommender-service` is a service package with no
+# package_app_info row (its app id is `...-core`), so it is parked rather than
+# risking a pkgcmd failure mid-batch.
+com.samsung.tv.ghdaemon
+com.samsung.tv.ghservice
+org.tizen.ScreenMirroring-app-tv

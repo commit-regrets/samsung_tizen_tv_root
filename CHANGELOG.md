@@ -15,6 +15,30 @@ entry is an incomplete change. `AGENTS.md` repeats this rule for agents.
 
 ---
 
+## 2026-11-05 — debloat batch 5: the Gaming Hub daemon pair and Screen Mirroring disabled
+
+Follow-up to batch 4 after its cold boot passed. Owner-accepted and applied
+12:33: `lists/batch5-tier2b-leftovers.txt` (`com.samsung.tv.ghdaemon`,
+`com.samsung.tv.ghservice`, `org.tizen.ScreenMirroring-app-tv`) —
+`disabled=3 failed=0 of 3`, readback **72** rows, undo
+`/opt/usr/data/debloat-undo-20261105-123302.sh`. The kill pass left no
+ghdaemon/ghservice/ScreenMirroring processes; the picture guard ran
+(`CheckAutoMotionPlus=0`, expected on Home). PSS before the change: ghdaemon
+~2.5 MB, Screen Mirroring ~2.4 MB, ghservice idle — storage/attack surface
+plus a small memory gain, not a large one.
+
+`com.samsung.tv.utterance-recommender-service` is **parked**: its service app id
+is `...-core` and the package has no `package_app_info` row, so `pkgcmd -D -t app
+-n <package>` would fail mid-batch. It needs a separate service-level approach.
+Still excluded: `home.game` (Home tile), the Game Bar app (non-removable keep),
+HbbTV/Cobalt/AI Sound (non-removable system packages), and `tagpro`/`rscmgr`
+(unmeasured). **Cold boot owed.**
+
+Ledger: registry gains `ghdaemon`/`ghservice` as applied and moves
+`ScreenMirroring-app-tv` from `reverted` to applied; `test_debloat.py` treats
+batch 5 as the sixth applied list; README/AGENTS standing set is **72 app
+rows**.
+
 ## 2026-11-05 — debloat batch 4: the tier-2b game trio disabled (owner: PC over HDMI, no cloud gaming)
 
 The set is used as a PC monitor over HDMI, so the TV-side cloud-gaming trio is
@@ -31,7 +55,8 @@ Deliberately outside the batch: `com.samsung.tv.home.game` (Home tile — test
 separately if ever), the Game Bar app `com.samsung.tv.gamebar` (non-removable
 keep; its service is already masked and the key-launched app is not affected by
 this batch), and `ghdaemon`/`ghservice` (optional, unmeasured). The HDMI
-display path and Game Mode are not these packages. **Cold boot owed.**
+display path and Game Mode are not these packages. **Cold boot PASSED 12:31**
+(69 rows persisted, masks 29/29, `tv_health` 16/16).
 
 Ledger: the three registry rows move `deferred` → `applied`
 (`list:batch4-tier2b-game.txt`, 2026-11-05, owner); the tier-2b header now says

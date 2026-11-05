@@ -93,10 +93,10 @@ All TV reads/writes go through that channel (PC-side helpers:
   The sharing-batch revert was a wrong guess from reading `referencedBy`
   backwards (`multiscreen` uses the client, not the reverse) - the 16 stay
   re-enabled as prudence.  The five SmartThings-stack ids are denylisted and
-  dropped from tier 2a (9 -> 5).  Standing set: **69 app rows** (tier 1 10 +
-  tier 2a 5 + voice 22 + batch 2 29 + batch 4 game trio 3) and **29 units / 23
-  binaries** (`pushd` / `register-device` / `p2p-asm` unmasked: phone-path,
-  ~1.5 MB).
+  dropped from tier 2a (9 -> 5).  Standing set: **72 app rows** (tier 1 10 +
+  tier 2a 5 + voice 22 + batch 2 29 + batch 4 game trio 3 + batch 5 leftovers 3)
+  and **29 units / 23 binaries** (`pushd` / `register-device` / `p2p-asm`
+  unmasked: phone-path, ~1.5 MB).
   **Batch 2 (commercial/hotel/factory) applied 2026-11-01 21:38**
   (`lists/batch2-commercial.txt`, 29 ids: `disabled=29 failed=0 of 29`,
   readback 66 rows, 0 activating, undo log
@@ -121,7 +121,7 @@ All TV reads/writes go through that channel (PC-side helpers:
   id with `status` (applied / deferred / never / reverted / rejected), reason,
   evidence, date and owner.  The list files stay the apply/undo input and
   `apply.sh` keeps its runtime DENY, but every decision must also have a row:
-  `tools/test_debloat.py` asserts all three agree (applied == the five lists,
+  `tools/test_debloat.py` asserts all three agree (applied == the six lists,
   deferred == tier2b, DENY ⊆ never, reverted recorded, no id twice).  Before
   this existed the same fact lived in 3+ files and drifted twice in one day
   (tier2b claimed two applied ids were deferred; the README said 24/24 when
@@ -129,9 +129,16 @@ All TV reads/writes go through that channel (PC-side helpers:
   **Batch 4 (tier-2b game trio) applied 2026-11-05 12:21:**
   `lists/batch4-tier2b-game.txt`, gamepadguide/gaminghub/gamehome:
   `disabled=3 failed=0 of 3`, readback **69** rows, 0 activating, undo
-  `/opt/usr/data/debloat-undo-20261105-122100.sh`; **cold boot owed**. The Home
-  `home.game` tile and the Game Bar app (`com.samsung.tv.gamebar`, a
-  non-removable keep) are deliberately outside it.
+  `/opt/usr/data/debloat-undo-20261105-122100.sh`; **cold boot PASSED 12:31**
+  (69 rows persisted, masks 29/29, `tv_health` 16/16). The Home `home.game`
+  tile and the Game Bar app (`com.samsung.tv.gamebar`, a non-removable keep)
+  are deliberately outside it.
+  **Batch 5 (gaming daemon + mirroring) applied 2026-11-05 12:33:**
+  `lists/batch5-tier2b-leftovers.txt`, `ghdaemon`/`ghservice`/
+  `org.tizen.ScreenMirroring-app-tv`: `disabled=3 failed=0 of 3`, readback
+  **72** rows, undo `/opt/usr/data/debloat-undo-20261105-123302.sh`; **cold boot
+  owed**. `com.samsung.tv.utterance-recommender-service` is parked (service
+  package, no `package_app_info` row, `pkgcmd` cannot target it safely).
   **Open:** the remaining tier 2b (17 ids) needs the Control Center layer; batch 2 is applied and
   cold-boot verified (2026-11-01); batch 3 is
   voice-only and done; **tcc's five extra service candidates are
