@@ -247,7 +247,7 @@ def main() -> int:
         print(f"  reload raised {type(exc).__name__}: {exc}", flush=True)
     check("a corrupt beacon-token file is tolerated", ok)
     Path(server.BEACON_TOKENS_FILE).write_text(json.dumps(
-        [{"tok": "not-a-token", "used": True}, {"tok": "0123abcd", "used": False},
+        [{"tok": "not-a-token", "used": True}, {"tok": "<BEACON_TOKEN>", "used": False},
          "junk", 7]), encoding="utf-8")
     with server.state_lock:
         server.BEACON_TOKENS.clear()

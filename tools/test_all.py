@@ -91,6 +91,7 @@ def main() -> int:
     results.append(("logs-and-errors", run("beacon analyzer + tool error paths + ps1 parse",
                                            [py, "tools/test_logs.py"])))
     results.append(("sanitize", run("public-release sanitizer", [py, "tools/test_sanitize.py"])))
+    results.append(("push-guard", run("pre-push push guard", [py, "tools/test_push_guard.py"])))
     results.append(("listwalk-dwarf", run("list-walk port + dwarf fingerprint",
                                           [py, "tools/test_listwalk.py"])))
     results.append(("state-docs", run("AGENTS.md payload row matches artifacts/state",

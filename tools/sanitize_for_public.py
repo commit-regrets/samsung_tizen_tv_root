@@ -49,26 +49,43 @@ SUBS = [
     # The name is computed, never a literal: this file is itself copied and
     # redacted by itself, and an escaped literal would evade its own SUBS pass.
     ("C:\\Users\\" + Path.home().name, "<HOME>"),
+    # rotated beacon tokens that appeared in changelog prose (the bare-hex
+    # prose form is the shape no regex can pick out safely - these exact
+    # literals are dead credentials, so redact them precisely).  Add the
+    # token being retired here AT ROTATION TIME; never the live one.
+    ("<ROTATED_TOKEN>", "<ROTATED_TOKEN>"),
+    ("<ROTATED_TOKEN>", "<ROTATED_TOKEN>"),
+    ("<ROTATED_TOKEN>", "<ROTATED_TOKEN>"),
+    ("<ROTATED_TOKEN>", "<ROTATED_TOKEN>"),
+    # real firmware build suffix inside the masked model family
+    # (browser_payload.js constants comment; found by the 2026-11-13 audit)
+    ("<FW_BUILD>", "<FW_BUILD>"),
 ]
 
 SKIP_DIRS = {".git", "__pycache__", ".venv", "node_modules",
              "server/logs", "logs", "payload/obj", "payload/out", "payload/bin",
              ".zcode"}
-SKIP_SUFFIX = {".pyc", ".dll", ".exe"}
+# The old SKIP_SUFFIX (.pyc/.dll/.exe) is gone: copy mode publishes tracked
+# files only (see _tracked), and the tracked server/payload.dll must ship, so
+# a suffix filter is both unnecessary and a trap for the next reader.
 
 # Per-deploy 8-hex credentials the known-token list cannot anticipate.  Both
 # the v41 beacon token (`tok=` in beacons/docs, `beacon_token` in state.json)
 # and the v40 pairing token are generated at deploy time, so a list-only check
 # would pass a tree that still carries the live one (found 2026-10-27).  The
-# TOKEN_FILE= form is the deploy-transcript prose (`TOKEN_FILE=<BEACON_TOKEN>`) -
+# TOKEN_FILE= form is the deploy-transcript prose (`TOKEN_FILE=<ROTATED_TOKEN>`) -
 # the live v49.2 token shipped on the public repo in exactly that form on
 # 2026-11-13 because only the tok=/JSON shapes were covered (P1, security
 # audit).  All three are deploy-credential shapes; rotate, don't publish.
 TOKEN_RES = (
-    re.compile(r"\btok=([0-9a-f]{8})\b"),
+    re.compile(r"(?i)\btok\s*[=:]\s*([0-9a-f]{8})\b"),
     re.compile(r'("beacon_token"\s*:\s*")([0-9a-f]{8})(")'),
-    re.compile(r"(?i)\btoken_file=([0-9a-f]{8})\b"),
+    re.compile(r"(?i)\btoken_file\s*=\s*([0-9a-f]{8})\b"),
+    re.compile(r'("tok"\s*:\s*")([0-9a-f]{8})(")'),
 )
+# where the token value lives in each match (the two JSON shapes capture the
+# surrounding quotes/whitespace as groups 1/3 and the value as group 2)
+_VALUE_GROUP = {0: 1, 1: 2, 2: 1, 3: 2}
 # `tok=deadbeef` is the documented forged-token negative test, not a credential.
 TOKEN_ALLOW = {"deadbeef"}
 
@@ -129,17 +146,20 @@ def _find(text: str):
         n = text.count(token)  # are the expected state there, not a leak
         if n:
             counts[token] = n
-    for rx in TOKEN_RES:
+    for idx, rx in enumerate(TOKEN_RES):
+        g = _VALUE_GROUP[idx]
         for m in rx.finditer(text):
-            value = m.group(2) if m.re is TOKEN_RES[1] else m.group(1)
+            value = m.group(g)
             if value in TOKEN_ALLOW:
                 continue
-            if m.re is TOKEN_RES[0]:
+            if idx == 0:
                 label = f"tok={value}"
-            elif m.re is TOKEN_RES[1]:
+            elif idx == 1:
                 label = f'beacon_token:"{value}"'
-            else:
+            elif idx == 2:
                 label = f"TOKEN_FILE={value}"
+            else:
+                label = f'"tok":"{value}"'
             counts[label] = counts.get(label, 0) + 1
     return list(counts.items())
 
@@ -177,19 +197,25 @@ def do_copy(src: Path, dst: Path) -> int:
             if n:
                 counts[token] += n
                 text = text.replace(token, placeholder)
-        # per-deploy credentials: same shape, unknown value
-        text, n1 = re.subn(r"\btok=([0-9a-f]{8})\b",
-                           lambda m: "tok=deadbeef"
-                           if m.group(1) in TOKEN_ALLOW
-                           else "tok=<BEACON_TOKEN>", text)
-        text, n2 = re.subn(r'("beacon_token"\s*:\s*")([0-9a-f]{8})(")',
-                           lambda m: m.group(0) if m.group(2) in TOKEN_ALLOW
-                           else m.group(1) + "<BEACON_TOKEN>" + m.group(3), text)
-        text, n3 = re.subn(r"(?i)\btoken_file=([0-9a-f]{8})\b",
-                           lambda m: m.group(0) if m.group(1) in TOKEN_ALLOW
-                           else "TOKEN_FILE=<BEACON_TOKEN>", text)
-        if n1 or n2 or n3:
-            counts["<BEACON_TOKEN>"] = counts.get("<BEACON_TOKEN>", 0) + n1 + n2 + n3
+        # per-deploy credentials: same shape, unknown value.  Each TOKEN_RES
+        # gets a matching replacement (JSON forms keep their surrounding
+        # quote groups; the assignment forms collapse to the canonical
+        # prefix + <BEACON_TOKEN>).
+        def _json_repl(m):
+            if m.group(2) in TOKEN_ALLOW:
+                return m.group(0)
+            return m.group(1) + "<BEACON_TOKEN>" + m.group(3)
+
+        text, n1 = TOKEN_RES[0].subn(
+            lambda m: "tok=deadbeef" if m.group(1) in TOKEN_ALLOW
+            else "tok=<BEACON_TOKEN>", text)
+        text, n2 = TOKEN_RES[1].subn(_json_repl, text)
+        text, n3 = TOKEN_RES[2].subn(
+            lambda m: "TOKEN_FILE=deadbeef" if m.group(1) in TOKEN_ALLOW
+            else "TOKEN_FILE=<BEACON_TOKEN>", text)
+        text, n4 = TOKEN_RES[3].subn(_json_repl, text)
+        if n1 or n2 or n3 or n4:
+            counts["<BEACON_TOKEN>"] = counts.get("<BEACON_TOKEN>", 0) + n1 + n2 + n3 + n4
         target.write_text(text, encoding="utf-8", newline="")
         copied += 1
 

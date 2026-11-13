@@ -68,6 +68,9 @@ def main() -> int:
             "\nlog from " + TOKENS["home"] + "\\projects\\samsung_tv_root" +
             '\nper-deploy tok=<BEACON_TOKEN> and "beacon_token": "<BEACON_TOKEN>"' +
             '\ntranscript TOKEN_FILE=<BEACON_TOKEN> (the prose form that shipped)' +
+            '\nshapes: tok=<BEACON_TOKEN>, tok=<BEACON_TOKEN>, TOKEN_FILE=<BEACON_TOKEN>,' +
+            ' {"tok": "<BEACON_TOKEN>"} (server.py form)' +
+            '\nrotated <ROTATED_TOKEN> appeared in prose; fw build <FW_BUILD>' +
             " forged tok=deadbeef stays" +
             "\nsdk pin 10.0.301 stays\n", encoding="utf-8")
         binary = src / "server" / "payload.bin"
@@ -112,6 +115,15 @@ def main() -> int:
               "abcd1234" not in out and "<BEACON_TOKEN>" in out)
         check("TOKEN_FILE prose form redacted",
               "TOKEN_FILE=<BEACON_TOKEN>" in out and "abcd1234" not in out)
+        check("widened tok shapes redacted",
+              "TOK=" not in out and "tok :" not in out
+              and "TOKEN_FILE = " not in out and '"tok": "<BEACON_TOKEN>"' not in out)
+        check("server.py tok JSON form redacted",
+              '"tok": "<BEACON_TOKEN>"' in out)
+        check("rotated-token literal redacted",
+              "<ROTATED_TOKEN>" in out and "<ROTATED_TOKEN>" not in out)
+        check("fw build redacted",
+              "<FW_BUILD>" in out and "<FW_BUILD>" not in out)
         check("home path redacted",
               "<HOME>" in out and Path.home().name not in out)
         check("forged test token allowed", "tok=deadbeef" in out)
@@ -130,6 +142,14 @@ def main() -> int:
         # copy refuses to overwrite
         r = run(str(src), str(dst))
         check("copy refuses existing dst", r.returncode == 2)
+
+        # copy refuses a tree that is not a git worktree (tracked-only rule)
+        plain = tmp / "plain"
+        (plain / "docs").mkdir(parents=True)
+        (plain / "docs" / "x.md").write_text("no repo here\n", encoding="utf-8")
+        r = run(str(plain), str(tmp / "plain-pub"))
+        check("copy refuses non-worktree", r.returncode == 2,
+              r.stdout.strip().splitlines()[0] if r.stdout else "")
 
         # invalid utf-8 in --check is skipped, not a crash
         (dst / "docs" / "blob.bin").write_bytes(b"\xff\xfe\x00abc")

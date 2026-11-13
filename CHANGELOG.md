@@ -15,6 +15,46 @@ entry is an incomplete change. `AGENTS.md` repeats this rule for agents.
 
 ---
 
+## 2026-11-13 — security: live beacon token was public; rotated; sanitizer closes the prose form
+
+Security audit (sub-agent, after the release) found the **live** v49.2 beacon
+token on the public repo: deploy transcripts write `TOKEN_FILE=<hex>`, a prose
+form the sanitizer's `tok=`/JSON regexes never matched, so `--check` passed a
+tree carrying it. Attack path: forge `DSHROOT tok=<token>` beacons accepted by
+the PC server (impersonation / log poisoning; the 31337 shell stays
+allowlist-gated).
+
+Remediation, all verified:
+
+- **Rotated live**: fresh 8-hex token written to
+  `/opt/usr/home/owner/share/rootchan.token` (0644 root) over the 31337
+  channel, payload processes killed (21516/21517/3075), AUL relaunched, uid=0
+  again ~65 s later, new process (21542, started 23:12) postdates the token
+  write (23:11:18) — the running payload carries the new value. Registered in
+  `server/logs/beacon-tokens.json`. The raw new token is deliberately NOT
+  recorded in this changelog (that is the prose-form leak class).
+- **Sanitizer**: TOKEN_RES gains the `(?i)token_file=<8hex>` shape (and
+  do_copy redacts it); `C:\Users\<user>` home-path redaction added to SUBS
+  (the username was already public in two docs — computed from `Path.home()`,
+  never a literal, so the tool does not re-leak it through its own source);
+  `_find` skips SUBS entries whose token equals their placeholder (a public
+  copy redacts its own list, and its `--check` was flagging its own
+  placeholders — 45 false hits). Selftest covers the TOKEN_FILE form and the
+  home path; suite green.
+- **Republished**: public `main` force-pushed as a fresh single-commit
+  snapshot `da6192e..47be65e` ("...token rotated, prose-form credential
+  redaction"), 138 files; pushed tree scanned — zero occurrences of any token
+  (old or new) or the username. Old `<ROTATED_TOKEN>`/`da6192e` are unreachable but
+  GitHub may retain objects; rotation is the real mitigation, and
+  `<ROTATED_TOKEN>`/`<ROTATED_TOKEN>`/`<ROTATED_TOKEN>` (older, already rotated) left the branch
+  too.
+- Residual honestly noted: the sanitizer still has no generic leak-class
+  detection (a NEW private IP or an unknown prose form passes silently) —
+  flagged P2 by the audit, left for a future pass. Client-side push guard is
+  bypassable with `--no-verify`; server-side branch protection on the public
+  repo is the real fix there.
+
+
 ## 2026-11-13 — tools: sanitize copy mode publishes tracked files only; public release da6192e
 
 Follow-up to the ops entry below. Building the new public snapshot exposed a
@@ -87,7 +127,7 @@ and two P3s:
   `fail`, so the clean shape keeps meaning "the gated units are really down".
 
 Artifact v49.2 = 46,592 B, md5 `55a2714c8fffa78515fd7172b95bf14b`; `PREV_IL` =
-v49.1 `0e08de65`. Deployed 2026-11-13 20:14 (`TOKEN_FILE=<BEACON_TOKEN>`, `COPY=ok`,
+v49.1 `0e08de65`. Deployed 2026-11-13 20:14 (`TOKEN_FILE=<ROTATED_TOKEN>`, `COPY=ok`,
 `DEPLOY_DONE`), `tv_health` 16/16; the live analyzer run reports **zero**
 `APPS-WARN`, and a simulated reset + restart beacons `apps n=73 missing=1
 disabled=1 absent=0 fail=0 sentinels=1/2 stopped=1`.
@@ -137,7 +177,7 @@ The review of v49 found 0 P0/P1, 4 P2 and 7 P3 — all in the new step
   documents the new semantics.
 
 Artifact v49.1 = 46,592 B, md5 `0e08de65e47fb08206fe8b0fd6e806e0`;
-`PREV_IL` = v49 `66f49c59`. Deployed 2026-11-13 19:49 (`TOKEN_FILE=<BEACON_TOKEN>`,
+`PREV_IL` = v49 `66f49c59`. Deployed 2026-11-13 19:49 (`TOKEN_FILE=<ROTATED_TOKEN>`,
 `COPY=ok`, `DEPLOY_DONE`); `tv_health` 16/16. Verified live: a plain restart
 beacons `apps n=73 missing=0 disabled=0 absent=0 fail=0 sentinels=0/2
 stopped=0`, and a simulated reset (`pkgcmd -A` pisa + sentinel removed) then a
@@ -175,7 +215,7 @@ documents arm/disarm.
 
 Artifact v49 = 46,080 B, md5 `66f49c5954c7bb0ac8c47ca12ffc07ab`; `PREV_IL` =
 v48 `bf3df7dc`. Deployed 2026-11-13 19:23 over 31337 (`pysrv.exe` server on
-port 80), `TOKEN_FILE=<BEACON_TOKEN>`, 4 `MASKFILE`s (29/23/73/2 entries),
+port 80), `TOKEN_FILE=<ROTATED_TOKEN>`, 4 `MASKFILE`s (29/23/73/2 entries),
 `COPY=ok`, `DEPLOY_DONE`; `tv_health` 16/16. A first build (md5 `ae8f4e21…`)
 was deployed at 19:15 and superseded before the cold boot by a rebuild that
 adds `.timeout 5000` to the DB read, so a pkgmgr lock early in a boot cannot
@@ -624,7 +664,7 @@ never a silent retry. The consequence is bounded in both directions:
   disarmed.
 
 Deployed as v48 (`bf3df7dc…`, 43,008 B) over 31337 on 2026-11-04 22:01
-(`PREV_IL=0df29b15` = the v47 rollback copy, `TOKEN_FILE=<BEACON_TOKEN>`,
+(`PREV_IL=0df29b15` = the v47 rollback copy, `TOKEN_FILE=<ROTATED_TOKEN>`,
 `ART_FILE=bf3df7dc…`, `COPY=ok`, `DEPLOY_DONE`); the relaunch rooted on attempt 1
 (`direct-patch uid=0`), beaconed `art=bf3df7dc…` and `masks=29 stopped=29
 killed=0 fail=0 missing=0 activating=0 listed-activating=0 loop-check=ok

