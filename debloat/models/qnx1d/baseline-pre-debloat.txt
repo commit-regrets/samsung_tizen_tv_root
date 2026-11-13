@@ -1,0 +1,447 @@
+Thu 29 Oct 14:35:14 UTC 2026
+---MEM---
+MemTotal:        1816840 kB
+MemFree:           84956 kB
+MemAvailable:     452312 kB
+Buffers:           13200 kB
+Cached:           386804 kB
+SwapCached:         1308 kB
+SwapTotal:       1180680 kB
+SwapFree:         247104 kB
+Shmem:              8504 kB
+Slab:             110564 kB
+---PRESSURE---
+some avg2=0.28 avg4=0.50 avg6=0.67 total=851308368
+some avg2=0.00 avg4=0.00 avg6=0.00 total=12990038
+full avg2=0.00 avg4=0.00 avg6=0.00 total=2870757
+---LOAD---
+10.92 11.73 12.90 1/2863 28631
+---PROC---
+5884 1 /usr/lib/systemd/systemd /usr/lib/systemd/systemd 
+0 1024  
+0 1032  
+6236 1042 /usr/bin/storaged /usr/bin/storaged 
+9408 1050 /usr/sbin/vd-net-config /usr/sbin/vd-net-config 
+5988 1052 /usr/sbin/wpa_supplicant /usr/sbin/wpa_supplicant -u -t -dd -O /var/run/wpa_supplicant -F /opt/
+10796 1085 /usr/apps/org.tizen.litewebappservice/bin/litewebappservice /usr/apps/org.tizen.litewebappservice/bin/litewebappservice `zaybxcwdv
+0 11  
+46888 1129 /usr/bin/dotnet-launcher-inhouse /opt/usr/apps/com.samsung.tv.home.media/bin/HomeMedia.dll             
+14428 1130 /usr/bin/launchpad-loader /usr/bin/launchpad-loader     0                                       
+0 119  
+0 12  
+0 121  
+0 1213  
+0 1229  
+0 123  
+0 1230  
+0 124  
+0 125  
+9980 1253 /usr/apps/org.tizen.welcome-mode/bin/welcome-mode /usr/apps/org.tizen.welcome-mode/bin/welcome-mode `zaybxcwdveuftgsh` i
+5644 1254 /usr/bin/data-provider-master /usr/bin/data-provider-master 
+0 1256  
+10820 1257 /usr/bin/stability-monitor /usr/bin/stability-monitor 
+0 1259  
+364 1272 /usr/bin/zone-init /usr/bin/zone-init 
+2040 1275 /usr/lib/systemd/systemd-udevd /usr/lib/systemd/systemd-udevd --resolve-names=late 
+2840 1276 /usr/lib/systemd/systemd /usr/lib/systemd/systemd --user 
+5552 1283 /usr/bin/pulseaudio /usr/bin/pulseaudio 
+5744 1287 /usr/bin/display-rotatord /usr/bin/display-rotatord 
+7124 1289 /usr/bin/sensord /usr/bin/sensord 
+7756 1294 /opt/usr/apps/com.samsung.tv.health-mde-service/bin/health-mde-service /opt/usr/apps/com.samsung.tv.health-mde-service/bin/health-mde-service
+9284 1297 /usr/bin/TIFSDaemon /usr/bin/TIFSDaemon 
+0 13  
+7556 1316 /usr/bin/pkginfo-server /usr/bin/pkginfo-server 
+3280 1317 /usr/bin/securestorage-server /usr/bin/securestorage-server 
+6328 1318 /opt/usr/apps/Ddrm/fkp/bin/FKPServer /opt/usr/apps/Ddrm/fkp/bin/FKPServer 
+6260 1321 /usr/bin/wfd-manager /usr/bin/wfd-manager 
+13076 1323 /usr/bin/p2p-asm /usr/bin/p2p-asm 
+16384 1331 /usr/bin/sp-kpi /usr/bin/sp-kpi 
+10400 1339 /usr/bin/muse-server /usr/bin/muse-server 
+6244 1340 /usr/bin/TIFADaemon_L /usr/bin/TIFADaemon_L 
+5736 1342 /usr/bin/speaker-manager /usr/bin/speaker-manager 
+0 13955  
+0 14  
+5632 1424 /usr/bin/ambient-ua-agent /usr/bin/ambient-ua-agent 
+23008 1434 /opt/usr/apps/org.tizen.voice-app/bin/voice-app /opt/usr/apps/org.tizen.voice-app/bin/voice-app `zaybxcwdveuftgsh` Pre
+11500 1450 /opt/usr/apps/org.tizen.ssoservice/bin/sso-service /opt/usr/apps/org.tizen.ssoservice/bin/sso-service `zaybxcwdveuftgsh` 
+9392 1465 /usr/apps/org.tizen.btapp/bin/btapp-lite /usr/apps/org.tizen.btapp/bin/btapp-lite 
+5960 1478 /usr/bin/eventd /usr/bin/eventd 
+2708 1479 /usr/bin/license-manager-agent /usr/bin/license-manager-agent 
+3844 1480 /prd/usr/bin/npumgr_server /prd/usr/bin/npumgr_server 
+9252 1494 /opt/usr/apps/com.samsung.tv.passthru-service/bin/passthru-service /opt/usr/apps/com.samsung.tv.passthru-service/bin/passthru-service `za
+0 15  
+8008 1508 /usr/apps/org.tizen.aitech_daemon_service/bin/org.tizen.aitech_daemon_service /usr/apps/org.tizen.aitech_daemon_service/bin/org.tizen.aitech_daemon_
+7792 1530 /usr/bin/isf /usr/bin/isf-panel-efl 
+9064 1532 /usr/bin/ssc-service /usr/bin/ssc-service 
+12108 1533 /usr/apps/comss/bin/comss /usr/apps/comss/bin/comss `zaybxcwdveuftgsh` __AUL_TARGET_UID__ KAAAAA
+4940 1538 /usr/bin/ssdm-service /usr/bin/ssdm-service 
+5480 1545 /usr/bin/wifi-monitor /usr/bin/wifi-monitor 
+8384 1583 /opt/usr/apps/com.samsung.tv.ondevice-voice/bin/ondevice-voice /opt/usr/apps/com.samsung.tv.ondevice-voice/bin/ondevice-voice `zaybxc
+0 16  
+8984 1624 /opt/usr/apps/com.samsung.tv.farfieldvoice/bin/ffv-service /opt/usr/apps/com.samsung.tv.farfieldvoice/bin/ffv-service `zaybxcwdve
+10048 1628 /usr/apps/org.tizen.multi-assistant-service/bin/org.tizen.multi-assistant-service /usr/apps/org.tizen.multi-assistant-service/bin/org.tizen.multi-assist
+12668 1629 /opt/usr/apps/com.samsung.tv.bixby-prov/bin/bixby-prov /opt/usr/apps/com.samsung.tv.bixby-prov/bin/bixby-prov `zaybxcwdveuftg
+4828 1689 /usr/bin/allshare-svc /usr/bin/allshare-svc 
+8944 1690 /usr/bin/app-control-service /usr/bin/app-control-service 
+5960 1692 /usr/bin/bt-monitor /usr/bin/bt-monitor 
+0 17  
+5132 171 /usr/bin/cynara /usr/bin/cynara 
+15996 1718 /opt/usr/apps/com.samsung.tv.airplay-app-2/bin/airplay-service-2 /opt/usr/apps/com.samsung.tv.airplay-app-2/bin/airplay-service-2 
+6924 1720 /usr/apps/com.samsung.tv.audio-share/bin/audio-share /usr/apps/com.samsung.tv.audio-share/bin/audio-share 
+0 1735  
+0 1799  
+12468 1847 /opt/usr/apps/com.samsung.tv.ghdaemon/bin/ghdaemon /opt/usr/apps/com.samsung.tv.ghdaemon/bin/ghdaemon `zaybxcwdveuftgsh` 
+7600 1854 /opt/usr/apps/com.samsung.tv.contentservicemanager/bin/content-tiles-provider /opt/usr/apps/com.samsung.tv.contentservicemanager/bin/content-tiles-p
+10960 1857 /usr/bin/qse-daemon /usr/bin/qse-daemon 
+3820 1858 /usr/bin/content-db-provider /usr/bin/content-db-provider 
+13272 1874 /opt/usr/apps/org.tizen.voice-client/bin/voice-client /opt/usr/apps/org.tizen.voice-client/bin/voice-client `zaybxcwdveuftgs
+1604 189 /prd/usr/bin/kfactoryd /prd/usr/bin/kfactoryd 
+0 19  
+9732 1944 /opt/usr/apps/com.samsung.tizen.mcf-agent/bin/mcf-agent /opt/usr/apps/com.samsung.tizen.mcf-agent/bin/mcf-agent `zaybxcwdveuft
+0 196  
+6544 1967 /usr/bin/coreapp-service /usr/bin/coreapp-service 
+9072 1969 /usr/bin/device-policy-manager /usr/bin/device-policy-manager -o 5000 
+0 19811  
+6928 1992 /usr/bin/esd /usr/bin/esd 
+9956 1998 /opt/usr/apps/com.samsung.tv.contentservicemanager/bin/contentservicemanager /opt/usr/apps/com.samsung.tv.contentservicemanager/bin/contentservicem
+0 2  
+23148 2000 /usr/bin/dotnet-launcher-inhouse /opt/usr/apps/org.tizen.art-app/bin/ArtApp.dll                        
+2996 2002 /usr/bin/focus_server /usr/bin/focus_server -S 
+3072 2003 /usr/bin/gamebar-service /usr/bin/gamebar-service 
+9440 2005 /usr/bin/issue_report_agent /bin/issue_report_agent 
+5128 2010 /usr/bin/abnormal_user_behavior /bin/abnormal_user_behavior 
+8756 2011 /usr/bin/devicetracker /bin/devicetracker 
+3056 2014 /usr/bin/mirroring-recognition-manager /usr/bin/mirroring-recognition-manager 
+5712 2015 /usr/bin/aisctrlmgr_server /usr/bin/aisctrlmgr_server -s org.tizen.AISControlManager __LAUNCH_APP
+12548 2016 /opt/usr/apps/org.tizen.dseal/bin/dseal /opt/usr/apps/org.tizen.dseal/bin/dseal 
+12740 2021 /usr/bin/mbr-daemon /usr/bin/mbr-daemon 
+6816 2027 /usr/bin/register-device /usr/bin/register-device 
+8224 2028 /usr/apps/org.tizen.registertv/bin/registertv /usr/apps/org.tizen.registertv/bin/registertv 
+13240 2029 /usr/bin/remote-server /usr/bin/remote-server 
+8808 2030 /usr/apps/org.tizen.bt-settings-external-controller/bin/bt-settings-external-controller /usr/apps/org.tizen.bt-settings-external-controller/bin/bt-settings-ex
+4392 2031 /usr/bin/SCSAgent /usr/bin/SCSAgent 
+17936 2033 /usr/bin/settings-service /usr/bin/settings-service 
+11368 2034 /usr/bin/source-service /usr/bin/source-service 
+1260 2035 /usr/bin/vddebugmenu /usr/bin/vddebugmenu 
+7340 2037 /usr/bin/was_background_update /usr/bin/was_background_update 
+19576 2038 /usr/bin/data-service /usr/bin/data-service 
+7372 2039 /usr/bin/media-server /usr/bin/media-server 
+12116 2043 /usr/bin/screen-analysis-service-manager /usr/bin/screen-analysis-service-manager & 
+4448 2044 /opt/usr/apps/com.samsung.tv.ai-interpreter-service/bin/ai-interpreter-service /opt/usr/apps/com.samsung.tv.ai-interpreter-service/bin/ai-interpreter
+5744 2098 /usr/apps/com.samsung.tv.aoc-enabler/bin/aoc-enabler /usr/apps/com.samsung.tv.aoc-enabler/bin/aoc-enabler `zaybxcwdveuftgsh
+0 21  
+0 21098  
+9800 2152 /opt/usr/apps/com.samsung.tv.vd-sc-client-service/bin/vd-sc-client-service /opt/usr/apps/com.samsung.tv.vd-sc-client-service/bin/vd-sc-client-ser
+0 22  
+9768 2250 /opt/usr/apps/com.samsung.tizen.smartthings-client/bin/smartthings-client /opt/usr/apps/com.samsung.tizen.smartthings-client/bin/smartthings-cli
+0 23  
+0 23826  
+2740 239 /usr/bin/bash /bin/sh /usr/bin/launchpad-process-pool.sh init 
+0 2408  
+0 24492  
+0 245  
+0 246  
+2308 249 /usr/bin/fconfigd fconfigd -d 
+0 25  
+0 25059  
+27576 252 /usr/bin/enlightenment /usr/bin/enlightenment 
+0 25317  
+0 25318  
+6912 2573 /usr/bin/key-manager /usr/bin/key-manager 
+3640 2577 /usr/bin/gamepad-service /usr/bin/gamepad-service 
+976 2578 /usr/sbin/mdnsd /usr/sbin/mdnsd -debug 
+13756 2583 /usr/bin/qdinfo-daemon /usr/bin/qdinfo-daemon 
+12948 2585 /usr/apps/org.tizen.webappservice/bin/webappservice /usr/apps/org.tizen.webappservice/bin/webappservice 
+9412 2588 /usr/bin/pushd /usr/bin/pushd 
+0 25976  
+0 25998  
+0 26314  
+0 26404  
+0 26479  
+0 26483  
+0 26590  
+0 26595  
+0 26778  
+3572 268 /usr/bin/launchpad-process-pool /usr/bin/launchpad-process-pool 
+0 26870  
+0 26905  
+0 26945  
+0 26960  
+0 27  
+0 27029  
+0 27055  
+0 27159  
+0 27160  
+0 27218  
+9712 27228 /usr/apps/org.tizen.acm-service/bin/acm-service /usr/apps/org.tizen.acm-service/bin/acm-service 
+14788 27293 /usr/bin/contents-recognition-service /usr/bin/contents-recognition-service & 
+7476 27294 /usr/bin/contents-ui-detector-service /usr/bin/contents-ui-detector-service & 
+0 27340  
+540 27422 /usr/bin/launchpad-process-pool /usr/bin/process-pool [loader]  
+0 27451  
+0 27491  
+0 27492  
+0 27494  
+0 27495  
+0 27686  
+0 27688  
+0 27689  
+0 27690  
+0 27694  
+0 27697  
+0 27698  
+0 27699  
+0 27700  
+0 27701  
+0 27702  
+0 27703  
+0 27704  
+0 27705  
+0 27720  
+0 27724  
+48952 27746 /usr/apps/org.tizen.hbbtv/bin/hbbtv_app /usr/apps/org.tizen.hbbtv/bin/hbbtv_app `zaybxcwdveuftgsh` __NO_RAISE_
+10168 27770 /usr/bin/appbinary-manager /usr/bin/appbinary-manager 
+6596 27787 /opt/usr/apps/com.samsung.tizen.hrs-agent.storage/bin/hrs-agent.storage /opt/usr/apps/com.samsung.tizen.hrs-agent.storage/bin/hrs-agent.storag
+6368 27839 /usr/bin/dta-agent /usr/bin/dta-agent 
+15408 27863 /opt/usr/apps/com.samsung.tv.termsclient/bin/termsclient /opt/usr/apps/com.samsung.tv.termsclient/bin/termsclient `zaybxcwdveuf
+0 28  
+5820 280 /usr/sbin/buxton2d /usr/sbin/buxton2d -f 
+0 28148  
+28608 28237 /usr/bin/efl_webprocess /usr/bin/efl_webprocess --type=zygote --no-sandbox --/usr/apps/org.tiz
+0 28429  
+0 28435  
+10000 2847 /opt/usr/apps/com.samsung.tizen.samsung-cloud/bin/samsungcloud /opt/usr/apps/com.samsung.tizen.samsung-cloud/bin/samsungcloud `zaybxc
+0 28530  
+0 28540  
+548 28558 /usr/bin/launchpad-process-pool /usr/bin/process-pool [app]     
+0 28586  
+8188 28595 /usr/bin/SWUService /usr/bin/SWUService --idle-timeout 30 
+12464 28600 /usr/bin/SWUCoreTV /usr/bin/SWUCoreTV --idle-timeout 30 
+308 28624 /usr/bin/sleep sleep 10 
+1272 28627 /usr/bin/bash /bin/sh -c date -u; echo ---MEM---; grep -E 'MemTotal|MemFree|MemAvail
+4872 288 /usr/bin/security-manager /usr/bin/security-manager 
+6504 2893 /opt/usr/apps/org.tizen.tts-engine-neural/bin/tts-engine-neural /opt/usr/apps/org.tizen.tts-engine-neural/bin/tts-engine-neural `zaybx
+0 29  
+11164 2909 /opt/usr/apps/com.samsung.tv.bixbycapsuleviewer/bin/bixbycapsuleviewer /opt/usr/apps/com.samsung.tv.bixbycapsuleviewer/bin/bixbycapsuleviewer
+2136 291 /usr/apps/privileged-service/bin/ps_agent /usr/apps/privileged-service/bin/ps_agent 
+0 2917  
+0 292  
+0 2932  
+504 295 /usr/bin/smack-logger /usr/bin/smack-logger 
+18972 2991 /usr/bin/dotnet-loader /usr/apps/com.samsung.tv.virtual-remote/bin/VirtualRemoteControl.Tizen
+0 3  
+0 31  
+3656 311 /prd/usr/bin/buxton2d_lite /prd/usr/bin/buxton2d_lite -f 
+13796 3183 /opt/usr/apps/com.samsung.tv.context-aware-service/bin/context-aware-service /opt/usr/apps/com.samsung.tv.context-aware-service/bin/context-aware-s
+4704 319 /usr/bin/securestorage-policy-manager /usr/bin/securestorage-policy-manager 
+5660 3193 /usr/bin/csf-content-engine /usr/bin/csf-content-engine 
+6368 3196 /usr/bin/psa-init /usr/bin/psa-init 
+5732 3198 /usr/bin/sfpmd /usr/bin/sfpmd 
+5732 3199 /usr/apps/org.tizen.NW-Daemon/bin/NW-Daemon /usr/apps/org.tizen.NW-Daemon/bin/NW-Daemon 
+4036 3200 /usr/bin/aifw-data-managerd /usr/bin/aifw-data-managerd 
+6256 3201 /usr/bin/alarm-server /usr/bin/alarm-server 
+0 323  
+0 326  
+0 33  
+0 331  
+4000 3348 /usr/sbin/awm-app /sbin/awm-app 
+7476 3350 /opt/usr/apps/com.samsung.tv.context-aware-agent/bin/context-aware-agent /opt/usr/apps/com.samsung.tv.context-aware-agent/bin/context-aware-age
+864 3351 /usr/bin/bash /bin/sh -c RET=`/usr/bin/app_launcher -r com.samsung.tv.multiscreen`; 
+10252 3358 /usr/bin/contents-cognition-service-manager /usr/bin/contents-cognition-service-manager & 
+2296 3359 /usr/bin/dapi-provider /usr/bin/dapi-provider 
+6024 3360 /usr/sbin/user-presence /usr/sbin/user-presence 
+4280 3362 /usr/bin/mediacontroller /usr/bin/mediacontroller 
+0 337  
+6120 338 /usr/apps/boot-helper-dyboost-tv/bin/boot-helper-dyboost-tv /usr/apps/boot-helper-dyboost-tv/bin/boot-helper-dyboost-tv 
+10584 3382 /usr/bin/dotnet-launcher-inhouse /opt/usr/apps/com.samsung.tv.MultiControl-Service/bin/MultiControlServ
+0 34  
+3260 3402 /usr/bin/app_launcher /usr/bin/app_launcher -s com.samsung.tv.multiscreen launchstyle backgr
+14104 3411 /usr/bin/dotnet-launcher-inhouse /usr/apps/com.samsung.tv.preview-updater/bin/preview-updater.dll      
+6396 3418 /usr/apps/com.samsung.tv.cis-api-service-app/bin/cis-api-service-app /usr/apps/com.samsung.tv.cis-api-service-app/bin/cis-api-service-app `
+0 342  
+29532 3425 /usr/bin/dotnet-launcher-inhouse /opt/usr/apps/com.samsung.tv.quicklaunch/bin/QuickLaunch.dll          
+32440 3428 /usr/bin/dotnet-launcher-inhouse /usr/apps/com.samsung.tv.multiscreen/bin/MultiScreen.dll              
+0 343  
+0 344  
+0 345  
+0 346  
+0 347  
+17076 3475 /opt/usr/apps/org.tizen.easysetup-daemon/bin/org.tizen.easysetup-daemon /opt/usr/apps/org.tizen.easysetup-daemon/bin/org.tizen.easysetup-daemo
+0 348  
+0 349  
+0 35  
+0 350  
+5788 3516 /usr/bin/sesd /usr/bin/sesd 
+0 36  
+9908 3606 /opt/usr/apps/com.samsung.tizen.smartthings-thing/bin/smartthings-thing /opt/usr/apps/com.samsung.tizen.smartthings-thing/bin/smartthings-thin
+6140 3612 /usr/bin/tagproDir/tztv-tagpro-daemon /usr/bin/tagproDir/tztv-tagpro-daemon 10 0 
+8796 3614 /opt/usr/apps/com.samsung.tv.pisa-service/bin/pisa-service /opt/usr/apps/com.samsung.tv.pisa-service/bin/pisa-service 
+11192 3617 /usr/apps/org.tizen.registerav/bin/registerav /usr/apps/org.tizen.registerav/bin/registerav 
+0 3689  
+0 37  
+3016 3738 /usr/bin/sessiond /usr/bin/sessiond 
+2908 375 /usr/bin/bash /bin/bash /usr/bin/pm_monitor.sh 319 
+0 3765  
+0 38  
+3628 3807 /usr/sbin/wifi_state_manager /sbin/wifi_state_manager 
+844 3817 /usr/apps/org.tizen.cbhm/bin/cbhm-service /usr/apps/org.tizen.cbhm/bin/cbhm-service 
+0 3828  
+0 3836  
+0 3840  
+0 39  
+7964 3914 /usr/bin/QSysHDMIErrorHistory /usr/bin/QSysHDMIErrorHistory 
+7676 3946 /opt/usr/apps/com.samsung.tv.smartthingsfind-daemon/bin/stfind-daemon /opt/usr/apps/com.samsung.tv.smartthingsfind-daemon/bin/stfind-daemon 
+0 4  
+0 40  
+33248 4039 /usr/bin/dotnet-loader /opt/usr/apps/com.samsung.tv.aov-dashboard/bin/aov-dashboard.dll      
+4800 4040 /usr/bin/bam_service /usr/bin/bam_service 
+4464 4042 /opt/usr/apps/com.samsung.tv.canalysis-service/bin/canalysis-daemon /opt/usr/apps/com.samsung.tv.canalysis-service/bin/canalysis-daemon 
+8040 4056 /usr/apps/com.samsung.tv.waapp-contents-provider/bin/waapp-contents-provider /usr/apps/com.samsung.tv.waapp-contents-provider/bin/waapp-contents-pr
+0 409  
+0 41  
+0 4100  
+0 411  
+0 412  
+0 413  
+5636 4176 /usr/bin/com.samsung.tv.wifi-presence /usr/bin/com.samsung.tv.wifi-presence 
+17328 4193 /opt/usr/apps/com.samsung.tv.utterance-recommender-service/bin/utterance-recommender-core /opt/usr/apps/com.samsung.tv.utterance-recommender-service/bin/utteran
+13088 4194 /opt/usr/apps/com.samsung.tv.lightweight-node-service/bin/spotifyd /opt/usr/apps/com.samsung.tv.lightweight-node-service/bin/spotifyd `za
+0 42  
+0 420  
+0 422  
+0 425  
+11272 4250 /usr/bin/pvr-service /usr/bin/pvr-service 
+6152 4251 /usr/bin/resourced /usr/bin/resourced 
+0 426  
+10828 4265 /opt/usr/apps/com.samsung.tv.tvsensor-iot-service/bin/tvsensor-iot-service /opt/usr/apps/com.samsung.tv.tvsensor-iot-service/bin/tvsensor-iot-ser
+0 427  
+0 428  
+0 43  
+24368 4312 /usr/bin/dotnet-loader /usr/bin/dotnet-loader     0                                          
+10064 4317 /usr/apps/dmr_service_app/bin/dmr /usr/apps/dmr_service_app/bin/dmr `zaybxcwdveuftgsh` __AUL_STARTTIME__
+9588 4366 /opt/usr/apps/com.samsung.tv.tap-service-agent/bin/tap-service-agent /opt/usr/apps/com.samsung.tv.tap-service-agent/bin/tap-service-agent `
+7876 4367 /usr/apps/capi-bnr-tv/bin/bnr-service /usr/apps/capi-bnr-tv/bin/bnr-service `zaybxcwdveuftgsh` __AUL_STARTTI
+12300 4396 /opt/usr/apps/com.samsung.tv.targeted-ad-service/bin/targeted-ad-service /opt/usr/apps/com.samsung.tv.targeted-ad-service/bin/targeted-ad-servi
+13212 4397 /usr/apps/com.samsung.tv.aisound-app/bin/com.samsung.tv.aisound-app /usr/apps/com.samsung.tv.aisound-app/bin/com.samsung.tv.aisound-app `z
+0 440  
+4016 4409 /usr/bin/color-pick /usr/bin/color-pick 
+0 441  
+9936 4411 /usr/apps/global-notif-service/bin/global-notif-service /usr/apps/global-notif-service/bin/global-notif-service 
+7548 4412 /usr/bin/msf-server /usr/bin/msf-server 
+5696 4413 /usr/bin/aifw-msf-service /usr/bin/aifw-msf-service 
+5852 4414 /usr/apps/org.tizen.webserver/bin/webserver /usr/apps/org.tizen.webserver/bin/webserver 
+2440 4415 /prd/usr/bin/product-operating /prd/usr/bin/product-operating 
+7760 4417 /usr/apps/pvod-appfw/bin/pvodservice /usr/apps/pvod-appfw/bin/pvodservice 
+4524 4418 /usr/bin/reclaimd /usr/bin/reclaimd 
+4892 4420 /usr/apps/org.tizen.sddp/bin/SDDP /usr/apps/org.tizen.sddp/bin/SDDP 
+6856 4421 /usr/bin/sc_init_instance /usr/bin/sc_init_instance 
+9340 4422 /usr/bin/usb-launcher-service /usr/bin/usb-launcher-service 
+5456 4425 /usr/bin/wireless-cam-service /usr/bin/wireless-cam-service 
+20836 445 /usr/apps/org.tizen.tv-viewer/bin/tv-viewer /usr/apps/org.tizen.tv-viewer/bin/tv-viewer `zaybxcwdveuftgsh` cmd GQA
+8512 4493 /opt/usr/apps/com.samsung.tv.buds-scanner/bin/buds-scanner /opt/usr/apps/com.samsung.tv.buds-scanner/bin/buds-scanner `zaybxcwdve
+11764 4494 /opt/usr/apps/com.samsung.tv.vif/bin/voice-interaction-framework /opt/usr/apps/com.samsung.tv.vif/bin/voice-interaction-framework `zayb
+0 450  
+0 451  
+0 452  
+23844 4532 /usr/bin/dotnet-launcher-inhouse /opt/usr/apps/com.samsung.tv.home.art/bin/HomeArt.dll                 
+29252 4578 /usr/bin/dotnet-launcher-inhouse /usr/apps/org.tizen.menu/bin/org.tizen.menu.dll                       
+6464 4596 /usr/bin/emergencyLogTransmitter /usr/bin/emergencyLogTransmitter 
+0 460  
+8796 4603 /usr/apps/screen_sharing/bin/screen_sharing /usr/apps/screen_sharing/bin/screen_sharing 
+24312 4628 /opt/usr/apps/org.tizen.browser/bin/browser /opt/usr/apps/org.tizen.browser/bin/browser `zaybxcwdveuftgsh` Preload
+0 466  
+9540 4665 /usr/bin/tvs-ht-service /usr/bin/tvs-ht-service 
+21700 467 /usr/apps/org.tizen.volume-app/bin/volume-app /usr/apps/org.tizen.volume-app/bin/volume-app `zaybxcwdveuftgsh` __AUL
+104184 468 /usr/bin/dotnet-launcher-inhouse /opt/usr/apps/com.samsung.tv.csfs/bin/csfs.dll                        
+0 469  
+4572 4703 /usr/apps/org.tizen.autofilld/bin/autofilld /usr/apps/org.tizen.autofilld/bin/autofilld `zaybxcwdveuftgsh` __K_RPC
+0 4705  
+0 4729  
+0 4760  
+0 479  
+11984 4802 /usr/bin/efl_webprocess /usr/bin/efl_webprocess --type=zygote --no-sandbox --/opt/usr/apps/org
+7204 4895 /usr/bin/efl_webprocess /usr/bin/efl_webprocess --type=renderer --application-type=0 --/opt/us
+7000 4896 /opt/usr/apps/com.samsung.tizen.samsung-pass-agent/bin/samsung-pass-agent /opt/usr/apps/com.samsung.tizen.samsung-pass-agent/bin/samsung-pass-ag
+0 499  
+/bin/sh: /proc/4kbtin/cmdline: Not a directory
+0 4kbtin  
+0 5007  
+0 502  
+0 5036  
+0 504  
+0 506  
+10600 5099 /usr/bin/bt.connectionmanager /usr/bin/bt.connectionmanager 
+5236 5342 /usr/bin/wrt-service /usr/bin/wrt-service `zaybxcwdveuftgsh` __APP_SVC_OP_TYPE__ UgAAAAEEAA
+9452 5394 /usr/bin/SWUAutoUpgrade /usr/bin/SWUAutoUpgrade 
+94268 5448 /opt/usr/apps/org.tizen.netflix-app/bin/netflix-app /opt/usr/apps/org.tizen.netflix-app/bin/netflix-app `zaybxcwdveuftgsh`
+21344 545 /usr/bin/wrt /usr/bin/wrt-loader     0                                             
+3156 5524 /opt/usr/apps/Ddrm/ReporterTA/bin/reporter-ca /opt/usr/apps/Ddrm/ReporterTA/bin/reporter-ca 
+0 554  
+0 5627  
+0 572  
+0 585  
+0 589  
+0 591  
+0 595  
+0 6  
+0 62  
+6652 623 /usr/bin/resource-center /usr/bin/resource-center 
+4884 624 /usr/bin/rscmgr-service /usr/bin/rscmgr-service 
+0 6269  
+0 63  
+19464 6332 /opt/usr/apps/org.tizen.ScreenMirroring-app-tv/bin/screenmirroring-app-tv /opt/usr/apps/org.tizen.ScreenMirroring-app-tv/bin/screenmirroring-app
+7856 639 /usr/bin/tvs-lite /usr/bin/tvs-lite 
+13756 640 /usr/bin/amd /usr/bin/amd 
+13236 641 /opt/usr/apps/com.samsung.tv.pisa-service/bin/adagent-service /opt/usr/apps/com.samsung.tv.pisa-service/bin/adagent-service 
+14904 642 /usr/bin/tvs-daemon /usr/bin/tvs-daemon 
+16460 645 /usr/bin/tvctx-manager /usr/bin/tvctx-manager /etc/tvctx-manager/appctx-config.json /etc/tvct
+0 6474  
+10692 648 /usr/bin/bt-service /usr/bin/bt-service 
+8148 650 /usr/apps/org.tizen.bleapp/bin/bleapp /usr/apps/org.tizen.bleapp/bin/bleapp 
+15424 651 /opt/usr/apps/com.samsung.tv.slive-daemon/bin/bms-service /opt/usr/apps/com.samsung.tv.slive-daemon/bin/bms-service 
+11936 653 /usr/bin/ci-daemon /usr/bin/ci-daemon 
+18968 654 /usr/bin/launchpad-loader /usr/apps/com.samsung.tv.sboard-app/bin/sboard-app                    
+0 67  
+12572 671 /usr/bin/common-daemon-basic-monitor /usr/bin/common-daemon-basic-monitor 
+29040 6742 /usr/bin/wrt /opt/usr/apps/HEPsqFNie0/bin/HEPsqFNie0.tvplusstandalone `zaybxcwdveuf
+4068 675 /usr/sbin/connman-logger /usr/sbin/connman-logger 
+3524 676 /usr/sbin/connmand /usr/sbin/connmand --nodnsproxy --nodaemon --noplugin vpn 
+8756 683 /usr/bin/avocd /usr/bin/avocd -d 
+0 6836  
+6956 687 /usr/bin/deviced /usr/bin/deviced 
+0 6980  
+36548 7072 /usr/bin/aria-engine /usr/bin/aria-engine `zaybxcwdveuftgsh` __APP_SVC_OP_TYPE__ UgAAAAEEAA
+0 7114  
+17032 7221 /opt/usr/apps/com.samsung.tv.mde-framework/bin/mde-framework /opt/usr/apps/com.samsung.tv.mde-framework/bin/mde-framework `zaybxcwd
+9912 7251 /opt/usr/apps/com.samsung.tv.iot-hub-control/bin/iot-hub-control /opt/usr/apps/com.samsung.tv.iot-hub-control/bin/iot-hub-control `zayb
+11324 726 /usr/bin/hdmicec-service /usr/bin/hdmicec-service 
+1464 734 /usr/sbin/launcher-security /usr/sbin/launcher-security 
+15200 735 /usr/bin/nagsam-daemon /usr/bin/nagsam-daemon 
+85652 7371 /usr/apps/com.samsung.tv.cobalt/bin/cobalt_launcher /usr/apps/com.samsung.tv.cobalt/bin/cobalt_launcher `zaybxcwdveuftgsh`
+0 7415  
+0 75  
+0 750  
+0 751  
+0 757  
+0 758  
+0 76  
+0 77  
+0 770  
+0 78  
+0 79  
+0 80  
+0 81  
+5772 839 /usr/sbin/net-config /usr/sbin/net-config 
+0 84  
+11164 845 /usr/bin/screend /usr/bin/screend 
+0 85  
+0 854  
+0 891  
+0 892  
+0 9  
+44596 944 /usr/bin/dotnet-launcher-inhouse /opt/usr/apps/com.samsung.tv.home.sidebar/bin/HomeSidebar.dll         
+2144 955 /usr/bin/tzdaemon /usr/bin/tzdaemon 
+15628 958 /opt/usr/apps/com.samsung.tv.slive-daemon/bin/slive-provider-daemon /opt/usr/apps/com.samsung.tv.slive-daemon/bin/slive-provider-daemon 
+6548 962 /usr/bin/app-defined-loader /usr/bin/app-defined-loader     0                                     
+---PKGCMD---
+0

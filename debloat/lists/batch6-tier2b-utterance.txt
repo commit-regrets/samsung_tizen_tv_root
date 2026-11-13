@@ -1,0 +1,6 @@
+# Batch 6 - the parked voice-recommender service.
+# The package `com.samsung.tv.utterance-recommender-service` has no app row,
+# but its service component `com.samsung.tv.utterance-recommender-core` does
+# (app_component=svcapp, app_onboot=true). `pkgcmd -D -t app -n <core>` works;
+# the UI component `...-app` was already disabled in batch 3.
+com.samsung.tv.utterance-recommender-core

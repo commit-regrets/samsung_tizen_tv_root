@@ -1,0 +1,216 @@
+# Log guide — every beacon and tool error, what it means, what to do
+
+Audience: the next agent or human reading a log cold. Everything here is also
+encoded in `tools/beacons.py` (machine-readable decoding of the beacon log);
+this file is the reference it points to. History and *why* live in
+`CHANGELOG.md` / `docs/OPEN-ISSUES.md`; this file only says what a line means
+**now** and what to do about it.
+
+## Where logs live
+
+| Path | What |
+|---|---|
+| `server/logs/beacons.log` | one line per `DSHROOT …` beacon — **start here** |
+| `share/root_boot.txt` (on the TV) | the same beacons, written locally by the payload (survives when the PC is unreachable) |
+| `server/logs/shell.log(.1)` | rolling TV shell/console capture (8 MB rotation) |
+| `server/logs/server.out/.err` | the port-80 server |
+| `server/logs/tv/` | exploit-page POST `/save` dumps (newest 100) |
+
+Fast path: `python tools/beacons.py` (add `--last 1`, or `--json` for
+machines). It groups the log into boots, names each attempt's outcome, and
+prints the hints below.
+
+## How to read a boot in 30 seconds
+
+1. `tail -5 server/logs/beacons.log` — a fresh `ROOTCHAN 31337 uid=0` means
+   rooted and serving; **stop here**.
+2. No fresh lines after a boot → the app never started (boot row gone / DLL
+   broken / TV in standby — the remote power button is standby, not a boot)
+   **or** the PC was unreachable (server on :80 must run as `pysrv.exe`,
+   never `python.exe` — the firewall blocks the latter).
+3. Fresh lines without `SUCCESS-R00T`/`ROOTCHAN` → run
+   `python tools/beacons.py --last 1` and read the verdict + findings.
+4. Cross-check with the TV-side marker (needs the browser lane or a shell):
+   `cat /opt/usr/home/owner/share/root_boot.txt` — it has lines the PC never
+   received if the server was down.
+
+## Beacon dictionary
+
+On the PC, lines are `<timestamp> DSHROOT tok=<hex> t=<n>s <payload line>`:
+`tok=` (v41) is the deploy-rendered beacon token, and `t=` is TV kernel
+uptime, which resets on a cold boot (that reset is how boots are delimited).
+The on-TV marker keeps the `t=<n>s <payload line>` shape (no token).
+
+### Lifecycle
+
+| Line | Meaning | Action |
+|---|---|---|
+| `start uid=5001 pid=<p> [art=<md5>]` | AUL launched the app; fresh process. v46: the optional `art=` suffix is the artifact md5 the last deploy wrote to `rootchan.art`, read once at startup — so the newest run's `art=` names the DLL that process actually started with; a stale old process beaconed the PREVIOUS art at its own startup. **No `art=`** means a pre-v46 deploy, a hand-built payload (no `rootchan.art`), or a rolled-back deploy — unknown, **not** stale. Every start line also carries `tok=<deploy token>` (v41+), which `art=` alone cannot replace | normal; after a deploy `root.ps1` proves the relaunch with **two** witnesses from the newest launch: its `tok=` must equal the deploy output's `TOKEN_FILE=` (freshness — the same md5 can be redeployed, so identity alone cannot tell a survivor from a relaunch), and its `art=` must equal `ART_FILE=` (identity). `python tools/beacons.py --newest-start` prints both; the boot summary prints `artifact md5:` for the newest run |
+| `start uid=5001` (**no `pid=`**) | **test/forged noise**, not a launch: `Main()` always logs `pid=`, and the offline gateway tests used to write this shape with a fake `t=1s`. `beacons.py` drops it (and reports how many it ignored) so it cannot become a ghost boot. | ignore; real start lines carry `pid=` |
+| `attempt=<n> (fast mode|long retry mode)` | attempt counter (`/tmp/.dsh_try`, resets at boot); 1–4 fast, 5+ long | normal |
+| `kernel=<pa> init_task=<va>` | kernel image and `init_task` located | normal |
+| `cand n=<k> offs=<hex,…>` | task-list offset candidates (one line since v39; used to be k separate `cand off=` lines) | normal (several) |
+| `open <node> errno=<e> (absent), trying <next>` | the node does not exist here (ENOENT/ENODEV); v39.1 moves to the next | normal on a model with a different node numbering |
+| `open <node> errno=<e> (busy, retrying this node)` | video40 is held by another opener; the payload **stays** on it | normal during a deploy (browser stub) — do NOT expect a node switch: only video40 serves the payload's reads |
+| `open <node> still errno=<e> after <n>s` | the same wait, once per 30 s | a long hold; the payload keeps trying for the whole 120 s budget |
+| `device <node> fd=<n>` | the node that actually opened | normal |
+| `reopen <node> fd=<n>` | second open of the boot (after the base scan); `fd=-1` = still held | `-1`: the payload now exits early for a fresh process instead of burning rounds |
+| `fast-exit attempt=<n>` | process exiting so AUL relaunches (fresh mmap = allocation re-roll) | normal, by design since v9 |
+| `long-exit attempt=<n> count=<k>` | v45: a LONG-mode pass ended without root and exited for a fresh process; `count` is this boot's k-th exit (cap 3) | normal after the four fast attempts when the mapping is stale; expect a relaunch and a root on a later attempt. `count=3` means the next long pass idles — power-cycle from there |
+| `counter-write-failed file=<name> want=<n> got=<...>` | **v48:** a retry counter did not read back as written; `got=` is the value read back, `unreadable`, or the exception type | **not normal**; the write is never retried. `.dsh_try`: this pass runs in long mode (no fast-exit loop); `.dsh_long`: the exit is suppressed and the pass idles instead of risking an uncountable relaunch storm. Fix `/tmp` ownership (a diagnostic planted as root) or power-cycle |
+| `long-exit suppressed (counter write failed)` | **v48:** the incremented `.dsh_long` count did not persist, so the pass stays in-process rather than exiting into an uncountable loop | read the `counter-write-failed` line above; power-cycle if it persists |
+| `SUCCESS-R00T …` | cred patched, `uid=0` proven | done |
+| `device closed` | the node is free for the browser path | normal after SUCCESS, and on every early exit since v39 |
+| `ROOTCHAN 31337 uid=0 bind=<ip>` | command channel serving | done; `bind=0.0.0.0` = offline fallback (see BIND-FALLBACK) |
+| `exception <Type>: <msg>` | CLR crash | read the type; browser lane (`tv_rootwatch.py`) still works |
+
+### Hunt (finding the landmark)
+
+| Line | Meaning | Action |
+|---|---|---|
+| `retry in <n>s` | pre-round wait (fast `{0,0,5000,5000}`, long longer) | normal |
+| `round=<n> pre=<k>` | hunt round; `k` known old PHYRFORK tasks | normal |
+| `tail: <comm,…>` | task-tail comm dump; `per/0` names are normal, even on success | normal |
+| `child=<va> self=<va> pu=<uid\|unread> [tag=exact\|pid\|prefix\|none] [stale=<n>]` | landmark child latched. `tag=` is how it was accepted: `exact` = the per-run tag, `pid` = `task->pid == task->tgid == fork()`'s pid, `prefix` = the legacy parent-uid rule (v44: **only** when the pid words could not be read - a readable pid that is zero or different is refused), `none` = the v23 `maybe` latch with no positive evidence (`PatchCred` still refuses a non-5001 cred). `stale=` counts landmarks **refused in that same walk** as leftovers from an earlier run; since v44 it is per-poll like `seen`/`skip-orphan`, not cumulative. `pu=unread` is normal (the parent-side cred line is the stale one) and `self=00000000` is normal (stale comm/pointer line) | normal |
+| `fail no new PHYRFORK seen=<n> skip-orphan=<n> stale-tag=<n> pu=<x>` | the new landmark never appeared; `stale-tag` counts the leftovers that walk refused (v44 tri-state pid check; per-poll, so it is the final poll's count) | see `docs/OPEN-ISSUES.md` fifth pass; usually recovers next attempt |
+| `fail round <n>` | attempt ended unrooted | expected on attempt 1 (below); attempt 2+ failing repeatedly → run beacons.py, check findings |
+
+### Patch paths (in the order they run)
+
+| Line | Meaning | Action |
+|---|---|---|
+| `self cred=<va> real=<va>` / `self-patch uid=<n>` | patched our own task's cred | `uid=0` = rooted |
+| `direct-parent+<off>=<va> cred=<va>` | child→real_parent→cred read 5001 | the working path on nearly every boot |
+| `direct-patch uid=0` | root confirmed after that patch | done |
+| `direct-patch-fail …` | write did not stick (stale/cached) | scan fallback follows; watch `cred-scan` |
+| `parent=<va> cred=<va>` / `parent-patch uid=<n>` | comm-scan path (slow lane) | fine if it ends in `uid=0` |
+| `high-alloc parent=<va> cred=<w> real=<w> junk=<0\|1> fast-exit` | **v33 gate**: parent task or cred at/above `0xE0000000` — unreadable, wait cannot help | **normal, not an error**: `0xE0000000` (phys `0x40000000`) is the edge of the 156 MiB no-map carve-out (DT reserved@0-4, measured 2026-11-03), where the video-node read path returns foreign display/DMA content — corrected 2026-11-05: kernel tasks DO get allocated in the band (the RAM dump's init_task list points at a live band task, VA `0xE5628000`); the pointer is often real, the CONTENT is unreadable through ANY video node (video60 verified identical live — a cred read as UTF-16 UI text) — mechanism in `docs/OPEN-ISSUES.md` item 2; a fresh process re-rolls the allocation into the readable range; expect the next attempt to root |
+| `high-scan C=… P=… pp=… cp=… pc= hits= at= cred= cuid= cov= ms= verdict=…` | **v38 read-only probe** answering *why* the high half is unreadable (tasks are not page-aligned: `at=` is the TASK address, found by the per-run comm tag at any offset — the NUL is verified one byte past the tag, across the page edge; v44 fixed that offset, so a pre-v44 `hits=0`/`miss` on a real tag is a probe bug, not evidence — and validated against the children list linking `&child->sibling`, task+0x2F8 ↔ child+0x300, DWARF-confirmed) | `verdict=linear` (`pc=1`: the comm read at the translated parent address itself) → video40 returned wrong bytes for a frame it can address (read-path failure); `verdict=elsewhere` → the `va-0xA0000000` translation is the bug, and `cuid=5001` on `at=` would mean a locate-and-patch read path is possible; `cred-elsewhere` → an owner-ids cred was found in the sweep (the child's own fork-copy cred is excluded); it is **not** evidence about the high half, because `at=`/`cred=` are PHYSICAL while `C=`/`P=` are virtual — a linear hit on parent `0xe2df7300` reads `P=e2df7300 at=42df7300`, and `cuid=5001` on `verdict=linear` simply means the frame was readable; `comm-only`/`miss`/`cred-miss` → inconclusive, read `cov=`, the range ACTUALLY read (a miss is not evidence of absence). Mechanism note (measured 2026-11-03, `docs/OPEN-ISSUES.md` item 2): every post-v44 high parent translated into the 156 MiB no-map carve-out band (phys 0x40000000-0x49C00000, `pc=0` in all nine) — the band is real RAM the kernel allocates from (corrected 2026-11-05: a live band task at VA `0xE5628000` is dump-proven), but the video-node view of it is display/DMA buffers, so a band hit would be foreign content, never the task; and a `miss` covers only the ±16 MiB sweep band (`SpanPages=4096`, 6-32 MiB of the 512 MiB band), so it is a bounded miss, never evidence of absence |
+| `cred-scan ROOT\|miss patched=<n> total=<n>` | v28 content scan near the child's cred (budget 8/process) | `ROOT` = rooted via scan; `miss` = ran, ours still stale |
+| `cred-scan skip anchor=<va> cuid=<u>` | scan gate closed (child cred page itself stale) | expected in the stale window |
+| `direct-probe pr=<n> po=<off> …` | fifth-pass diagnostic on the stale path (silent on success). `cred=00000000` + `cuid=5001` = the v27 stale-own-pointer signature; `plain=`/`head=`/`map=`/`pva=` split pointer-stale from content-stale | informational; see `docs/OPEN-ISSUES.md` fifth pass for the decoder ring |
+
+### Channel and housekeeping
+
+| Line | Meaning | Action |
+|---|---|---|
+| `chan bind <ip> failed (…), using any` | no route to the PC at start; wildcard fallback | expected offline boots; allowlist still filters — keep the set off untrusted networks |
+| `chan rebind <ip>` | TV address moved; listener followed | normal |
+| `chan deny <ip>` | peer not in `rootchan.allow` (fails closed) | if it was you: update `share/rootchan.allow` |
+| `chan fail <msg> (retrying in 5s)` | listener error; v39 retries instead of giving up | read msg; a transient bind heals without a reboot (the payload keeps trying) |
+| `[timeout: killed after 120s]` (in a reply) | a runaway command was killed; channel survived | by design (the v12 pipe fix; v39 raised the cap from 15 s to cover deploy/uninstall) |
+| `[output truncated at 1048576 bytes of <n>]` | `Run()` capped the reply (v39) | redirect big output to a file on the TV, or read it in slices |
+| `autoupdate [system] … = Int32: 0` | auto-update re-asserted off | normal; anything else → set it by hand (AGENTS.md §1) |
+| `physmap window at <va> slots=2048x8000` | alias-correct window reserved | normal |
+| `physmap window unavailable / off: …`, `physmap fixed map failed …` | window fallback/teardown | stale reads likelier; a later AUL launch re-rolls the mapping |
+| `fail open node after 120s=<-1> errno=<e>` | every physmap node was held for the whole retry | a browser stub or wedged process owns them; wait ~2 min or power-cycle; check `/dev/video*` |
+| `fail no kernel image / no init_task / no task offsets` | memory scan found nothing this attempt | usually early-boot chaos, later attempt recovers; persistent on new firmware = re-measure constants (`docs/PORTABILITY.md`) |
+
+### `BLIND-WALK` (derived by `tools/beacons.py`, not a beacon line)
+
+The analyzer adds it to a boot that ran a whole LONG-mode pass with `seen=0` in
+**every** round and never rooted: the task-list walk read nothing at all, so an
+in-process retry cannot help — only a fresh process re-rolls. Next step: a mains
+power-cycle. This is the 2026-11-01 deploy-restart shape (`AGENTS.md` trap 18);
+the in-payload fix is designed in `docs/V45-BLIND-WALK.md`.
+
+### Service masks (v42, debloat)
+
+The payload re-applies `/opt/usr/data/debloat-masks.txt` on its own thread after
+it roots, so these lines appear on every boot where the policy file exists.
+Codes: `MASK-BEGIN`, `MASK-OK`, `MASK-FAIL`, `MASK-SKIP`, `MASK-UNVERIFIED`,
+`MASK-CRASH` (`MASK-DEADLINE` is the retired v42.0 stop loop).
+
+| Line | Meaning | Action |
+|---|---|---|
+| `masks begin n=<n>` | the step started with n policy entries | expect the result within ~25 s; no result line at all means the thread died — look for `masks exception` |
+| `masks=<m> stopped=<k> killed=<j> fail=0 missing=0 activating=<g> listed-activating=0 loop-check=ok newhome=…` | applied and verified: m masks written, k units confirmed down, j stragglers killed | nothing to do. `activating=<g>` is context only (unrelated units on an idle boot); `newhome=set(0)` is expected on Samsung Home; `loop-started` after a reboot is normal (the transient unit dies with it) |
+| `masks=… fail=<f>` | f listed units were still up after the stop window, plus reload/kill errors | `fail` is the number that must be 0. A `.socket`/`.path` unit has no process, so only its stop job can take it down; re-run `debloat/tools/mask.sh` for a human-paced retry |
+| `masks=… missing=<n>` | n listed names have no unit file | a vendor rename in an OTA — drop the name from `debloat/lists/services-units.txt` or re-map it; the payload intentionally skips instead of failing |
+| `masks skip (no /opt/usr/data/debloat-masks.txt)` | no policy file: the step is skipped | this is the documented revert (`uninstall.sh` deletes the file); masks are session-only until `deploy.sh` re-installs it |
+| `masks skip uid=<n>` | the step ran before uid 0 | a code-path error — it is only called on the success branch; report it |
+| `masks counters unverified (list-units failed)` | the confirmation dump failed, so `stopped`/`fail` in the next line are not measurements | masks are still written; read the state by hand: `systemctl list-units --all --no-legend --plain \| grep <unit>` |
+| `masks exception <Type>` | the mask thread threw | masks may be partially written; the channel and the rest of the boot are unaffected (own thread). Read the type, then re-run `mask.sh` |
+| `masks deadline after <i>/<n> stops` | v42.0 only: the per-unit blocking stop loop ran out of budget | fixed in v42.1 (one batched `--no-block` stop + dump poll); an old log showing this predates the fix |
+
+### v49 app-repair lines (`apps …`)
+
+New in v49: a second background thread re-asserts the app half of the debloat
+(package rows + the canalysis/pisa sentinels) when the armed marker
+`/opt/usr/data/debloat-enforce` exists. `apply.sh` creates the marker,
+`restore.sh` removes it.
+
+| Line | Meaning | Action |
+|---|---|---|
+| `apps skip (not armed)` | the marker is absent | expected on a TV that never ran the debloat apply; nothing is touched. Run a list through `apply.sh` to arm repair |
+| `apps skip (no /opt/usr/data/debloat-apps.txt)` | deploy did not install the generated list | re-deploy through `server/server.py`; the step is a no-op, the masks are unaffected |
+| `apps skip (empty /opt/usr/data/debloat-apps.txt)` | the list exists but has no valid ids | check the file (it is generated from `registry.tsv`); nothing is touched |
+| `apps n=<n> missing=<k> disabled=<k> absent=<a> fail=0 sentinels=<p>/<t> stopped=<s>` | `missing` rows were not disabled before the pass and `disabled` of them are `true` after the **re-read** (`disabled` is measured from the DB, never from `pkgcmd`'s exit code); `absent` = listed ids with no row; `p` of `t` sentinels were re-created; `s` = sentinel-gated units that were **actually active** and are now stopped (0 on a healthy boot, up to 3 after a reset) | `fail` must be 0 (rows still not disabled after the re-read, sentinel write errors, and active units that would not stop). `missing=k, disabled=k` after a vendor update is the normal repair; `missing=0 disabled=0` is a healthy boot |
+| `apps fail (db unreadable) sentinels=<p>/<t> stopped=<s>` | the sqlite read failed — including `sqlite3: not found` and a DB that returns no rows at all | check `/opt/dbspace/.pkgmgr_parser.db` exists and is readable; the sentinels are still handled (they run first), rows are unchanged and retried next boot |
+| `apps exception <Type>` | the thread threw | rows may be partially repaired; re-run the affected apply list and `tv_health` |
+
+Healthy v42 cold boot (2026-10-30 14:05 - the FIRST acceptance, on the
+then-24-unit list; 34 units from 14:50 that day, briefly 35 while batch 3 was
+live, and **29 since that evening**, so a current boot prints `masks begin
+n=29`):
+
+```
+masks begin n=24
+masks=24 stopped=24 killed=3 fail=0 missing=0 activating=2 listed-activating=0 loop-check=ok newhome=set(0),loop-started
+```
+
+
+## Boot shapes (what healthy and sick look like)
+
+Healthy cold boot since v33 (the documented v37 boot):
+
+```
+start uid=5001 pid=…            attempt=1 (fast mode)
+child=… self=00000000 pu=…      direct-probe … (maybe)
+high-alloc parent=e… fast-exit  ← attempt 1: app task landed in the unreadable band — BY DESIGN re-roll
+start uid=5001 pid=…            attempt=2 (fast mode)
+child=… pu=5001                 direct-parent+2f0=… cred=…
+direct-patch uid=0              SUCCESS-R00T …
+device closed                   ROOTCHAN 31337 uid=0 bind=<tv-ip>
+```
+
+Whole boot ≈ 35–40 s from power-on. Attempt-1 `SUCCESS` is a bonus, never a
+requirement (trap 16). A `high-scan` line before `fast-exit` is the v38 probe
+and changes nothing else.
+
+Sick shapes: `fail open video40` (device held), `chan bind … failed` at every
+boot (TV has no LAN when the channel starts — routing came up late), repeated
+`fail round` on attempts 2–4 (run `beacons.py`; findings name the branch),
+`exception` (CLR crash — browser lane still available).
+
+No beacons at all after a boot: app never launched (boot row in
+`.appsvc.db` gone, DLL broken, AUL did not fire) **or** the PC server was
+down/wrong interpreter. The TV-side `root_boot.txt` marker splits that case.
+
+## Tool errors
+
+| Tool / message | Meaning | Next step |
+|---|---|---|
+| `root_shell: cannot connect … timed out / unreachable` | nobody answered; TV off/standby, payload down, **or this PC is off the TV's LAN / VPN eats the route** | the 3 hints printed with the error (beacons → LAN/VPN → video40); **never ping** — a VPN tunnel answers ICMP errors and Windows ping reports 0% loss (AGENTS.md trap 17) |
+| `root_shell: … connection refused` | host answered, port closed: not rooted this boot, wrong host, or the app died | `python tools/beacons.py --last 1`; confirm the IP before deploying (deploy.sh's md5 gate is the backstop) |
+| `root_shell: 31337 answered but never sent __END__` | foreign service on the port, or the channel died mid-reply | retry once; then beacons.log; the peer is dropped after 30 s silence |
+| `run_root.py: command is N B; the stub limit is 508 B` | command too long for the stub's cmdbuf (v39 needs room for the NUL) | fetch a script: `run_root.py "curl -s http://<pc>/deploy.sh | sh" 45` |
+| `run_root.py: [run] no status …` | stub died before answering (op 7 is effectively single-use) | `physmap.reset_stub()` (RSET) → reload `index.html` → re-root → retry |
+| `kernel_root.py: skip … (not a cred)` | stale/foreign cred pointer on the walk | reload the page and re-root (fresh stub) |
+| `kernel_root.py: ids = (0,0,…)` | cred already patched (root) or bogus | `id` via `run_root.py` to tell which |
+| gateway: cached hello / nothing answers after a page load | wedged stub pairing | `python -c "import physmap; print(physmap.reset_stub())"`, then reload the page |
+| server: `/logs/…` returns 404 | by design — logs are never served | read them on the PC |
+| server: HTTP 413 on `/save` | POST body over the 1 MB cap | client bug; nothing on the TV |
+| server console: `[pair] token announced (<hex>)` | the page announced its per-load stub pairing token (v40) | normal before every page load |
+| server console: `[rpc] stub token mismatch (<a> != <b>) - ... refused` | a stub presented a different token than announced; usually a stale page | reload `index.html` so the stub carries the announced token |
+| server console: `refused <ip>: unknown beacon token <hex>` | a forged (or stale-deploy) beacon was refused admission | expected for foreign peers; if it is your TV, redeploy so `rootchan.token` matches |
+| server console: `<ip> sent no token - logged but NOT admitted` | a token-less beacon (legacy payload, or the payload cannot read `rootchan.token`) | logged to `beacons.log` anyway; check the token file's mode/label on the TV |
+
+## Proof files (TV side)
+
+| File | Meaning |
+|---|---|
+| `share/root_boot.txt` | every beacon this payload ever emitted, local copy |
+| `share/root_proof.txt`, `/opt/usr/system/dsh_root_proof.txt` | written on SUCCESS with uid/pid/kernel/init_task |
+| `share/rootchan.host`, `share/rootchan.allow`, `share/rootchan.token` | beacon target; allowlist (missing = fail closed); the v41 beacon token (chmod 644 — 0600 is unreadable by the uid-5001 payload) |
+| `rootchan.token` mismatch symptoms | beacons arrive but the server console prints `refused ... unknown beacon token` or `sent no token - NOT admitted`: the payload cannot read the token file (check mode/label), or its token is older than the retained set (only tokens that admitted a beacon and the last two renders are kept). **A PC-server restart is no longer a cause**: the set is reloaded from `logs/beacon-tokens.json`, so the deployed payload's beacons keep reaching `beacons.log` (2026-11-01) |

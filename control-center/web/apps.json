@@ -1,0 +1,68 @@
+[
+  {
+    "appId": "9Ur5IzDKqV.TizenYouTube",
+    "label": "YouTube",
+    "glyph": "▶",
+    "color": "#ff2d55",
+    "icon": "icons/youtube.png"
+  },
+  {
+    "appId": "org.tizen.netflix-app",
+    "label": "Netflix",
+    "glyph": "N",
+    "color": "#e50914",
+    "icon": "icons/netflix.png"
+  },
+  {
+    "appId": "org.tizen.primevideo",
+    "label": "Prime Video",
+    "glyph": "P",
+    "color": "#00a8e1"
+  },
+  {
+    "appId": "IkWsFHtOY9.Stremio",
+    "label": "Stremio",
+    "glyph": "S",
+    "color": "#7c3aed",
+    "icon": "icons/stremio.png"
+  },
+  {
+    "appId": "rJeHak5zRg.Spotify",
+    "label": "Spotify",
+    "glyph": "♫",
+    "color": "#1db954",
+    "icon": "icons/spotify.png"
+  },
+  {
+    "appId": "org.tizen.browser",
+    "label": "Internet",
+    "glyph": "◎",
+    "color": "#3b82f6"
+  },
+  {
+    "appId": "HEPsqFNie0.tvplusstandalone",
+    "label": "TV Plus",
+    "glyph": "▣",
+    "color": "#ef4444"
+  },
+  {
+    "appId": "com.samsung.tv.store",
+    "label": "Apps",
+    "glyph": "▦",
+    "color": "#8b5cf6",
+    "icon": "icons/apps.png",
+    "dock": false
+  },
+  {
+    "appId": "org.tizen.menu",
+    "label": "Settings",
+    "glyph": "⚙",
+    "color": "#22d3ee"
+  },
+  {
+    "action": "library",
+    "label": "All Apps",
+    "glyph": "▦",
+    "color": "#94a3b8"
+  }
+]

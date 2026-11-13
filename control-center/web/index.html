@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=1920, initial-scale=1">
+  <title>Control Center</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <main class="cc">
+    <section class="hero">
+      <div class="clock" id="clock">--:--</div>
+      <div class="date" id="date">Loading date</div>
+    </section>
+
+    <nav class="dock" id="dock" aria-label="Applications"></nav>
+
+    <footer class="foot">
+      <span id="source">HDMI · PC</span>
+    </footer>
+  </main>
+
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+  <section class="library" id="library" hidden aria-label="All applications">
+    <header class="library-head">
+      <span>All apps</span>
+      <button class="library-close" id="library-close" type="button">Close</button>
+    </header>
+    <div class="library-grid" id="library-grid"></div>
+  </section>
+
+  <script src="app.js?v=9"></script>
+</body>
+</html>

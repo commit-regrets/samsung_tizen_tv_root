@@ -1,0 +1,125 @@
+# Services systemd units - masked via /dev/null symlinks in
+# /run/systemd/system (tools/mask.sh). SESSION-ONLY: /run is tmpfs, masks
+# die at reboot; durable suppression = the boot payload re-writing them
+# (v42, decision recorded in models/qnx1d/v42-design-brief.md). /opt is
+# NOT in systemd's UnitPath - nothing under /opt masks anything.
+# Derived from the /usr/bin binaries in lists/services-bind.txt mapped to
+# their units via systemctl list-unit-files + systemctl status <pid>
+# (2026-10-29).
+# 29 entries, locked by tools/test_debloat.py.  Round 4 masked 23/23 live
+# (2026-10-29). `org.tizen.easysetup-daemon.service` was added 2026-10-30
+# while its app was disabled (the unit was restart-looping at NRestarts=654)
+# and REMOVED the same evening: disabling that app makes the SmartThings
+# phone show the TV offline, so the app stays enabled and this unit must
+# not be masked. See the DO-NOT-MASK note below.
+# This is the list v42 replays - do not add a name that has not been
+# verified with `systemctl list-unit-files | grep <name>`.
+# Binaries with NO systemd unit at all (launchpad/app-framework launched,
+# respawn regardless): p2p-asm-UI.  (Corrected 2026-10-30: the three SWU
+# binaries DO have units - swu-core-tv.service, swu-service.service,
+# swu-verifier-tv.service - they are on this list now.)
+# pushd is socket-activated: mask the socket too.  The four phone-path
+# units (pushd.{service,socket}, register-device.service, p2p-asm.service)
+# were on this list through round 4 and are now EXCLUDED: they are on the
+# SmartThings / device-registration path the owner uses (~1.5 MB PSS).
+# OWNER TRADE-OFF kept as a note: masking register-device.service also
+# takes down vd_dmr (DLNA media renderer, port 9197).
+data-service.service
+org.tizen.tv.sp-kpi.service
+devicetracker.service
+stability-monitor.service
+contents-recognition-service.service
+abnormal_user_behavior.service
+ambient-ua-agent.service
+gamebar-service.service
+nagsam-daemon.service
+wifi-monitor.service
+fw-update-service.service
+fw-update-init-download.service
+fw-update-service.path
+
+# Holdout daemons (binary name != unit name; resolved via systemctl status
+# <pid>, 2026-10-29):
+#   TIFADaemon_L          <- org.tizen.tv.automation-service.service (static)
+#   TIFSDaemon            <- org.tizen.tv.factory-service.service (disabled preset, ran anyway)
+#   SCSAgent              <- scs-agent.service (enabled)
+#   SWUAutoUpgrade        <- swu-auto-upgrade.service (disabled preset, ran anyway)
+#   emergencyLogTransmitter <- emergency-log-transmitter.service (disabled, bootseq wants links)
+org.tizen.tv.automation-service.service
+org.tizen.tv.factory-service.service
+scs-agent.service
+swu-auto-upgrade.service
+emergency-log-transmitter.service
+com.samsung.tv.cis-api-service-app.service
+# DO NOT MASK - org.tizen.easysetup-daemon.service
+# Phone-confirmed 2026-10-30: with voice + tier 1 already disabled and the
+# phone online, disabling this one app flipped SmartThings to offline.
+# Its manifest carries the IoT master/resource metadata that smartthings-thing
+# also speaks. The restart-loop (NRestarts=654) only existed because the app
+# was disabled; leave the app enabled and this unit runs.
+# org.tizen.easysetup-daemon.service
+
+# --- OTA / firmware-update stack, added 2026-10-30 (item 1 of the post-v42
+# plan).  Live evidence that day: vdsystem-update-manager.service was
+# `activating (auto-restart)` with Restart=always and ExecMainStatus=0 - a
+# SECOND restart loop of the same class as easysetup; was-background-update
+# .service was `active running` (WantedBy=starter.target, path-triggered);
+# swu-verifier-tv.service was running (WantedBy=multi-user.target plus two
+# bootseq starter targets); vdca-update.service and swu-auto-upgrade.timer
+# were failed.  The timers/paths are listed too, so the triggers stop firing
+# instead of failing forever.
+# Gate (2026-10-30, the q3deps predicate run inline over all unit files):
+#   swu-core-tv.service / swu-service.service  Requisite=swu-verifier-tv.service
+#   swu-factory-usb-upgrade.target             Requires=swu-verifier-tv.service
+# All three are disabled and off the boot path; masking the verifier makes the
+# SWU core/service/factory-USB paths un-startable, which is the intent.  No
+# PartOf/Conflicts/BindsTo on any added unit, and nothing Wants them.
+# REJECTED lever: the vendor's own OTA switch is
+# `ConditionPathExists=!/mnt/backup/OS_UPGRADE_FLAG` on the SWU cores - but
+# /mnt/backup is a symlink to /mnt/systemrw, i.e. the trap-9 zone.  Do not plant
+# that flag; mask the units instead.
+# fw-usb-update-service.{service,path} (named in OPEN-ISSUES item 6) does NOT
+# exist on this unit - checked 2026-10-30: no unit file in any UnitPath dir and
+# `systemctl is-enabled` errors.  If a future firmware ships it, add it here.
+# 2026-10-30: `com.samsung.tv.multiscreen.service` was added here for a few
+# hours as the batch-3 companion loop (the disabled app left `app_launcher -r`
+# restarting every 5 s) and REMOVED again when the sharing batch was reverted:
+# the app is enabled now, so `app_launcher -r` succeeds and the unit cannot
+# loop.  If multiscreen is ever disabled again, re-add this unit with it.
+vdsystem-update-manager.service
+vdsystem-update-manager.timer
+was-background-update.service
+was-background-update.path
+swu-verifier-tv.service
+swu-verifier-tv.timer
+swu-core-tv.service
+swu-service.service
+vdca-update.service
+swu-auto-upgrade.timer
+
+# DO NOT MASK - checked live 2026-10-30: bluetooth-monitor.service is the
+# Bluetooth re-activation helper, not a telemetry monitor.
+#   * its own unit comment: "bt-service check previous BT-connection status
+#     and re-activate BT when boot";
+#   * wanted by starter.target and swu-standalone.target, so it runs at every
+#     boot even though `is-enabled` says disabled (vendor preset);
+#   * `systemctl cat`: ExecStart runs /usr/bin/bt-monitor via
+#     /bin/fms_bt_monitor_launch.sh, Restart=on-abnormal, RestartSec=2;
+#   * the running process (seen post-boot) holds /dev/micom-msg and
+#     /dev/eeprom - it watches the power/standby micro-controller.
+# Excluded on the owner's instruction (Bluetooth must keep working):
+# tentatively, its job is exactly the boot-time BT re-activation, but that is
+# not proven to break the remote here - tcc blocks bt-monitor and reports the
+# remote still works.  Unverified on this set, and ~5.8 MB RSS is not worth
+# the experiment, so it stays out of this list AND out of the kill list
+# (lists/services-bind.txt).
+# bluetooth-monitor.service
+#
+# DO NOT MASK - phone-control path (2026-10-30).  Unmasked and started
+# during the SmartThings-offline bisect; they were running in every
+# failing state so they are not the cause, but the owner uses SmartThings
+# so they stay off this list.  ~1.5 MB PSS total.
+# p2p-asm.service
+# pushd.service
+# pushd.socket
+# register-device.service

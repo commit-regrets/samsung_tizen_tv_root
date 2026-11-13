@@ -1,0 +1,37 @@
+# Batch 2 - commercial/hotel/EP packages unused on a home set (coupled entries skipped)
+# One app_id per line; # comments. Undo = tools/restore.sh with the same file.
+# Generated from models/qnx1d/inventory.json (Vetro 0.2.3 catalog, 2026-10-27).
+
+com.samsung.ep-plateau-agent
+com.samsung.ep-plateau-agent-service
+com.samsung.ep-plateau-info
+com.samsung.ep-tbmapp-launcher
+com.samsung.ep.coba.hotel
+com.samsung.ep.hotel-popup
+com.samsung.ep.hotel-quicksetting-editor
+com.samsung.ep.hotel.uigadgets
+com.samsung.hitcomp
+com.samsung.tv.coba.plateauhome
+com.samsung.tv.demo-player
+ep-hotel-protocol
+ep-log-manager
+org.tizen.AgingApp
+org.tizen.UsbSyncDisplay
+org.tizen.automation-alert
+org.tizen.automation-app
+org.tizen.automation-viewer
+org.tizen.cloning
+org.tizen.ep-hotel-alarm
+# COUPLED to keepers, skipped: org.tizen.ep-hotel-channel <- org.tizen.function-osd
+org.tizen.ep-hotel-channellist
+# COUPLED to keepers, skipped: org.tizen.ep-hotel-factory <- com.samsung.tv.broadcastingmenu,org.tizen.channel-search
+org.tizen.ep-hotel-popup-ui
+org.tizen.ep-hotel-protocolui
+org.tizen.ep-hotel-security
+org.tizen.ep-system-manager
+org.tizen.ephotel-cloning
+# COUPLED to keepers, skipped: org.tizen.factory <- org.tizen.tv-viewer,ug-hbbtv-efl
+org.tizen.factory-analysis-viewer
+org.tizen.remote-service-logging-debug-menu
+org.tizen.rscm-screensaver
+org.tizen.widget_viewer_sdk

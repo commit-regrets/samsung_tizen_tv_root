@@ -1,0 +1,31 @@
+# Tier 2b - tcc apps that are Vetro-keep or coupled to keepers.
+# COMMENTED = deferred: enable only with Home replacement (Control Center) or
+# explicit owner acceptance.
+# Five are NOT deferred: `com.samsung.tv.aov-dashboard` and
+# `org.tizen.voice-app` were APPLIED with batch 3 under the owner's "voice
+# unused" decision; the game trio below was APPLIED with batch 4 on 2026-11-05
+# under the owner's PC-over-HDMI / no-cloud-gaming decision (their couplings are
+# recorded below for the undo/re-enable review).  The other 17 remain deferred.
+# Do not read this file as "all 22 are off".
+# HEPsqFNie0.tvplusstandalone  [role=keep]
+# com.samsung.tizen.mcf-agent  [role=keep]
+# APPLIED via batch 3 (voice, owner decision 2026-10-30): com.samsung.tv.aov-dashboard  [role=optional, coupled: com.samsung.tv.lightweight-node-service]
+# com.samsung.tv.contentservicemanager  [role=keep]
+# APPLIED via batch 4 (owner, PC-over-HDMI, no cloud gaming): com.samsung.tv.gamehome  [role=keep]
+# APPLIED via batch 4 (owner, PC-over-HDMI, no cloud gaming): com.samsung.tv.gamepadguide  [role=keep]
+# APPLIED via batch 4 (owner, PC-over-HDMI, no cloud gaming): com.samsung.tv.gaminghub  [role=keep]
+# com.samsung.tv.health-mde-service  [role=keep]
+# com.samsung.tv.health-mde-setting  [role=keep]
+# com.samsung.tv.health-mde-workout-tracker  [role=keep]
+# com.samsung.tv.home.art  [role=keep]
+# com.samsung.tv.home.game  [role=keep]
+# com.samsung.tv.home.media  [role=keep]
+# com.samsung.tv.lifeplus  [role=keep]
+# com.samsung.tv.multiscreen  [role=optional, coupled: com.samsung.tv.slive-daemon,com.samsung.tv.tvplus]
+# com.samsung.tv.preview-updater  [role=keep]
+# com.samsung.tv.tap-service-agent  [role=keep]
+# com.samsung.tv.tap-service-agent-ui  [role=keep]
+# com.samsung.tv.tvplus  [role=keep]
+# org.tizen.hbbtv  [role=keep]
+# APPLIED via batch 3 (voice, owner decision 2026-10-30): org.tizen.voice-app  [role=optional, coupled: com.samsung.tv.lightweight-node-service,com.samsung.tv.sboard-app]
+# org.tizen.art-app  [role=optional, coupled: org.tizen.AVControl,org.tizen.epg]

@@ -1,0 +1,89 @@
+# Batch 3 — optional features this household does not use: VOICE ONLY.
+#
+# OWNER DECISIONS (2026-10-30):
+#   * voice: NOT used -> the whole voice area (22 ids, after the one id that
+#     tier 2a already disabled).  The remote's mic button stops working;
+#     Bixby/Alexa/wake-word engines stop.  ~7 MB PSS while they were running.
+#   * SmartThings: USED (phone control) -> the `samsung` area is untouched.
+#   * AirPlay / Multi View / mirroring: not used EITHER, but **the sharing area
+#     was REVERTED the same evening** - see the block at the bottom.
+#
+# WHAT BREAKS: every voice feature, and nothing else.
+#
+# NOT IN THIS LIST ON PURPOSE:
+#   * `org.tizen.5-way-function` is the mainApp of package
+#     `com.samsung.tv.PanelKeyApp` (panel keys), and
+#     `com.samsung.tv.airplay-app-2-dummy` is the mainApp of
+#     `com.samsung.tv.airplay-app-2`.  Neither is a package id; listing them
+#     would target another package's entry point.
+#   * com.samsung.tizen.smartthings-client, smartthingsfind-daemon, ssoservice,
+#     samsung-cloud, samsung-pass-agent - SmartThings + Samsung account.
+#   * the sharing area (16 ids) - REVERTED, see below.
+#
+# REVERT: `sh tools/restore.sh lists/batch3-optional.txt` (pkgcmd -A --global,
+# same list).  Undo lines are written under /opt/usr/data/ by apply.sh.
+#
+# --- voice (22; org.tizen.multi-assistant-service was already disabled in
+# tier 2a, so it is not repeated here) -------------------------------------
+com.samsung.tv.alexa-fullscreen-app
+com.samsung.tv.aov-dashboard
+com.samsung.tv.aov-service
+com.samsung.tv.bixby-context-client
+com.samsung.tv.bixby-prov
+com.samsung.tv.bixbycapsuleviewer
+com.samsung.tv.farfieldvoice
+com.samsung.tv.fuzzy-search-engine
+com.samsung.tv.intelligent-action-app
+com.samsung.tv.mybixby
+com.samsung.tv.ondevice-voice
+com.samsung.tv.utterance-recommender-app
+com.samsung.tv.vif
+com.samsung.tv.voice-instant-app
+com.samsung.tv.voiceassistant-music
+com.samsung.tv.voiceid-service
+com.samsung.tv.wakeup-engine-alexa
+com.samsung.tv.wakeup-engine-bixby
+org.tizen.tts-download-ui
+org.tizen.voice-app
+org.tizen.voice-client
+org.tizen.voice-onboarding
+
+# ---------------------------------------------------------------------------
+# REVERTED 2026-10-30 (same evening): the 16 sharing ids, because disabling
+# them coincided with SmartThings phone control breaking.  That coincidence
+# was a wrong guess: `referencedBy` on smartthings-client listing
+# `com.samsung.tv.multiscreen` means *multiscreen uses the client*, not the
+# reverse.  The real cause is `com.samsung.tizen.samsung-analytics` (tier 1):
+# the client's tizen-manifest requests that package's appdefined privilege,
+# so disabling analytics leaves the client running but the phone offline.
+# The 16 stay reverted as prudence (AirPlay / Multi-Screen unused here
+# anyway); do not re-add without a phone test.
+#
+# All 16 are re-enabled (`pkgcmd -A`).  The `com.samsung.tv.multiscreen.service`
+# companion mask was removed with them (the app is enabled, so `app_launcher
+# -r` succeeds and the trap-14a loop cannot happen).
+#
+# If anyone wants the AirPlay receiver's memory back, bisect on THIS set, one
+# id at a time with a phone test in between.  Check each id's `referencedBy`
+# in the RIGHT direction (who uses THIS package).  Multiscreen uses the
+# client, so it is not a SmartThings dependency; still phone-test it because
+# the LAN discovery path is not fully mapped.
+#
+# Not in the batch either, and why:
+#   * p2p-asm / p2p-asm-UI - RPKs; p2p-asm is referenced by
+#     boot-helper-dyboost-tv and nfc-daemon, so the app rows stay.  The unit
+#     is also off the mask list (phone-path, 2026-10-30).
+#   * com.samsung.tv.coba.mobilebff - a separate store TPK, referenced by
+#     mde-framework (itself denylisted); leave it to a later, phone-tested pass.
+#
+# Reverted ids (do NOT re-add without a phone test):
+#   com.samsung.tv.airplay-app-2          org.tizen.ScreenMirroring-app-tv
+#   org.tizen.SMSourceAPP                 com.samsung.tv.multiscreen
+#   com.samsung.tv.coba.multiscreen       com.samsung.tv.multiviewsetupapp
+#   com.samsung.tv.multiview-bluetooth-audio
+#   com.samsung.tv.coba.mvcontents        com.samsung.tv.coba.mvicon
+#   com.samsung.tv.coba.mvmobile          com.samsung.tv.coba.mviotcamera
+#   com.samsung.tv.coba.usbcam            com.samsung.tv.coba.remoteworkspace
+#   com.samsung.tv.coss.provider.d2d      com.samsung.tv.remoteapp
+#   org.tizen.remotepc
+# ---------------------------------------------------------------------------

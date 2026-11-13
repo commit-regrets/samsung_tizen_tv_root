@@ -1,0 +1,266 @@
+"""Offline tests for `tools/tv_health.py` - no TV, no root channel.
+
+    python tools/test_tv_health.py
+
+The comparison logic (`evaluate`) is pure, so each check gets a healthy fixture
+plus one mutation; `read()` is exercised with an injected `run()` that answers
+the channel commands from a canned TV, and the registry parser with a temp
+ledger.  A new check without a fixture shows up here as an untested PASS.
+"""
+import os
+import sys
+import tempfile
+from pathlib import Path
+
+HERE = Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE))
+import tv_health as H  # noqa: E402
+
+FAILS = 0
+MD5 = "c540a6ab454d3085044e8ab068c38369"
+REG = {"applied": {"com.a", "com.b"}, "never": {"com.keep"},
+       "deferred": {"com.later"}, "reverted": {"com.back"}}
+UNITS = 29
+
+
+def check(name, ok, note=""):
+    global FAILS
+    print(("PASS" if ok else "FAIL"), name, "-", note, flush=True)
+    if not ok:
+        FAILS += 1
+
+
+def healthy():
+    return {
+        "uid": 0, "caps": H.FULL_CAPS, "dll_md5": MD5, "art": MD5,
+        "bootrow": 1,
+        "rows": {"com.a": True, "com.b": True, "com.keep": False,
+                 "com.later": False, "com.back": False},
+        "masks": UNITS, "masked_units": UNITS, "unmasked": 0,
+        "activating": 1,
+        "mask": {"masks": UNITS, "fail": 0, "missing": 0,
+                 "activating": 1, "listed_activating": 0,
+                 "loop_check": "ok"},
+        "maskfiles": {
+            "debloat-masks.txt": {"owner": "root", "world_writable": False,
+                                  "group_writable": False, "size": 84},
+            "debloat-kill.txt": {"owner": "root", "world_writable": False,
+                                 "group_writable": False, "size": 84},
+        },
+        "sentinels": 2,
+        "easysetup": "active",
+        "autoupdate": {"system": "0", "user": "0"},
+        "backups": {"il": {"md5": "a" * 32, "expected": "a" * 32},
+                    "ni": {"md5": "b" * 32, "expected": "b" * 32}},
+        "beacon": {"tok": "deadbeef", "art": MD5},
+    }
+
+
+def failed(r, reg=REG, units=UNITS, md5=MD5):
+    return [c["name"] for c in H.evaluate(r, reg, units, md5) if not c["ok"]]
+
+
+def test_evaluate():
+    checks = H.evaluate(healthy(), REG, UNITS, MD5)
+    check("healthy TV passes every check", not failed(healthy()), str(failed(healthy())))
+    check("evaluate returns the 16 checks", len(checks) == 16, str(len(checks)))
+    check("check names are unique", len({c["name"] for c in checks}) == len(checks))
+
+    muts = {
+        "root": lambda r: r.update(uid=5001),
+        "caps too narrow": lambda r: r.update(caps="0000003fffffff0"),
+        "artifact": lambda r: r.update(dll_md5="0" * 32),
+        "witness": lambda r: r.update(art=""),
+        "bootrow": lambda r: r.update(bootrow=0),
+        "bootrow (unreadable)": lambda r: r.update(bootrow=None),
+        "applied": lambda r: r["rows"].update({"com.b": False}),
+        "off-list": lambda r: r["rows"].update({"com.keep": True}),
+        "count (extra disabled)": lambda r: (r["rows"].update({"com.extra": True}),),
+        "masks": lambda r: r.update(masks=28),
+        "masked (one not masked-runtime)": lambda r: r.update(masked_units=UNITS - 1),
+        "masked (one unmasked)": lambda r: r.update(unmasked=1),
+        "maskfile (world-writable)": lambda r:
+            r["maskfiles"]["debloat-masks.txt"].update(world_writable=True),
+        "maskfile (not root-owned)": lambda r:
+            r["maskfiles"]["debloat-kill.txt"].update(owner="owner"),
+        "maskfile (group-writable)": lambda r:
+            r["maskfiles"]["debloat-kill.txt"].update(group_writable=True),
+        "maskfile (missing file)": lambda r: r.update(maskfiles={
+            "debloat-masks.txt": {"owner": "root", "world_writable": False,
+                                  "group_writable": False, "size": 84}}),
+        "loops (listed unit activating)": lambda r: r["mask"].update(listed_activating=1),
+        "loops (loop-check failed)": lambda r: r["mask"].update(loop_check="failed"),
+        "loops (mask fail)": lambda r: r["mask"].update(fail=1),
+        "loops (mask missing)": lambda r: r["mask"].update(missing=1),
+        "sentinels": lambda r: r.update(sentinels=1),
+        "smarthome": lambda r: r.update(easysetup="inactive"),
+        "autoupdate (system on)": lambda r: r["autoupdate"].update(system="1"),
+        "autoupdate (user unreadable)": lambda r: r["autoupdate"].update(user=None),
+        "backups (il mismatch)": lambda r: r["backups"]["il"].update(md5="0" * 32),
+        "backups (ni missing)": lambda r: r["backups"]["ni"].update(md5=""),
+        "beacon art": lambda r: r.update(beacon={"tok": "deadbeef", "art": "0" * 32}),
+        "beacon token": lambda r: r.update(beacon={"tok": None, "art": MD5}),
+    }
+    for label, mut in muts.items():
+        r = healthy()
+        mut(r)
+        f = failed(r)
+        check(f"mutation caught: {label}", bool(f), str(f))
+
+    r = healthy()
+    r["rows"]["com.a"] = True
+    r["rows"]["com.b"] = False
+    f = failed(r)
+    check("missing applied row fails 'applied' and 'count'",
+          {"applied", "count"} <= set(f), str(f))
+
+    r = healthy()
+    r["activating"] = 2          # context only
+    check("a global activating count alone does not fail loops",
+          "loops" not in failed(r), str(failed(r)))
+    r["rows"]["com.later"] = True
+    check("a disabled deferred app fails 'off-list'",
+          "off-list" in failed(r), str(failed(r)))
+
+    # an extra disabled app that is not in any registry status: count only
+    r = healthy()
+    r["rows"]["com.extra"] = True
+    f = failed(r)
+    check("unknown disabled app fails 'count' but not 'off-list'",
+          "count" in f and "off-list" not in f, str(f))
+
+
+def test_read():
+    def fake(cmd):
+        if "id -u" in cmd:
+            return "0\nCapEff:\t0000003fffffffff"
+        if cmd.startswith("md5sum"):
+            return f"{MD5}  /opt/usr/apps/com.samsung.tv.MultiControl-Service/bin/MultiControlService.dll"
+        if cmd.startswith("cat "):
+            return MD5
+        if "SELECT app_id" in cmd:
+            return "com.a,true\ncom.b,true\ncom.keep,false"
+        if "boot_sequence" in cmd:
+            return ("BOOT=1\n"
+                    "AUS=[system] db/menu/support/softwareupdate/autoupdate"
+                    " = Int32: 0\n"
+                    "AUU=[user] db/menu/support/softwareupdate/autoupdate"
+                    " = Int32: 0")
+        if cmd.startswith("ls -l /opt/usr/data"):
+            return ("-rw-r--r--    1 root     root            84 "
+                    "2026-10-30 14:05 /opt/usr/data/debloat-masks.txt\n"
+                    "-rw-r--r--    1 root     root            84 "
+                    "2026-10-30 14:05 /opt/usr/data/debloat-kill.txt\n"
+                    f"IL={'a' * 32}-{'a' * 32}\n"
+                    f"NI={'b' * 32}-{'b' * 32}")
+        if "is-enabled" in cmd:
+            return "masked=3 bad=0"
+        if "find /run" in cmd:
+            return "29"
+        if "activating" in cmd:
+            return "0"
+        if cmd.startswith("ls "):
+            return "/opt/usr/share/systemd/system/canalysis-daemon\n/opt/usr/share/systemd/system/pisa-service"
+        if "is-active" in cmd:
+            return "active"
+        raise AssertionError(f"unexpected command: {cmd}")
+
+    log = Path(tempfile.mkdtemp()) / "beacons.log"
+    log.write_text(
+        "2026-01-01T00:00:00 DSHROOT tok=deadbeef t=5s "
+        f"start uid=5001 pid=1 art={MD5}\n"
+        "2026-01-01T00:00:05 DSHROOT tok=deadbeef t=10s masks=29 "
+        "stopped=29 killed=1 fail=0 missing=0 activating=1 "
+        "listed-activating=0 loop-check=ok newhome=set(1),loop-active\n",
+        encoding="utf-8")
+    r = H.read("198.51.100.1", run=fake, log=log)
+    check("read: uid and caps", r["uid"] == 0 and r["caps"] == H.FULL_CAPS, str((r["uid"], r["caps"])))
+    check("read: installed md5", r["dll_md5"] == MD5, r["dll_md5"])
+    check("read: rootchan.art", r["art"] == MD5, r["art"])
+    check("read: app rows", r["rows"] == {"com.a": True, "com.b": True, "com.keep": False}, str(r["rows"]))
+    check("read: masks/loops/sentinels", (r["masks"], r["activating"], r["sentinels"]) == (29, 0, 2),
+          str((r["masks"], r["activating"], r["sentinels"])))
+    check("read: masked-runtime counts", (r["masked_units"], r["unmasked"]) == (3, 0),
+          str((r["masked_units"], r["unmasked"])))
+    check("read: mask beacon parsed", r["mask"]["listed_activating"] == 0
+          and r["mask"]["loop_check"] == "ok" and r["mask"]["masks"] == 29,
+          str(r["mask"]))
+    check("read: easysetup", r["easysetup"] == "active", r["easysetup"])
+    check("read: bootrow", r["bootrow"] == 1, str(r["bootrow"]))
+    check("read: autoupdate keys", r["autoupdate"] == {"system": "0", "user": "0"},
+          str(r["autoupdate"]))
+    check("read: mask policy files", set(r["maskfiles"]) == {"debloat-masks.txt", "debloat-kill.txt"}
+          and all(s["owner"] == "root" and not s["world_writable"]
+                  for s in r["maskfiles"].values()), str(r["maskfiles"]))
+    check("read: backup md5 pairs",
+          r["backups"]["il"] == {"md5": "a" * 32, "expected": "a" * 32}
+          and r["backups"]["ni"] == {"md5": "b" * 32, "expected": "b" * 32},
+          str(r["backups"]))
+    check("read: newest beacon launch", (r["beacon"] or {}).get("tok") == "deadbeef"
+          and (r["beacon"] or {}).get("art") == MD5, str(r["beacon"]))
+
+    # The mode-index parsing must see the write bits on a raw ls -l line:
+    # a group/other-writable policy file has to come through as such.
+    def fake_rw(cmd):
+        if cmd.startswith("ls -l /opt/usr/data"):
+            return ("-rw-rw-rw-    1 root     root            84 "
+                    "2026-10-30 14:05 /opt/usr/data/debloat-masks.txt\n"
+                    "-rw-r-----    1 root     root            84 "
+                    "2026-10-30 14:05 /opt/usr/data/debloat-kill.txt\n"
+                    "IL=-\nNI=-")
+        return fake(cmd)
+
+    r2 = H.read("198.51.100.1", run=fake_rw,
+                log=Path(tempfile.mkdtemp()) / "beacons.log")
+    check("read: mode bits parsed from raw ls lines",
+          r2["maskfiles"]["debloat-masks.txt"]["world_writable"] is True
+          and r2["maskfiles"]["debloat-masks.txt"]["group_writable"] is True
+          and r2["maskfiles"]["debloat-kill.txt"]["group_writable"] is False
+          and r2["maskfiles"]["debloat-kill.txt"]["world_writable"] is False,
+          str(r2["maskfiles"]))
+    f2 = failed(r2)
+    check("world/group-writable policy file fails maskfile",
+          "maskfile" in f2, str(f2))
+
+
+def test_registry():
+    d = Path(tempfile.mkdtemp())
+    p = d / "registry.tsv"
+    p.write_text(
+        "# comment\n"
+        "com.a\tapp\tapplied\tr\te\t2026-11-01\towner\n"
+        "com.u\tunit\tnever\tr\te\t2026-11-01\t\n"
+        "com.c\tapp\tnever\tr\te\t2026-11-01\t\n", encoding="utf-8")
+    reg = H.registry(p)
+    check("registry parser: groups by status, apps only",
+          reg == {"applied": {"com.a"}, "never": {"com.c"}}, str(reg))
+    real = H.registry()
+    check("real registry parses with a non-empty applied set",
+          len(real.get("applied", set())) > 0, str({k: len(v) for k, v in real.items()}))
+
+
+def test_cli():
+    # main() reads TV_IP / ROOT_TV when --tv is absent, so an exported address
+    # (as the live layers need) would make this call hit the TV instead of
+    # exiting 2.  Clear them for the assertion, then put them back.
+    saved = {k: os.environ.pop(k, None) for k in ("TV_IP", "ROOT_TV")}
+    try:
+        check("no --tv exits 2", H.main([]) == 2)
+    finally:
+        for k, v in saved.items():
+            if v is not None:
+                os.environ[k] = v
+
+
+def main() -> int:
+    test_evaluate()
+    test_read()
+    test_registry()
+    test_cli()
+    print()
+    print("tv-health tests ok" if not FAILS else f"{FAILS} failure(s)")
+    return 0 if not FAILS else 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

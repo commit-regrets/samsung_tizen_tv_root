@@ -1,0 +1,52 @@
+# Tier S - the /usr/bin binaries behind the service units on
+# lists/services-units.txt.  NOT a bind-mount list any more: runtime
+# bind-mounting was falsified on this firmware (2026-10-29: 19/25 respawned
+# through the overlay, /proc/<pid>/exe showed the original code; see
+# models/qnx1d/run-2026-10-29-services-bind.md round 1) and bindapply.sh /
+# bindrestore.sh were deleted.
+# Current use: the KILL LIST for tools/mask.sh pass 3 - after masking and
+# stopping the units, launchpad still runs some copies, so mask.sh kills
+# every process whose /proc/<pid>/exe is /usr/bin/<name> here.
+# NOTE: covers SWU*/fw-update* = firmware auto-update stays off (intended;
+# see the toolkit trap 10).  Session-only; a masked unit cannot respawn.
+# 23 active names.  Binaries this unit does not ship are skipped and
+# counted (some names exist only on other models).
+# 2026-10-30: + was_background_update, vdsystem-update-manager with the
+# OTA stack (was-background-update.service, vdsystem-update-manager.
+# service); the three SWU binaries were already here.
+# DELIBERATELY EXCLUDED (2026-10-30): bt-monitor / bluetooth-monitor.service.
+# Excluded on the owner's instruction (Bluetooth must keep working).  Live
+# inspection: its unit comment reads "bt-service check previous BT-connection
+# status and re-activate BT when boot", it is wanted by starter.target AND
+# swu-standalone.target, it holds /dev/micom-msg + /dev/eeprom, and it
+# restarts 2 s after any abnormal exit (Restart=on-abnormal) - so the kill
+# pass was a 2 s respawn loop, not a suppression.  tcc blocks it and reports
+# the remote still works, but that is unverified on this set; ~5.8 MB is not
+# worth the experiment.
+# DELIBERATELY EXCLUDED (2026-10-30): pushd, register-device, p2p-asm.
+# Phone-control / device-registration path; owner uses SmartThings.
+# p2p-asm-UI stays (no unit, launchpad-held, not on that path).
+
+data-service
+sp-kpi
+devicetracker
+stability-monitor
+SCSAgent
+TIFADaemon_L
+TIFSDaemon
+abnormal_user_behavior
+ambient-ua-agent
+SWUAutoUpgrade
+wifi-monitor
+SWUService
+SWUCoreTV
+SWUVerifierTV
+fw-update-service
+fw-update-init-download
+nagsam-daemon
+p2p-asm-UI
+contents-recognition-service
+emergencyLogTransmitter
+gamebar-service
+was_background_update
+vdsystem-update-manager

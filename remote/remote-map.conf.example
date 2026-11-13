@@ -1,0 +1,9 @@
+# Safe default: observe only, no grab, no actions.
+device=/dev/input/event6
+mode=observe
+
+# Map a key only after observe mode has confirmed its code.
+# Settings and the color button are both 140 on this remote.
+# map.140=launch:org.tizen.menu
+# Home to a future Control Center app:
+# map.63=launch:DSHCC0.ControlCenter

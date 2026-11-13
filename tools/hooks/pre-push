@@ -1,0 +1,30 @@
+#!/bin/sh
+# Push guard for the PRIVATE tree (2026-11-13).
+#
+# Policy: the public remote (github-work:commit-regrets/samsung_tizen_tv_root)
+# only ever receives sanitized snapshots built with tools/sanitize_for_public.py
+# from a separate clone. Direct pushes from this private tree are refused — the
+# develop->public push on 2026-11-13 carried real LAN IPs, a beacon token and
+# the TV DUID in changelog history (see CHANGELOG 2026-11-13 ops entry).
+#
+# The sanitized clone has its own .git without this hook, so its pushes work.
+#
+# To push a public update:
+#   python tools/sanitize_for_public.py <this repo> <clean-dir>
+#   cd <clean-dir>; git init; fetch the public main; replace files; commit;
+#   git push origin main   (from there, not from here)
+
+remote="$1"
+url="$2"
+
+case "$url" in
+  *github-work*|*samsung_tizen_tv_root*)
+    echo "pre-push: REFUSED — this is the private tree." >&2
+    echo "  '$remote' ($url) is the public remote; it only takes sanitized" >&2
+    echo "  snapshots. See the 2026-11-13 ops entry in CHANGELOG.md and the" >&2
+    echo "  hook header (.git/hooks/pre-push) for the publish procedure." >&2
+    exit 1
+    ;;
+esac
+
+exit 0

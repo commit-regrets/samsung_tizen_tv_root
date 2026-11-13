@@ -1,0 +1,62 @@
+# Batch 2 — commercial / hotel / factory apps on a home set.
+#
+# OWNER DECISION (2026-11-01): apply the 2026-10-29 plan's batch 2 after a live
+# audit.  These are retail / hotel / factory / demo components a home TV never
+# runs (role=unused, area=commercial in models/qnx1d/qnx1d-inventory.json).
+# Idle RSS ~0 - nothing runs at idle - so the gain is storage and attack
+# surface, not RAM.  Coupling was checked in the plan (2026-10-29) and
+# re-checked against the inventory on 2026-11-01: no keep-role referrer.
+#
+# 30 of the plan's 33 ids; the three skipped are referenced by keep-side apps:
+#   org.tizen.ep-hotel-channel   (function-osd)
+#   org.tizen.ep-hotel-factory   (tv-viewer/homesetting/broadcastingmenu/swu)
+#   org.tizen.factory            (tv-viewer/ug-hbbtv-efl)
+#
+# LIVE AUDIT (2026-11-01, before applying): every id below exists in
+# /opt/dbspace/.pkgmgr_parser.db as an app_id, has app_disable='false', and
+# no keep-role referrer.  Two deviations from the plan:
+#   * com.samsung.ep.hotel.uigadgets is NOT installed on this set (no app row
+#     in package_app_info, so `pkgcmd -D` would fail "Failed to get appinfo")
+#     -> dropped.  29 ids remain.
+#   * org.tizen.rscm-screensaver is the mainApp of
+#     org.tizen.remote-shop-care-hub ("Remote Shop Content Management",
+#     role=unused) -> kept.  Its `rscmgr-service` /usr/bin binary is NOT an
+#     app and is not covered here; that is a separate q3deps-gated follow-up.
+#
+# NOT here: the SmartThings/account path, MultiControl-Service (the payload
+# host), Home/DRM/privacy UIs, the three coupled ids above.  See apply.sh's
+# denylist and AGENTS.md "Never disable".
+#
+# REVERT: sh tools/restore.sh lists/batch2-commercial.txt   (pkgcmd -A, same list)
+#         or replay the undo log apply.sh writes under /opt/usr/data/.
+#
+# 29 entries.
+com.samsung.ep-plateau-agent
+com.samsung.ep-plateau-agent-service
+com.samsung.ep-plateau-info
+com.samsung.ep-tbmapp-launcher
+com.samsung.ep.coba.hotel
+com.samsung.ep.hotel-popup
+com.samsung.ep.hotel-quicksetting-editor
+com.samsung.hitcomp
+com.samsung.tv.coba.plateauhome
+com.samsung.tv.demo-player
+ep-hotel-protocol
+ep-log-manager
+org.tizen.AgingApp
+org.tizen.UsbSyncDisplay
+org.tizen.automation-alert
+org.tizen.automation-app
+org.tizen.automation-viewer
+org.tizen.cloning
+org.tizen.ep-hotel-alarm
+org.tizen.ep-hotel-channellist
+org.tizen.ep-hotel-popup-ui
+org.tizen.ep-hotel-protocolui
+org.tizen.ep-hotel-security
+org.tizen.ep-system-manager
+org.tizen.ephotel-cloning
+org.tizen.factory-analysis-viewer
+org.tizen.remote-service-logging-debug-menu
+org.tizen.rscm-screensaver
+org.tizen.widget_viewer_sdk

@@ -1,0 +1,642 @@
+"""Dry tests for server/deploy.sh and server/uninstall.sh — no TV, no root.
+
+    python tools/test_shell.py
+
+Both scripts drive absolute TV paths (`/opt/usr/...`, `/opt/dbspace/...`,
+`/tmp/...`) and shell out to `chsmack`, `sqlite3`, `aulctl`, `curl`, `ls -lZ`.
+This harness runs a *copy* of each script with those prefixes rewritten into a
+throwaway tree, and with stubs for the TV-only commands on PATH, so the logic
+that used to fail silently can be exercised on any PC with a POSIX `sh`
+(Git Bash on Windows, /bin/sh elsewhere):
+
+  * deploy refuses a payload whose md5/size do not match WANT/SIZE_WANT;
+  * deploy creates the stock IL/AOT backups when they are absent, and records
+    their md5 (the #3 regression: uninstall used to be impossible from a clone);
+  * deploy aborts on a SMACK label mismatch and leaves the live DLL untouched
+    (the #8 regression: it used to warn, replace the DLL anyway, and print
+    DEPLOY_DONE);
+  * deploy aborts when the boot row does not read back as 1;
+  * uninstall hard-fails without a stock backup, rejects a corrupted one, and
+    restores + relabels on the happy path (boot row removed);
+  * uninstall aborts on a label mismatch instead of printing UNINSTALL_DONE.
+
+The rewrites and the stock-hash substitution are the harness's; a green run
+proves the scripts' control flow, not that the md5s in the repo are right (that
+is what the on-TV checks in docs/TESTING.md are for).
+"""
+import hashlib
+import os
+import re
+import shutil
+import subprocess
+import sys
+import tempfile
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+SERVER = ROOT / "server"
+PAYLOAD = SERVER / "payload.dll"
+STOCK_IL = b"stock-il-fixture\n"
+STOCK_NI = b"stock-ni-fixture\n"
+# v42 policy files the deploy installs for the payload (fixtures, not the real
+# lists: deploy only has to prove it fetches, installs and removes them).
+MASK_UNITS = ["data-service.service", "org.tizen.easysetup-daemon.service"]
+KILL_BINS = ["data-service"]
+
+STUBS = {
+    "curl": r"""#!/bin/sh
+out=""; url=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -o) out="$2"; shift 2 ;;
+    -fsS|-sS|-s|-f) shift ;;
+    *) url="$1"; shift ;;
+  esac
+done
+src="$TEST_DOCROOT/${url##*/}"
+[ -f "$src" ] || exit 22
+if [ -n "$out" ]; then cp "$src" "$out"; else cat "$src"; fi
+exit 0
+""",
+    "chsmack": r"""#!/bin/sh
+# chsmack -a LABEL FILE...
+[ "$1" = "-a" ] || exit 1
+label="$2"; shift 2
+[ -n "$TEST_CHSMACK_FAIL" ] && exit 1
+for f in "$@"; do
+  printf '%s' "$label" > "$f.label"
+done
+exit 0
+""",
+    "ls": r"""#!/bin/sh
+# Only the forms the scripts use: `-lZ FILE`, `-dt DIRS...`, plain `ls GLOB`.
+case " $* " in
+  *" -lZ "*)
+    for f in "$@"; do
+      [ "$f" = "-lZ" ] && continue
+      [ -e "$f" ] || continue
+      if [ -f "$f.label" ]; then label=$(cat "$f.label")
+      else label="User::Pkg::org.tizen.browser"; fi
+      size=$(wc -c < "$f")
+      printf -- '-rw-r--r-- 1 root root %s %s Oct 24 20:00 %s\n' "$label" "$size" "$f"
+    done ;;
+  *" -dt "*)
+    for f in "$@"; do [ "$f" = "-dt" ] || printf '%s\n' "$f"; done ;;
+  *)
+    for f in "$@"; do printf '%s\n' "$f"; done ;;
+esac
+exit 0
+""",
+    "sqlite3": r"""#!/bin/sh
+# sqlite3 DB SQL ...  (boot_sequence bookkeeping only)
+db="$1"; shift
+sql="$*"
+case "$sql" in
+  *"select count(*)"*)
+    n=$(cat "$TEST_ROOT/db.count" 2>/dev/null || echo 0); printf '%s\n' "$n" ;;
+  *"insert or replace into boot_sequence"*)
+    [ -n "$TEST_SQLITE_NOOP" ] || printf '1' > "$TEST_ROOT/db.count" ;;
+  *"delete from boot_sequence"*)
+    [ -n "$TEST_SQLITE_DELETE_FAIL" ] && exit 1
+    [ -n "$TEST_SQLITE_NOOP" ] || printf '0' > "$TEST_ROOT/db.count" ;;
+esac
+exit 0
+""",
+    "mv": r"""#!/bin/sh
+# Fail only for the path the current case wants to fail (TEST_MV_FAIL).
+if [ -n "$TEST_MV_FAIL" ]; then
+  for a in "$@"; do
+    case "$a" in *"$TEST_MV_FAIL"*) exit 1 ;; esac
+  done
+fi
+exec /usr/bin/mv "$@"
+""",
+    "aulctl": r"""#!/bin/sh
+case "$1" in
+  reload) echo "Reload result: 0"; exit ${TEST_AULCTL_RC:-0} ;;
+  *) exit 0 ;;
+esac
+""",
+    "id": r"""#!/bin/sh
+# The scripts run as root on the TV; the harness must claim the same.
+case "$1" in
+  -u) echo 0 ;;
+  *)  echo "uid=0(root) gid=0(root) groups=0(root)" ;;
+esac
+exit 0
+""",
+    "cp": r"""#!/bin/sh
+# Fail only for the path the current case wants to fail (TEST_CP_FAIL).
+if [ -n "$TEST_CP_FAIL" ]; then
+  for a in "$@"; do
+    case "$a" in *"$TEST_CP_FAIL"*) exit 1 ;; esac
+  done
+fi
+exec /usr/bin/cp "$@"
+""",
+}
+
+
+def find_sh():
+    for c in (os.environ.get("TEST_SH"), r"C:\Program Files\Git\bin\sh.exe",
+              "/bin/sh", "/usr/bin/sh"):
+        if c and Path(c).exists():
+            return c
+    return None
+
+
+def write_stubs(bin_dir: Path):
+    bin_dir.mkdir(parents=True, exist_ok=True)
+    for name, body in STUBS.items():
+        p = bin_dir / name
+        p.write_text(body.replace("\r\n", "\n"), encoding="ascii", newline="\n")
+        try:
+            os.chmod(p, 0o755)
+        except OSError:
+            pass
+
+
+def rewrite(script: Path, dest: Path, *, stock_il_md5: str, stock_ni_md5: str,
+            host: str, render: bool = True):
+    text = script.read_text(encoding="ascii", errors="replace")
+    text = text.replace("/opt/usr", "@ROOT@/opt/usr")
+    text = text.replace("/opt/dbspace", "@ROOT@/opt/dbspace")
+    text = text.replace("/tmp/", "@ROOT@/tmp/")
+    # The process SMACK label is a real proc path on the TV.  Into the fixture
+    # tree it becomes an ordinary file, so the "take the app label" prelude can
+    # be exercised (it is what makes the browser-lane fallback able to write
+    # bin/; 2026-10-31 review).
+    text = text.replace("/proc/self/attr/current", "@ROOT@/proc/self/attr/current")
+    if script.name == "uninstall.sh":
+        # Only uninstall.sh carries fixed stock-hash constants.  deploy.sh now
+        # *computes* the current IL md5 at runtime (`IL_MD5=$(md5sum ...)`) and
+        # must not be rewritten - doing so silently disabled the new non-retail
+        # snapshot branch (caught by the non-retail test).
+        text = re.sub(r"(?m)^IL_STOCK=.*$", f"IL_STOCK={stock_il_md5}", text)
+        text = re.sub(r"(?m)^NI_STOCK=.*$", f"NI_STOCK={stock_ni_md5}", text)
+        text = re.sub(r"(?m)^IL_MD5=.*$", f"IL_MD5={stock_il_md5}", text)
+        text = re.sub(r"(?m)^NI_MD5=.*$", f"NI_MD5={stock_ni_md5}", text)
+    text = re.sub(r"(?m)^H=.*$", f"H=http://{host}", text)
+    if render:
+        # server.py renders these from the payload.dll it actually serves plus a
+        # fresh beacon token; doing the same here means the harness exercises the
+        # real artifact hash instead of a hand-maintained constant (review
+        # finding: a stale gate).  The token must be 8 hex chars (BAD_TOKEN guard).
+        payload = PAYLOAD.read_bytes()
+        text = re.sub(r"(?m)^WANT=.*$",
+                      f"WANT={hashlib.md5(payload).hexdigest()}", text)
+        text = re.sub(r"(?m)^SIZE_WANT=.*$", f"SIZE_WANT={len(payload)}", text)
+        text = re.sub(r"(?m)^TOKEN=.*$", "TOKEN=0f1e2d3c", text)
+    text = text.replace("@ROOT@", "$TEST_ROOT")
+    dest.write_text(text, encoding="ascii", newline="\n")
+
+
+class Fixture:
+    def __init__(self, render=True):
+        self.dir = Path(tempfile.mkdtemp(prefix="shelltest-"))
+        self.root = self.dir
+        self.bin = self.root / "opt/usr/apps/com.samsung.tv.MultiControl-Service/bin"
+        self.share = self.root / "opt/usr/home/owner/share"
+        self.db = self.root / "opt/dbspace/user/5001"
+        self.tmp = self.root / "tmp"
+        self.stubs = self.root / "bin"
+        self.docroot = self.root / "docroot"
+        self.attr = self.root / "proc/self/attr"
+        for d in (self.bin / ".native_image", self.share, self.db, self.tmp,
+                  self.docroot, self.stubs, self.attr):
+            d.mkdir(parents=True, exist_ok=True)
+        # The browser-lane fallback runs under the browser label, not the app's.
+        # deploy.sh/uninstall.sh must take the app label before writing bin/.
+        (self.attr / "current").write_text("User::Pkg::org.tizen.browser",
+                                           encoding="ascii")
+        (self.bin / "MultiControlService.dll").write_bytes(STOCK_IL)
+        (self.bin / ".native_image/MultiControlService.ni.dll").write_bytes(STOCK_NI)
+        (self.db / ".appsvc.db").write_bytes(b"")
+        shutil.copy(PAYLOAD, self.docroot / "payload.dll")
+        # v42: the deploy fetches the two policy files from the same docroot the
+        # curl stub reads, so the test exercises the real fetch/install code.
+        (self.docroot / "debloat-masks.txt").write_text(
+            "# fixtures\n" + "\n".join(MASK_UNITS) + "\n",
+            encoding="utf-8", newline="\n")
+        (self.docroot / "debloat-kill.txt").write_text(
+            "# fixtures\n" + "\n".join(KILL_BINS) + "\n",
+            encoding="utf-8", newline="\n")
+        write_stubs(self.stubs)
+        self.il_md5 = hashlib.md5(STOCK_IL).hexdigest()
+        self.ni_md5 = hashlib.md5(STOCK_NI).hexdigest()
+        self.deploy = self.root / "deploy.sh"
+        self.uninstall = self.root / "uninstall.sh"
+        rewrite(SERVER / "deploy.sh", self.deploy, stock_il_md5=self.il_md5,
+                stock_ni_md5=self.ni_md5, host="pc.test", render=render)
+        rewrite(SERVER / "uninstall.sh", self.uninstall, stock_il_md5=self.il_md5,
+                stock_ni_md5=self.ni_md5, host="pc.test")
+        self.runner = self.root / "runner.sh"
+        self.runner.write_text(
+            'HERE=$(pwd)\nPATH="$HERE/bin:/usr/bin:/bin:/mingw64/bin"\n'
+            'export PATH\nexport TEST_ROOT="$HERE"\n. ./"$1"\n',
+            encoding="ascii", newline="\n")
+
+    def leftovers(self):
+        """The files a real deploy leaves behind on the share/tmp/opt."""
+        (self.share / "rootchan.allow").write_text("10.0.0.1\n")
+        (self.share / "rootchan.host").write_text("10.0.0.1\n")
+        (self.share / "payload_backup.dll").write_bytes(b"previous-dll\n")
+        (self.tmp / "mcs_payload.dll").write_bytes(b"downloaded\n")
+        data = self.root / "opt/usr/data"
+        data.mkdir(parents=True, exist_ok=True)
+        (data / "debloat-masks.txt").write_text("data-service.service\n")
+        (data / "debloat-kill.txt").write_text("data-service\n")
+
+    def run(self, script, env_extra=None):
+        env = dict(os.environ)
+        env.pop("TEST_SH", None)
+        env.update(TEST_ROOT=str(self.root), TEST_DOCROOT=str(self.docroot),
+                   MSYS2_ARG_CONV_EXCL="*")
+        env.update(env_extra or {})
+        sh = find_sh()
+        cmd = [sh, "-c",
+               'cd "$1" || exit 9; HERE=$(pwd); '
+               'PATH="$HERE/bin:/usr/bin:/bin:/mingw64/bin"; export PATH; '
+               'TEST_ROOT="$HERE"; export TEST_ROOT; . ./"$2"',
+               "_", str(self.root).replace("\\", "/"), script]
+        return subprocess.run(cmd, env=env, capture_output=True, text=True,
+                              timeout=90)
+
+    def cleanup(self):
+        shutil.rmtree(self.dir, ignore_errors=True)
+
+
+def check(name, ok, note=""):
+    print(("PASS" if ok else "FAIL"), name, ("- " + note if note else ""), flush=True)
+    return ok
+
+
+def deploy_cases(sh):
+    failed = 0
+
+    def fresh():
+        return Fixture()
+
+    # --- happy path from a stock state: backups must be created -------------
+    f = fresh()
+    try:
+        # a stale fast-attempt budget from earlier in the boot (2026-11-01: a
+        # deploy after a boot that spent it would relaunch into long mode)
+        (f.tmp / ".dsh_try").write_text("4")
+        r = f.run("deploy.sh")
+        out = r.stdout + r.stderr
+        ok = (r.returncode == 0 and "BACKUP_IL=ok" in out and "BACKUP_NI=ok" in out
+              and "COPY=ok" in out and "DEPLOY_DONE" in out)
+        failed += not check("deploy: stock backups created", ok,
+                            f"rc={r.returncode} " + " ".join(
+                                l for l in out.splitlines()
+                                if l.startswith(("BACKUP_", "COPY", "DEPLOY_DONE", "BOOT"))))
+        failed += not check("deploy: clears the fast-attempt budget (/tmp/.dsh_try)",
+                            not (f.tmp / ".dsh_try").exists(),
+                            "a deploy must give the relaunch a fresh fast budget")
+        ok = ((f.share / "mcs_orig.dll").read_bytes() == STOCK_IL
+              and (f.share / "mcs_ni_orig.dll").read_bytes() == STOCK_NI
+              and (f.share / "mcs_orig.md5").read_text().strip() == f.il_md5)
+        failed += not check("deploy: backups are byte-exact stock + md5 recorded", ok)
+        ok = (f.bin / "MultiControlService.dll").read_bytes() == PAYLOAD.read_bytes()
+        failed += not check("deploy: payload installed", ok)
+        # v46: the artifact witness is printed for the launcher (ART_FILE=) and
+        # written for the payload to read once at startup (0644, same argument
+        # as the beacon token).
+        want = hashlib.md5(PAYLOAD.read_bytes()).hexdigest()
+        artf = f.share / "rootchan.art"
+        ok = (artf.is_file() and artf.read_text().strip() == want
+              and f"ART_FILE={want}" in out)
+        failed += not check("deploy: artifact marker written + ART_FILE= reported",
+                            ok, " ".join(l for l in out.splitlines()
+                                         if l.startswith("ART_FILE")))
+        # v42 policy files: fetched from the docroot, installed under /opt/usr/data
+        md = f.root / "opt/usr/data/debloat-masks.txt"
+        kd = f.root / "opt/usr/data/debloat-kill.txt"
+        ok = (md.is_file() and kd.is_file()
+              and "data-service.service" in md.read_text()
+              and "data-service" in kd.read_text()
+              and "MASKFILE=debloat-masks.txt 2 entries" in out
+              and "MASKFILE=debloat-kill.txt 1 entries" in out)
+        failed += not check("deploy: mask policy files installed under /opt/usr/data",
+                            ok, " ".join(l for l in out.splitlines()
+                                         if l.startswith("MASKFILE")))
+        # The label prelude runs from the browser label here, exactly like the
+        # documented browser-lane fallback: without it every bin/ write fails
+        # IL_FAIL (2026-10-31 review).
+        ok = ("RELABEL=ok" in out
+              and (f.attr / "current").read_text(encoding="ascii").strip()
+              == "User::Pkg::com.samsung.tv.MultiControl-Service")
+        failed += not check("deploy: takes the app label before writing bin/", ok,
+                            "RELABEL=" + out.split("RELABEL=")[1].splitlines()[0][:40]
+                            if "RELABEL=" in out else "no RELABEL line")
+    finally:
+        f.cleanup()
+
+    # --- wrong payload bytes: the size/md5 gate must abort ------------------
+    f = fresh()
+    try:
+        bad = bytearray(PAYLOAD.read_bytes())
+        bad[100] ^= 0xFF
+        (f.docroot / "payload.dll").write_bytes(bytes(bad))
+        r = f.run("deploy.sh")
+        out = r.stdout + r.stderr
+        ok = r.returncode != 0 and "COPY=skip" in out and "DEPLOY_DONE" not in out
+        failed += not check("deploy: bad payload refused", ok,
+                            f"rc={r.returncode}")
+        ok = (f.bin / "MultiControlService.dll").read_bytes() == STOCK_IL
+        failed += not check("deploy: live DLL untouched after refusal", ok)
+    finally:
+        f.cleanup()
+
+    # --- label mismatch: abort BEFORE the rename, keep the live DLL ---------
+    f = fresh()
+    try:
+        # v46.1: this fails AFTER ROLLBACK=1 but BEFORE the marker write (the
+        # label check precedes the rename), so the PREVIOUS deploy's marker must
+        # survive - it still names the DLL the rollback restores.  The v46
+        # cleanup deleted it unconditionally and blanked the next start beacon.
+        prev_art = hashlib.md5(b"previous-payload\n").hexdigest()
+        (f.share / "rootchan.art").write_text(prev_art + "\n")
+        r = f.run("deploy.sh", {"TEST_CHSMACK_FAIL": "1"})
+        out = r.stdout + r.stderr
+        ok = r.returncode != 0 and "DLL_LABEL_MISMATCH" in out and "COPY=ok" not in out
+        failed += not check("deploy: label mismatch aborts", ok, f"rc={r.returncode}")
+        ok = (f.bin / "MultiControlService.dll").read_bytes() == STOCK_IL
+        failed += not check("deploy: live DLL untouched on label mismatch", ok)
+        ok = not (f.bin / "MultiControlService.dll.tmp").exists()
+        failed += not check("deploy: temp DLL removed on label mismatch", ok)
+        ok = ((f.share / "rootchan.art").is_file()
+              and (f.share / "rootchan.art").read_text().strip() == prev_art)
+        failed += not check(
+            "deploy: rollback keeps a marker this attempt never wrote", ok,
+            "the previous marker names the DLL the rollback restores")
+    finally:
+        f.cleanup()
+
+    # --- boot row does not read back: abort, no DEPLOY_DONE -----------------
+    f = fresh()
+    try:
+        r = f.run("deploy.sh", {"TEST_SQLITE_NOOP": "1"})
+        out = r.stdout + r.stderr
+        ok = r.returncode != 0 and "BOOT_ROW_WARN" in out and "DEPLOY_DONE" not in out
+        failed += not check("deploy: bad boot row aborts", ok, f"rc={r.returncode}")
+        # The row is written BEFORE the irreversible steps, so nothing was replaced.
+        ok = (f.bin / "MultiControlService.dll").read_bytes() == STOCK_IL
+        failed += not check("deploy: live DLL untouched on bad boot row", ok)
+        ok = (f.bin / ".native_image").is_dir()
+        failed += not check("deploy: AOT untouched on bad boot row", ok)
+    finally:
+        f.cleanup()
+
+    # --- an unrendered template must refuse, not fail the md5 gate ----------
+    f = Fixture(render=False)
+    try:
+        r = f.run("deploy.sh")
+        out = r.stdout + r.stderr
+        ok = r.returncode != 0 and "NEED_RENDER" in out and "DEPLOY_DONE" not in out
+        failed += not check("deploy: unrendered template refused", ok, f"rc={r.returncode}")
+        ok = (f.bin / "MultiControlService.dll").read_bytes() == STOCK_IL
+        failed += not check("deploy: live DLL untouched on NEED_RENDER", ok)
+    finally:
+        f.cleanup()
+
+    # --- H1: a non-retail stock IL is still snapshotted ---------------------
+    f = fresh()
+    try:
+        vendor = b"vendor-build-of-the-IL\n"
+        (f.bin / "MultiControlService.dll").write_bytes(vendor)
+        r = f.run("deploy.sh")
+        out = r.stdout + r.stderr
+        ok = (r.returncode == 0 and "BACKUP_IL=ok" in out and "DEPLOY_DONE" in out)
+        failed += not check("deploy: non-retail IL snapshotted", ok, f"rc={r.returncode}")
+        ok = ((f.share / "mcs_orig.dll").read_bytes() == vendor
+              and (f.share / "mcs_orig.md5").read_text().strip()
+              == hashlib.md5(vendor).hexdigest())
+        failed += not check("deploy: non-retail snapshot byte-exact + md5 recorded", ok)
+    finally:
+        f.cleanup()
+
+    # --- a failure after the DLL swap rolls back (C1) -----------------------
+    f = fresh()
+    try:
+        r = f.run("deploy.sh", {"TEST_MV_FAIL": "MultiControlService.dll.tmp"})
+        out = r.stdout + r.stderr
+        ok = (r.returncode != 0 and "ROLLBACK=il_restored" in out
+              and "COPY=ok" not in out and "DEPLOY_DONE" not in out)
+        failed += not check("deploy: failed rename rolls back", ok, f"rc={r.returncode}")
+        ok = (f.bin / "MultiControlService.dll").read_bytes() == STOCK_IL
+        failed += not check("deploy: stock IL restored by rollback", ok)
+        ok = (f.bin / ".native_image").is_dir()
+        failed += not check("deploy: AOT re-enabled by rollback", ok)
+        ok = (f.root / "db.count").read_text().strip() == "0"
+        failed += not check("deploy: boot row removed by rollback", ok)
+    finally:
+        f.cleanup()
+
+    # --- AOT-disable failure aborts and leaves the app stock ----------------
+    f = fresh()
+    try:
+        r = f.run("deploy.sh", {"TEST_MV_FAIL": "native_image"})
+        out = r.stdout + r.stderr
+        ok = (r.returncode != 0 and "AOT_FAIL" in out
+              and "COPY=ok" not in out and "DEPLOY_DONE" not in out)
+        failed += not check("deploy: AOT failure aborts", ok, f"rc={r.returncode}")
+        ok = (f.bin / "MultiControlService.dll").read_bytes() == STOCK_IL
+        failed += not check("deploy: live DLL untouched on AOT failure", ok)
+        ok = (f.root / "db.count").read_text().strip() == "0"
+        failed += not check("deploy: boot row removed on AOT failure", ok)
+    finally:
+        f.cleanup()
+
+    # --- a failed stock snapshot must abort BEFORE the DLL is replaced ------
+    f = fresh()
+    try:
+        r = f.run("deploy.sh", {"TEST_CP_FAIL": "mcs_orig"})
+        out = r.stdout + r.stderr
+        ok = (r.returncode != 0 and "BACKUP_IL=fail" in out
+              and "DEPLOY_DONE" not in out and "COPY=ok" not in out)
+        failed += not check("deploy: failed IL snapshot aborts", ok, f"rc={r.returncode}")
+        ok = (f.bin / "MultiControlService.dll").read_bytes() == STOCK_IL
+        failed += not check("deploy: live DLL untouched on IL snapshot failure", ok)
+    finally:
+        f.cleanup()
+
+    f = fresh()
+    try:
+        r = f.run("deploy.sh", {"TEST_CP_FAIL": "mcs_ni"})
+        out = r.stdout + r.stderr
+        ok = (r.returncode != 0 and "BACKUP_NI=fail" in out
+              and "DEPLOY_DONE" not in out and "COPY=ok" not in out)
+        failed += not check("deploy: failed NI snapshot aborts", ok, f"rc={r.returncode}")
+        ok = (f.bin / "MultiControlService.dll").read_bytes() == STOCK_IL
+        failed += not check("deploy: live DLL untouched on NI snapshot failure", ok)
+    finally:
+        f.cleanup()
+
+    return failed
+
+
+def uninstall_cases(sh):
+    failed = 0
+
+    def prepared(with_backups=True, corrupt=False):
+        f = Fixture()
+        # bin holds the payload, boot row set, backups on the share as a deploy
+        # would have left them, plus every leftover deploy writes.
+        (f.bin / "MultiControlService.dll").write_bytes(PAYLOAD.read_bytes())
+        (f.root / "db.count").write_text("1")
+        f.leftovers()
+        if with_backups:
+            il = b"corrupt\n" if corrupt else STOCK_IL
+            (f.share / "mcs_orig.dll").write_bytes(il)
+            (f.share / "mcs_ni_orig.dll").write_bytes(STOCK_NI)
+        return f
+
+    f = prepared(with_backups=False)
+    try:
+        r = f.run("uninstall.sh")
+        out = r.stdout + r.stderr
+        failed += not check("uninstall: no backup hard-fails",
+                            r.returncode != 0 and "NO_IL_BACKUP" in out,
+                            f"rc={r.returncode}")
+    finally:
+        f.cleanup()
+
+    f = prepared(corrupt=True)
+    try:
+        r = f.run("uninstall.sh")
+        out = r.stdout + r.stderr
+        failed += not check("uninstall: corrupt backup rejected",
+                            r.returncode != 0 and "BAD_IL_BACKUP" in out,
+                            f"rc={r.returncode}")
+    finally:
+        f.cleanup()
+
+    f = prepared()
+    try:
+        r = f.run("uninstall.sh")
+        out = r.stdout + r.stderr
+        ok = (r.returncode == 0 and "UNINSTALL_DONE" in out
+              and "BOOT_ROW=removed" in out)
+        failed += not check("uninstall: happy path restores", ok, f"rc={r.returncode}")
+        ok = (f.bin / "MultiControlService.dll").read_bytes() == STOCK_IL
+        failed += not check("uninstall: stock IL restored", ok)
+        ok = (f.bin / ".native_image/MultiControlService.ni.dll").read_bytes() == STOCK_NI
+        failed += not check("uninstall: stock AOT restored", ok)
+        ok = (f.root / "db.count").read_text().strip() == "0"
+        failed += not check("uninstall: boot row removed", ok)
+        ok = not (f.share / "rootchan.allow").exists()
+        failed += not check("uninstall: allowlist removed", ok)
+        ok = not (f.share / "rootchan.host").exists()
+        failed += not check("uninstall: recorded host removed", ok)
+        ok = not (f.share / "payload_backup.dll").exists()
+        failed += not check("uninstall: rollback copy removed", ok)
+        ok = not (f.tmp / "mcs_payload.dll").exists()
+        failed += not check("uninstall: downloaded payload removed", ok)
+        ok = not ((f.root / "opt/usr/data/debloat-masks.txt").exists()
+                  or (f.root / "opt/usr/data/debloat-kill.txt").exists())
+        failed += not check("uninstall: mask policy files removed (revert to stock)", ok)
+        ok = ("RELABEL=ok" in out
+              and (f.attr / "current").read_text(encoding="ascii").strip()
+              == "User::Pkg::com.samsung.tv.MultiControl-Service")
+        failed += not check("uninstall: takes the app label before touching bin/", ok,
+                            "RELABEL=" + out.split("RELABEL=")[1].splitlines()[0][:40]
+                            if "RELABEL=" in out else "no RELABEL line")
+    finally:
+        f.cleanup()
+
+    # --- an untakeable label warns, it does not silently "restore" ----------
+    # Matches deploy.sh: the process-label step is advisory, the FILE label check
+    # is the hard gate.  Pinned here so a future edit cannot quietly make it
+    # fatal (or drop the warning).
+    f = prepared()
+    try:
+        (f.attr / "current").unlink()
+        (f.attr / "current").mkdir()
+        r = f.run("uninstall.sh")
+        out = r.stdout + r.stderr
+        failed += not check("uninstall: a failed relabel warns (advisory, like deploy)",
+                            "RELABEL=fail" in out and r.returncode == 0
+                            and "UNINSTALL_DONE" in out, f"rc={r.returncode}")
+    finally:
+        f.cleanup()
+
+    # --- the allowlist must survive a step that fails (M1) ------------------
+    f = prepared()
+    try:
+        r = f.run("uninstall.sh", {"TEST_SQLITE_DELETE_FAIL": "1"})
+        out = r.stdout + r.stderr
+        ok = r.returncode != 0 and "DB_FAIL" in out and "UNINSTALL_DONE" not in out
+        failed += not check("uninstall: DB failure aborts", ok, f"rc={r.returncode}")
+        ok = (f.share / "rootchan.allow").exists()
+        failed += not check("uninstall: allowlist kept when a step failed", ok)
+    finally:
+        f.cleanup()
+
+    # --- a missing DB must not be created and reported as "removed" ---------
+    f = prepared()
+    try:
+        (f.db / ".appsvc.db").unlink()
+        r = f.run("uninstall.sh")
+        out = r.stdout + r.stderr
+        ok = r.returncode != 0 and "DB_MISSING" in out and "UNINSTALL_DONE" not in out
+        failed += not check("uninstall: missing DB aborts", ok, f"rc={r.returncode}")
+        ok = not (f.db / ".appsvc.db").exists()
+        failed += not check("uninstall: missing DB not created", ok)
+    finally:
+        f.cleanup()
+
+    f = prepared()
+    try:
+        r = f.run("uninstall.sh", {"TEST_CHSMACK_FAIL": "1"})
+        out = r.stdout + r.stderr
+        failed += not check("uninstall: label mismatch aborts",
+                            r.returncode != 0 and "LABEL_WARN" in out
+                            and "UNINSTALL_DONE" not in out,
+                            f"rc={r.returncode}")
+    finally:
+        f.cleanup()
+
+    return failed
+
+
+def meta_cases():
+    """Static guards on the scripts themselves (cheap, catch whole classes)."""
+    failed = 0
+    for name in ("deploy.sh", "uninstall.sh", "recover.sh", "diag.sh"):
+        raw = (SERVER / name).read_bytes()
+        failed += not check(f"meta: {name} is LF-only", b"\r" not in raw,
+                            "a CR makes busybox sh read the token as part of the word")
+    deploy = (SERVER / "deploy.sh").read_text(encoding="utf-8")
+    ok = "WANT=@WANT@" in deploy and "SIZE_WANT=@SIZE@" in deploy
+    failed += not check("meta: deploy.sh gate is rendered by server.py", ok,
+                        "a hardcoded WANT is how the stale deploy_local.sh gated v37")
+    ok = "H=@HOST@" in deploy
+    failed += not check("meta: deploy.sh host is rendered by server.py", ok)
+    # the budget reset must precede the restart, or it cannot affect it
+    i_rm, i_kill = (deploy.find("rm -f /tmp/.dsh_try"),
+                    deploy.find('echo "RESTART=kill'))
+    failed += not check("meta: deploy.sh clears /tmp/.dsh_try before the restart",
+                        i_rm >= 0 and i_kill > i_rm,
+                        f"rm at {i_rm}, RESTART=kill at {i_kill}")
+    return failed
+
+
+def main() -> int:
+    sh = find_sh()
+    if sh is None:
+        print("SKIP: no POSIX sh found (set TEST_SH=/path/to/sh)")
+        return 77   # distinct from PASS: test_all reports SKIP, not success
+    print(f"using {sh}", flush=True)
+    failed = meta_cases() + deploy_cases(sh) + uninstall_cases(sh)
+    print(flush=True)
+    if failed:
+        print(f"{failed} check(s) failed")
+        return 1
+    print("shell tests ok")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

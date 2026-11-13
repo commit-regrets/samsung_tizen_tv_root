@@ -1,0 +1,9 @@
+# Vendor sentinels re-planted by the v49 payload step (/opt/usr/data/debloat-sentinels.txt).
+# The canalysis/pisa units ship ConditionPathExists=!<this path>: an empty file
+# under /opt/usr/share/systemd/system blocks the start and survives reboots.
+# A package update of the owning package removes the file (observed 2026-11-12),
+# which is why the payload re-creates it when the debloat is armed.
+#
+# format: <sentinel-file-name> [unit ...]
+canalysis-daemon canalysis-service.service
+pisa-service pisa-service.service adagent-service.service
