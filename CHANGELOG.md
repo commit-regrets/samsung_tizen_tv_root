@@ -15,6 +15,47 @@ entry is an incomplete change. `AGENTS.md` repeats this rule for agents.
 
 ---
 
+## 2026-11-16 — DU7170 port: second model rooted, debloated, and boot-persistent
+
+First port of the full toolkit to a different Samsung Tizen 9 TV: the 2024
+Crystal UHD (DU7170, Novatek NT72671D SoC, firmware `T-KSU2EDDEUC-0090-REL`).
+All four portability gates passed. The kernel struct offsets are identical to the
+QNX1D (same 5.4.249 build config); only `PHYS_OFFSET` (`0xBC000000` vs
+`0xA0000000`) and `init_task` PA (`0x0490F2C0` vs `0x20957180`) differ. The
+carrier app (`com.samsung.tv.MultiControl-Service`) and physmap node
+(`/dev/video40`) are the same.
+
+Changes:
+
+- **`payload-du7170/`**: standalone payload with DU7170 kernel constants,
+  deadlock-safe `Run()` helper, five boot-enforcement threads (service masks,
+  app disables, hosts bind-mount, Home remap, CEC standby ignore).
+- **`server/du7170.dll`**: pre-built payload DLL for deploy without .NET SDK.
+- **`tools/root_du7170.py`**: root shell client (TCP 31337, `du7170#` prompt).
+- **`tools/tv_health_du7170.py`**: 14-check health script. Per-app sqlite query
+  handles the 3 QNX1D apps missing on DU7170 (70 of 73 present).
+- **`remote/remote-map-du7170.conf`**: remote daemon config for the DU7170's
+  input device (`/dev/input/event4` "Smart Control" vs QNX1D's `event6`).
+- **`debloat/models/du7170/`**: model-specific port notes with measured kernel
+  constants and gate results.
+- **`docs/PORTABILITY.md`**: updated with DU7170 as the first successful port.
+- **`README.md`**: header table now shows both models side by side; repo layout
+  updated with `payload-du7170/`, `remote/`, `debloat/`.
+
+DU7170-specific findings:
+
+- **LPAE**: the DU7170 kernel has LPAE enabled (QNX1D does not). No impact on the
+  physmap technique.
+- **HDMI-CEC standby**: same `org.tizen.tv.hdmicec` dbus service;
+  `IgnoreCECStandby(1)` prevents PS5 rest mode from switching the TV away from
+  HDMI. Session-only, re-applied at boot by the payload.
+- **Debloat**: 70 of the 73 QNX1D app-disable entries exist on DU7170. The
+  payload's `ReassertDebloatApps()` handles missing apps gracefully.
+
+Verified: 14/14 health check ALL GREEN after cold boot.
+
+---
+
 ## 2026-11-13 — security: live beacon token was public; rotated; sanitizer closes the prose form
 
 Security audit (sub-agent, after the release) found the **live** v49.2 beacon

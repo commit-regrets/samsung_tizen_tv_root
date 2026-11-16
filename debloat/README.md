@@ -20,6 +20,9 @@ models/<model>/        per-model inventory + plans + measurements
   qnx1d/               2024 Neo QLED (QNX1D, Tizen 9, QTV T09): 446 packages
                        classified with Vetro 0.3.5's catalog; measured idle
                        RAM per disable group
+  du7170/              2024 Crystal UHD (DU7170, Tizen 9, Novatek NT72671D):
+                       port notes, measured kernel constants, gate results;
+                       shares the QNX1D disable lists (70 of 73 apps present)
 lists/                 owner-choosable disable lists (one app_id per line,
                        # comments, restore runs the same file)
 registry.tsv           one row per debloat DECISION (id, kind, status, reason,

@@ -51,8 +51,10 @@ counters): see item 2.
 
 **Current pending work (the v44–v46 paragraphs below are closed history, kept for reference):**
 
-- **Portability** — no second model/firmware tested; the four gates in
-  `docs/PORTABILITY.md` are still unproven elsewhere (item 4).
+- **Portability** — ~~no second model/firmware tested~~ **DU7170 ported
+  2026-11-16** (Crystal UHD, Novatek NT72671D); all four gates passed, full
+  debloat + boot persistence verified. See `debloat/models/du7170/` and
+  `docs/PORTABILITY.md`.
 - **Public-release hygiene** — git history still contains private tokens
   (real IPs, model/firmware strings, the device DUID); decide whether
   `.zcode/` ships; blank the beacon token at publish (item 7).

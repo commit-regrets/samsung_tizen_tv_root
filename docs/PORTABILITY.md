@@ -4,6 +4,13 @@ This toolkit was built against **one** unit: 2024 Neo QLED (QNX1D / QTV T09
 platform), firmware `T-PTMxxxx 01400`, kernel 5.4.249 ARM32 (VMSPLIT_3G, no LPAE), Chromium
 120.0.6099.5. Everything model-specific below was *measured* on that unit.
 
+**First successful port: DU7170** (2024 Crystal UHD, Novatek NT72671D, Tizen 9.0,
+firmware `T-KSU2EDDEUC-0090-REL`). All four gates passed. The kernel struct
+offsets are identical to the QNX1D; only `PHYS_OFF` (`0xBC000000` vs `0xA0000000`)
+and `init_task` PA (`0x0490F2C0` vs `0x20957180`) differ. Carrier app is the same
+(`com.samsung.tv.MultiControl-Service`). Full port notes:
+[`../debloat/models/du7170/du7170-port-notes.md`](../debloat/models/du7170/du7170-port-notes.md).
+
 Network addresses are *not* in that list: the page rewrites the shellcode callback
 from the host that served it, `root.ps1` detects the PC's address, and the payload
 reads the beacon target from `share/rootchan.host`. Only the TV's address and the
