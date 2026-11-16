@@ -727,7 +727,7 @@ def rpc_gateway_client(client):
         # reconstituted from the 8 status bytes that follow (prctl_ret +
         # open_ret) - the 12-byte client wire format is unchanged.
         try:
-            conn.settimeout(10)
+            conn.settimeout(135)
             tail = _recv_exact(conn, 8)
         except OSError:
             tail = None

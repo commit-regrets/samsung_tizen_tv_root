@@ -1,19 +1,19 @@
 # Samsung Tizen 9 TV Root — Research Toolkit
 
-Unofficial security research on a 2024 Samsung Neo QLED running **Tizen 9**.
+Unofficial security research on 2024 Samsung TVs running **Tizen 9**.
 The exploit chain needs no sdb, no developer mode, no firmware flashing: the TV
 is rooted from its own browser, and the root is made persistent through a stock
-on-boot service app.
+on-boot service app. Tested on two models:
 
-| | |
-|---|---|
-| Test unit | 2024 Neo QLED, QNX1D series (QTV T09 platform) |
-| Firmware | `T-PTMxxxx` (01400) |
-| Kernel | Linux 5.4.249, ARM32 (VMSPLIT_3G + HIGHMEM, no LPAE), `PAGE_OFFSET 0xC0000000`, `PHYS_OFFSET 0x20000000` |
-| Browser | Chromium 120.0.6099.5 (`SamsungBrowser/7.0`) |
-| Root | `uid=0`, `CapEff=0x3fffffffff` |
-| Persistent payload | repo **v47** (current md5/size in the `AGENTS.md` state row); `payload_backup.dll` keeps the previous build |
-| Root channel | TCP **31337** on the TV, line protocol, replies end with `__END__` |
+| | QNX1D (Neo QLED) | DU7170 (Crystal UHD) |
+|---|---|---|
+| Firmware | `T-PTMxxxx` (01400) | `T-KSU2EDDEUC-0090-REL` |
+| Kernel | 5.4.249, ARM32 (VMSPLIT_3G, no LPAE), `PHYS_OFFSET 0x20000000` | 5.4.249, ARM32 (LPAE), `PHYS_OFFSET 0x04000000` |
+| Browser | Chromium 120.0.6099.5 (`SamsungBrowser/7.0`) | Chromium 120 (same build) |
+| RAM | ~4 GiB | ~1.6 GiB |
+| Root | `uid=0`, `CapEff=0x3fffffffff` | same |
+| Persistent payload | `payload/` (QNX1D constants) | `payload-du7170/` (DU7170 constants) |
+| Root channel | TCP **31337**, line protocol, replies end with `__END__` | same |
 
 ## Quick start
 
@@ -142,9 +142,12 @@ so a fresh root (or a stock set) keeps stock behaviour until you set them.
 
 ```
 root.ps1, uninstall.ps1     PC entry points (PowerShell)
-payload/                    boot payload source (.NET 6, Program.cs)
+payload/                    QNX1D boot payload source (.NET 6, Program.cs)
+payload-du7170/             DU7170 boot payload source (different kernel constants)
 server/                     port-80 server, exploit page, TV-side deploy scripts
-tools/                      physmap client, kernel helpers, build scripts
+remote/                     remote key-mapping daemon + per-model configs
+tools/                      physmap client, kernel helpers, build scripts, per-model health checks
+debloat/                    package inventories, disable lists, per-model notes
 docs/                       the documents above
 AGENTS.md                   hand-off notes
 LICENSE, NOTICE.md          license + third-party attribution
@@ -175,9 +178,11 @@ where to download each piece for your own model.
 
 ## Porting to another Tizen 9 TV
 
-The method is portable; this build is not. `payload.dll` hardcodes this kernel's
-`PHYS_OFFSET`, `init_task` and four `task_struct` offsets, and the browser chain
-is specific to Chromium 120. The short version:
+The method is portable; this build is not. The DU7170 port proved that: same
+kernel version, same struct offsets, same carrier app, same physmap — but
+`PHYS_OFFSET` and `init_task` are completely different. `payload.dll` hardcodes
+this kernel's `PHYS_OFFSET`, `init_task` and four `task_struct` offsets, and the
+browser chain is specific to Chromium 120. The short version:
 
 1. **Browser gate** — serve `server/probe.html` (safe; it executes nothing) and
    open it on the TV. You need Chromium ~120 with WasmGC; otherwise this CVE does
